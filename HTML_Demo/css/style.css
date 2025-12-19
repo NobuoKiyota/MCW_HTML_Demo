@@ -1,0 +1,2051 @@
+/* ============================================
+   CSS変数定義（テーマ管理）
+   ============================================ */
+
+:root {
+    /* デフォルトテーマ：和（Japanese） */
+    --theme-name: 'japanese';
+
+    /* カラーパレット */
+    --color-primary: #d4af37;
+    --color-secondary: #8b4513;
+    --color-accent: #ff6b6b;
+    --color-background: #1a1a1a;
+    --color-surface: #2a2a2a;
+    --color-text: #f5f5f5;
+    --color-text-muted: #b0b0b0;
+
+    /* グラデーション */
+    --gradient-primary: linear-gradient(135deg, #d4af37 0%, #8b4513 100%);
+    --gradient-background: radial-gradient(circle at center, #2a2a2a 0%, #1a1a1a 100%);
+
+    /* フォント */
+    --font-primary: 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
+    --font-size-base: 16px;
+    --font-size-title: 3rem;
+    --font-size-subtitle: 1.5rem;
+    --font-weight-normal: 400;
+    --font-weight-bold: 700;
+
+    /* エフェクト */
+    --glow-intensity: 0.3;
+    --shadow-color: rgba(212, 175, 55, 0.3);
+    --transition-speed: 0.3s;
+
+    /* 背景パターン */
+    --pattern-opacity: 0.05;
+}
+
+/* サイバーテーマ */
+[data-theme="cyber"] {
+    --theme-name: 'cyber';
+
+    /* カラーパレット */
+    --color-primary: #00ffff;
+    --color-secondary: #ff00ff;
+    --color-accent: #00ff00;
+    --color-background: #0a0a0a;
+    --color-surface: #1a1a1a;
+    --color-text: #00ffff;
+    --color-text-muted: #888888;
+
+    /* グラデーション */
+    --gradient-primary: linear-gradient(135deg, #00ffff 0%, #ff00ff 100%);
+    --gradient-background: radial-gradient(circle at center, #1a1a1a 0%, #0a0a0a 100%);
+
+    /* フォント */
+    --font-primary: 'Courier New', 'Monaco', monospace;
+    --font-size-base: 16px;
+    --font-size-title: 3rem;
+    --font-size-subtitle: 1.5rem;
+    --font-weight-normal: 400;
+    --font-weight-bold: 700;
+
+    /* エフェクト */
+    --glow-intensity: 0.8;
+    --shadow-color: rgba(0, 255, 255, 0.5);
+    --transition-speed: 0.2s;
+
+    /* 背景パターン */
+    --pattern-opacity: 0.1;
+}
+
+/* ============================================
+   リセット & ベーススタイル
+   ============================================ */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    font-size: var(--font-size-base);
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: var(--font-primary);
+    background: var(--color-background);
+    color: var(--color-text);
+    line-height: 1.6;
+    overflow-x: hidden;
+    position: relative;
+    min-height: 100vh;
+    transition: background-color var(--transition-speed) ease,
+        color var(--transition-speed) ease;
+}
+
+/* 背景パターン（テーマに応じて変化） */
+body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: var(--pattern-opacity);
+    background-image:
+        repeating-linear-gradient(0deg, transparent, transparent 2px, var(--color-primary) 2px, var(--color-primary) 4px),
+        repeating-linear-gradient(90deg, transparent, transparent 2px, var(--color-primary) 2px, var(--color-primary) 4px);
+    pointer-events: none;
+    z-index: 0;
+    transition: opacity var(--transition-speed) ease;
+}
+
+/* ============================================
+   スタートオーバーレイ
+   ============================================ */
+
+.start-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--color-background);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    transition: opacity 0.5s ease, visibility 0.5s ease;
+}
+
+.start-overlay.hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.start-content {
+    text-align: center;
+    animation: fadeInUp 1s ease;
+}
+
+.start-title {
+    font-size: 4rem;
+    font-weight: var(--font-weight-bold);
+    margin-bottom: 2rem;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.start-button {
+    padding: 1rem 3rem;
+    font-size: 1.2rem;
+    font-family: var(--font-primary);
+    font-weight: var(--font-weight-bold);
+    color: var(--color-text);
+    background: var(--gradient-primary);
+    border: 2px solid var(--color-primary);
+    border-radius: 50px;
+    cursor: pointer;
+    transition: all var(--transition-speed) ease;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 0 20px var(--shadow-color);
+}
+
+.start-button::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s ease, height 0.6s ease;
+}
+
+.start-button:hover::before {
+    width: 300px;
+    height: 300px;
+}
+
+.start-button:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 30px var(--shadow-color);
+}
+
+.start-button:active {
+    transform: scale(0.98);
+}
+
+.start-hint {
+    margin-top: 1rem;
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
+/* ============================================
+   メインコンテナ
+   ============================================ */
+
+.main-container {
+    position: relative;
+    z-index: 1;
+    min-height: 100vh;
+    padding: 2rem;
+    transition: opacity 0.5s ease;
+}
+
+.main-container.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* ============================================
+   テーマ切り替えとBGM/AMBコントロール
+   ============================================ */
+
+.theme-controls-wrapper {
+    position: fixed;
+    top: 2rem;
+    right: 2rem;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-end;
+}
+
+.theme-switcher {
+    /* テーマ切り替えボタンは親要素で配置 */
+}
+
+.theme-button {
+    padding: 0.8rem 1.5rem;
+    font-family: var(--font-primary);
+    font-size: 1rem;
+    font-weight: var(--font-weight-bold);
+    color: var(--color-text);
+    background: var(--color-surface);
+    border: 2px solid var(--color-primary);
+    border-radius: 30px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all var(--transition-speed) ease;
+    box-shadow: 0 0 15px var(--shadow-color);
+}
+
+.theme-button:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 25px var(--shadow-color);
+    background: var(--color-primary);
+    color: var(--color-background);
+}
+
+.theme-icon {
+    font-size: 1.2rem;
+    transition: transform var(--transition-speed) ease;
+}
+
+.theme-button:hover .theme-icon {
+    transform: rotate(180deg);
+}
+
+.theme-label {
+    transition: all var(--transition-speed) ease;
+}
+
+/* ============================================
+   ヘッダー
+   ============================================ */
+
+.header {
+    text-align: center;
+    padding: 4rem 2rem 2rem;
+    margin-bottom: 4rem;
+}
+
+.site-title {
+    font-size: var(--font-size-title);
+    font-weight: var(--font-weight-bold);
+    margin-bottom: 1rem;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-shadow: 0 0 30px var(--shadow-color);
+    transition: all var(--transition-speed) ease;
+}
+
+.site-subtitle {
+    font-size: var(--font-size-subtitle);
+    color: var(--color-text-muted);
+    font-weight: var(--font-weight-normal);
+    transition: color var(--transition-speed) ease;
+}
+
+/* ============================================
+   作品セクション
+   ============================================ */
+
+.works-section {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem 0;
+}
+
+.section-title {
+    font-size: 2rem;
+    font-weight: var(--font-weight-bold);
+    margin-bottom: 3rem;
+    text-align: center;
+    color: var(--color-primary);
+    text-shadow: 0 0 20px var(--shadow-color);
+    transition: color var(--transition-speed) ease;
+}
+
+.works-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+    padding: 2rem 0;
+}
+
+/* ============================================
+   作品カード
+   ============================================ */
+
+.work-card {
+    position: relative;
+    cursor: pointer;
+    transition: transform var(--transition-speed) ease;
+}
+
+.card-inner {
+    background: var(--color-surface);
+    border: 2px solid var(--color-primary);
+    border-radius: 15px;
+    overflow: hidden;
+    transition: all var(--transition-speed) ease;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    position: relative;
+}
+
+/* ホバー時の光るエフェクト */
+.work-card::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    background: var(--gradient-primary);
+    border-radius: 15px;
+    opacity: 0;
+    z-index: -1;
+    filter: blur(10px);
+    transition: opacity var(--transition-speed) ease;
+}
+
+.work-card:hover::before {
+    opacity: var(--glow-intensity);
+}
+
+.work-card:hover .card-inner {
+    transform: translateY(-10px) scale(1.02);
+    border-color: var(--color-accent);
+    box-shadow: 0 10px 40px var(--shadow-color);
+}
+
+.work-card:active .card-inner {
+    transform: translateY(-5px) scale(1.01);
+}
+
+.card-image {
+    width: 100%;
+    height: 200px;
+    background: var(--gradient-background);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.card-placeholder {
+    font-size: 2rem;
+    color: var(--color-text-muted);
+    font-weight: var(--font-weight-bold);
+    opacity: 0.5;
+    transition: opacity var(--transition-speed) ease;
+}
+
+.work-card:hover .card-placeholder {
+    opacity: 1;
+    color: var(--color-primary);
+}
+
+.card-content {
+    padding: 1.5rem;
+}
+
+.card-title {
+    font-size: 1.5rem;
+    font-weight: var(--font-weight-bold);
+    margin-bottom: 0.5rem;
+    color: var(--color-primary);
+    transition: color var(--transition-speed) ease;
+}
+
+.work-card:hover .card-title {
+    color: var(--color-accent);
+    text-shadow: 0 0 10px var(--shadow-color);
+}
+
+.card-description {
+    color: var(--color-text-muted);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    transition: color var(--transition-speed) ease;
+}
+
+.work-card:hover .card-description {
+    color: var(--color-text);
+}
+
+/* ============================================
+   フッター
+   ============================================ */
+
+.footer {
+    text-align: center;
+    padding: 3rem 2rem;
+    margin-top: 4rem;
+    border-top: 1px solid var(--color-surface);
+}
+
+.footer-text {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+    transition: color var(--transition-speed) ease;
+}
+
+/* ============================================
+   アニメーション
+   ============================================ */
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes glow {
+
+    0%,
+    100% {
+        box-shadow: 0 0 20px var(--shadow-color);
+    }
+
+    50% {
+        box-shadow: 0 0 40px var(--shadow-color);
+    }
+}
+
+/* ============================================
+   レスポンシブデザイン
+   ============================================ */
+
+@media (max-width: 768px) {
+    :root {
+        --font-size-title: 2rem;
+        --font-size-subtitle: 1.2rem;
+    }
+
+    .main-container {
+        padding: 1rem;
+    }
+
+    .theme-switcher {
+        top: 1rem;
+        right: 1rem;
+    }
+
+    .theme-button {
+        padding: 0.6rem 1rem;
+        font-size: 0.9rem;
+    }
+
+    .works-grid {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+
+    .header {
+        padding: 2rem 1rem 1rem;
+    }
+
+    .start-title {
+        font-size: 2.5rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .start-title {
+        font-size: 2rem;
+    }
+
+    .start-button {
+        padding: 0.8rem 2rem;
+        font-size: 1rem;
+    }
+}
+
+/* ============================================
+   BGM/AMBコントロール
+   ============================================ */
+
+.audio-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.audio-control-panel {
+    background: var(--color-surface);
+    border: 2px solid var(--color-primary);
+    border-radius: 15px;
+    padding: 0.6rem 0.8rem;
+    min-width: 120px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    transition: all var(--transition-speed) ease;
+}
+
+.bgm-panel .control-header {
+    margin-bottom: 0;
+}
+
+.audio-control-panel:hover {
+    box-shadow: 0 6px 25px var(--shadow-color);
+}
+
+.control-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.control-label {
+    font-weight: var(--font-weight-bold);
+    color: var(--color-primary);
+    font-size: 1rem;
+}
+
+.control-toggle {
+    background: transparent;
+    border: 2px solid var(--color-primary);
+    color: var(--color-text);
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-speed) ease;
+}
+
+.control-toggle:hover {
+    background: var(--color-primary);
+    color: var(--color-background);
+    transform: scale(1.1);
+}
+
+.control-toggle.active {
+    background: var(--color-primary);
+    color: var(--color-background);
+}
+
+/* 小さなトグルボタン（BGM用） */
+.control-toggle-small {
+    background: transparent;
+    border: 1px solid var(--color-primary);
+    color: var(--color-text);
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-speed) ease;
+    padding: 0;
+    line-height: 1;
+}
+
+.control-toggle-small:hover {
+    background: var(--color-primary);
+    color: var(--color-background);
+    transform: scale(1.1);
+}
+
+.control-toggle-small.active {
+    background: var(--color-primary);
+    color: var(--color-background);
+}
+
+.control-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.control-button {
+    background: var(--color-primary);
+    border: none;
+    color: var(--color-background);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: var(--font-weight-bold);
+    transition: all var(--transition-speed) ease;
+}
+
+.control-button:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 15px var(--shadow-color);
+}
+
+.volume-control {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.volume-control label {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    min-width: 40px;
+}
+
+.volume-slider {
+    flex: 1;
+    height: 4px;
+    background: var(--color-surface);
+    border-radius: 2px;
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    background: var(--color-primary);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all var(--transition-speed) ease;
+}
+
+.volume-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+    box-shadow: 0 0 10px var(--shadow-color);
+}
+
+.volume-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    background: var(--color-primary);
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+    transition: all var(--transition-speed) ease;
+}
+
+.volume-slider::-moz-range-thumb:hover {
+    transform: scale(1.2);
+    box-shadow: 0 0 10px var(--shadow-color);
+}
+
+.volume-value {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    min-width: 40px;
+    text-align: right;
+}
+
+/* ============================================
+   インタラクティブフィールド
+   ============================================ */
+
+.interactive-field-section {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.interactive-field {
+    width: 100%;
+    height: 600px;
+    position: relative;
+    border: 3px solid var(--color-primary);
+    border-radius: 20px;
+    overflow: hidden;
+    background: var(--color-background);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    transition: all var(--transition-speed) ease;
+}
+
+/* ============================================
+   インタラクティブアイコン
+   ============================================ */
+
+/* アイコングリッド（3x5列） */
+.icon-grid {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 1rem;
+    width: 90%;
+    height: 80%;
+    padding: 1rem;
+    z-index: 10;
+}
+
+.interactive-icon {
+    width: 100%;
+    height: 100%;
+    max-width: 100px;
+    max-height: 100px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.interactive-icon:hover {
+    transform: scale(1.1);
+}
+
+.interactive-icon.playing {
+    animation: iconPulse 0.5s ease-in-out infinite;
+}
+
+@keyframes iconPulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.15);
+    }
+}
+
+.icon-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    transition: filter 0.3s ease;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 5px;
+}
+
+.icon-fallback {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3rem;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 10px;
+    border: 2px solid var(--color-primary);
+}
+
+.icon-tooltip {
+    position: absolute;
+    bottom: -30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-surface);
+    color: var(--color-text);
+    padding: 0.3rem 0.6rem;
+    border-radius: 5px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+    border: 1px solid var(--color-primary);
+    z-index: 20;
+}
+
+.interactive-icon:hover .icon-tooltip {
+    opacity: 1;
+}
+
+/* エフェクトオーバーレイ */
+.effect-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 100;
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.effect-overlay.active {
+    opacity: 1;
+}
+
+.effect-text {
+    color: var(--color-primary);
+    font-size: 3rem;
+    font-weight: var(--font-weight-bold);
+    text-shadow: 0 0 30px var(--shadow-color);
+    animation: effectPulse 1s ease-in-out infinite;
+}
+
+@keyframes effectPulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    50% {
+        transform: scale(1.1);
+        opacity: 0.8;
+    }
+}
+
+/* ============================================
+   和テーマのオブジェクト
+   ============================================ */
+
+/* 和室背景 */
+.japanese-room {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    background: linear-gradient(to bottom, #f5e6d3 0%, #e8d5b7 50%, #d4c4a8 100%);
+    overflow: hidden;
+}
+
+/* 池（水のエリア） */
+.pond-area {
+    position: absolute;
+    bottom: 0;
+    left: 20%;
+    width: 60%;
+    height: 40%;
+    background: linear-gradient(to bottom, #2c3e50 0%, #34495e 100%);
+    border-radius: 50% 50% 0 0;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.pond-area::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: radial-gradient(circle at 30% 30%, rgba(135, 206, 250, 0.3) 0%, transparent 50%);
+    animation: waterRipple 3s infinite;
+}
+
+.pond-area:hover {
+    box-shadow: inset 0 0 50px rgba(135, 206, 250, 0.5);
+}
+
+@keyframes waterRipple {
+
+    0%,
+    100% {
+        transform: scale(1);
+        opacity: 0.3;
+    }
+
+    50% {
+        transform: scale(1.1);
+        opacity: 0.5;
+    }
+}
+
+/* 鹿威し（ししおどし） */
+.shishi-odoshi {
+    position: absolute;
+    bottom: 45%;
+    right: 15%;
+    width: 80px;
+    height: 200px;
+    cursor: pointer;
+    transition: transform 0.3s ease;
+}
+
+.shishi-odoshi:hover {
+    transform: scale(1.1);
+}
+
+.shishi-body {
+    width: 60px;
+    height: 150px;
+    background: linear-gradient(to right, #8b4513 0%, #654321 100%);
+    border-radius: 10px;
+    position: relative;
+    margin: 0 auto;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+.shishi-body::before {
+    content: '';
+    position: absolute;
+    top: -10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
+    height: 40px;
+    background: #654321;
+    border-radius: 50%;
+}
+
+.shishi-bamboo {
+    position: absolute;
+    top: -30px;
+    left: 50%;
+    transform: translateX(-50%) rotate(-15deg);
+    width: 8px;
+    height: 120px;
+    background: #228b22;
+    border-radius: 4px;
+    transform-origin: bottom center;
+    transition: transform 0.5s ease;
+}
+
+.shishi-odoshi.active .shishi-bamboo {
+    transform: translateX(-50%) rotate(15deg);
+}
+
+/* ふすま（障子） */
+.fusuma {
+    position: absolute;
+    top: 10%;
+    left: 5%;
+    width: 120px;
+    height: 80%;
+    background: linear-gradient(to right, #fff8dc 0%, #f5e6d3 100%);
+    border: 3px solid #8b4513;
+    cursor: grab;
+    transition: all 0.3s ease;
+    box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.fusuma::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image:
+        repeating-linear-gradient(0deg, transparent, transparent 19px, #8b4513 19px, #8b4513 20px),
+        repeating-linear-gradient(90deg, transparent, transparent 19px, #8b4513 19px, #8b4513 20px);
+    opacity: 0.3;
+}
+
+.fusuma:hover {
+    box-shadow: 4px 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.fusuma.dragging {
+    cursor: grabbing;
+    z-index: 10;
+    box-shadow: 6px 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+/* 竹 */
+.bamboo {
+    position: absolute;
+    bottom: 0;
+    width: 30px;
+    height: 200px;
+    background: linear-gradient(to right, #228b22 0%, #006400 100%);
+    border-radius: 15px;
+    box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.bamboo::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 35px;
+    height: 20px;
+    background: #228b22;
+    border-radius: 50% 50% 0 0;
+}
+
+/* 石灯籠 */
+.stone-lantern {
+    position: absolute;
+    bottom: 35%;
+    left: 10%;
+    width: 60px;
+    height: 100px;
+    background: linear-gradient(to right, #696969 0%, #808080 100%);
+    border-radius: 10px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+.stone-lantern::before {
+    content: '';
+    position: absolute;
+    top: 20px;
+    left: 10px;
+    width: 40px;
+    height: 30px;
+    background: rgba(255, 200, 0, 0.3);
+    border-radius: 5px;
+}
+
+/* ============================================
+   サイバーテーマのオブジェクト
+   ============================================ */
+
+.cyber-field {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    background: radial-gradient(circle at center, #0a0a0a 0%, #000000 100%);
+    overflow: hidden;
+}
+
+/* ホログラムボタン */
+.hologram-button {
+    position: absolute;
+    padding: 1rem 2rem;
+    background: rgba(0, 255, 255, 0.1);
+    border: 2px solid var(--color-primary);
+    color: var(--color-text);
+    font-family: var(--font-primary);
+    font-size: 1rem;
+    font-weight: var(--font-weight-bold);
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all var(--transition-speed) ease;
+    box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.hologram-button:hover {
+    background: rgba(0, 255, 255, 0.2);
+    box-shadow: 0 0 30px rgba(0, 255, 255, 0.5);
+    transform: scale(1.05);
+}
+
+.hologram-button:active {
+    transform: scale(0.98);
+}
+
+/* ホログラムエフェクト */
+.hologram-effect {
+    position: absolute;
+    width: 300px;
+    height: 200px;
+    border: 2px solid var(--color-primary);
+    background: linear-gradient(135deg,
+            rgba(0, 255, 255, 0.1) 0%,
+            rgba(255, 0, 255, 0.1) 50%,
+            rgba(0, 255, 0, 0.1) 100%);
+    border-radius: 10px;
+    pointer-events: none;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: all 0.5s ease;
+    box-shadow: 0 0 50px var(--shadow-color);
+    backdrop-filter: blur(10px);
+}
+
+.hologram-effect.active {
+    opacity: 1;
+    transform: scale(1);
+    animation: hologramPulse 2s infinite;
+}
+
+.hologram-effect::before {
+    content: '';
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    background: var(--gradient-primary);
+    border-radius: 10px;
+    z-index: -1;
+    filter: blur(15px);
+    opacity: 0.5;
+}
+
+@keyframes hologramPulse {
+
+    0%,
+    100% {
+        box-shadow: 0 0 50px var(--shadow-color);
+    }
+
+    50% {
+        box-shadow: 0 0 80px var(--shadow-color);
+    }
+}
+
+/* グリッドパターン（サイバー背景） */
+.cyber-field::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image:
+        linear-gradient(rgba(0, 255, 255, 0.1) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 255, 255, 0.1) 1px, transparent 1px);
+    background-size: 50px 50px;
+    opacity: 0.3;
+    animation: gridMove 20s linear infinite;
+}
+
+@keyframes gridMove {
+    0% {
+        transform: translate(0, 0);
+    }
+
+    100% {
+        transform: translate(50px, 50px);
+    }
+}
+
+/* ============================================
+   レスポンシブ（追加）
+   ============================================ */
+
+@media (max-width: 1024px) {
+    .theme-controls-wrapper {
+        top: 1rem;
+        right: 1rem;
+    }
+
+    .audio-control-panel {
+        min-width: 150px;
+        padding: 0.6rem;
+    }
+
+    .interactive-field {
+        height: 500px;
+    }
+
+    .icon-grid {
+        gap: 0.5rem;
+        padding: 0.5rem;
+    }
+
+    .interactive-icon {
+        max-width: 60px;
+        max-height: 60px;
+    }
+}
+
+@media (max-width: 768px) {
+    .theme-controls-wrapper {
+        position: relative;
+        top: auto;
+        right: auto;
+        margin: 1rem;
+        align-items: center;
+    }
+
+    .audio-controls {
+        width: 100%;
+    }
+
+    .interactive-field {
+        height: 400px;
+    }
+
+    .icon-grid {
+        grid-template-columns: repeat(3, 1fr);
+        grid-template-rows: repeat(5, 1fr);
+        gap: 0.3rem;
+        padding: 0.3rem;
+    }
+
+    .interactive-icon {
+        max-width: 50px;
+        max-height: 50px;
+    }
+
+    .icon-fallback {
+        font-size: 2rem;
+    }
+
+    .effect-text {
+        font-size: 2rem;
+    }
+}
+
+/* ============================================
+   Audio Laboratory Section
+   ============================================ */
+
+.audio-lab-section {
+    max-width: 1400px;
+    margin: 4rem auto;
+    padding: 2rem;
+}
+
+.lab-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+}
+
+.lab-panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-primary);
+    border-radius: 20px;
+    padding: 1.5rem;
+    position: relative;
+    overflow: hidden;
+    transition: all var(--transition-speed) ease;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.lab-panel:hover {
+    box-shadow: 0 0 30px var(--shadow-color);
+    border-color: var(--color-accent);
+}
+
+.lab-panel::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 5px;
+    background: var(--gradient-primary);
+}
+
+.panel-title {
+    font-size: 1.5rem;
+    margin-bottom: 1.5rem;
+    color: var(--color-primary);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 0.5rem;
+}
+
+.panel-content {
+    min-height: 150px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+/* Music Generator */
+.genre-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.lab-btn {
+    background: transparent;
+    border: 2px solid var(--color-primary);
+    color: var(--color-text);
+    padding: 0.8rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    font-size: 0.9rem;
+}
+
+.lab-btn:hover {
+    background: rgba(212, 175, 55, 0.2);
+    box-shadow: 0 0 15px var(--shadow-color);
+}
+
+.lab-btn.active {
+    background: var(--color-primary);
+    color: var(--color-background);
+    box-shadow: 0 0 20px var(--shadow-color);
+}
+
+.stop-btn {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+}
+
+.stop-btn:hover {
+    background: rgba(255, 107, 107, 0.2);
+}
+
+/* Environment Mixer */
+.env-control {
+    background: rgba(0, 0, 0, 0.2);
+    padding: 1rem;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.env-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+    font-size: 1.2rem;
+}
+
+.env-icon {
+    font-size: 1.5rem;
+    margin-right: 0.5rem;
+}
+
+/* Toggle Switch */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 24px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #555;
+    transition: .4s;
+    border-radius: 34px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked+.slider {
+    background-color: var(--color-primary);
+}
+
+input:checked+.slider:before {
+    transform: translateX(26px);
+}
+
+.lab-slider {
+    width: 100%;
+    -webkit-appearance: none;
+    height: 6px;
+    background: #444;
+    border-radius: 3px;
+    outline: none;
+}
+
+.lab-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    background: var(--color-primary);
+    border-radius: 50%;
+    cursor: pointer;
+    transition: .2s;
+}
+
+.lab-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+}
+
+/* SE Triggers */
+.se-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.se-btn {
+    background: linear-gradient(145deg, #333, #222);
+    border: none;
+    color: var(--color-text);
+    padding: 1.5rem;
+    border-radius: 12px;
+    cursor: pointer;
+    font-weight: bold;
+    box-shadow: 5px 5px 10px #1a1a1a, -5px -5px 10px #3a3a3a;
+    transition: all 0.1s ease;
+}
+
+.se-btn:active,
+.se-btn.active {
+    box-shadow: inset 5px 5px 10px #1a1a1a, inset -5px -5px 10px #3a3a3a;
+    color: var(--color-accent);
+    transform: scale(0.98);
+}
+
+/* FX Pad */
+.fx-pad {
+    width: 100%;
+    height: 200px;
+    background: #111;
+    border: 2px dashed var(--color-text-muted);
+    border-radius: 10px;
+    position: relative;
+    cursor: crosshair;
+    overflow: hidden;
+    transition: border-color 0.3s;
+}
+
+.fx-pad:hover,
+.fx-pad.active {
+    border-color: var(--color-accent);
+    border-style: solid;
+}
+
+.fx-cursor {
+    width: 20px;
+    height: 20px;
+    background: var(--color-accent);
+    border-radius: 50%;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    box-shadow: 0 0 15px var(--color-accent), 0 0 30px var(--color-accent);
+    transition: width 0.2s, height 0.2s;
+}
+
+.fx-pad.active .fx-cursor {
+    width: 30px;
+    height: 30px;
+}
+
+.fx-label {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    color: rgba(255, 255, 255, 0.3);
+    font-size: 0.8rem;
+    pointer-events: none;
+}
+
+/* Visualizer Strip (Simple Animation) */
+.visualizer-strip {
+    height: 30px;
+    background: rgba(0, 0, 0, 0.3);
+    margin-top: 1rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+/* Cyber Theme Overrides (if needed) */
+[data-theme="cyber"] .lab-panel {
+    border-color: var(--color-primary);
+    background: rgba(10, 10, 30, 0.8);
+}
+
+
+/* ============================================
+   Compact Dashboard Layout (Single Page)
+   ============================================ */
+
+body {
+    overflow: hidden;
+    /* Disable scroll */
+}
+
+.dashboard-container {
+    flex: 1;
+    display: flex;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    height: calc(100vh - 80px);
+    /* Subtract footer/header if any, essentially full height */
+    overflow: hidden;
+    max-width: 100%;
+}
+
+/* Left: Field Section */
+.field-section {
+    flex: 6;
+    /* 60% */
+    display: flex;
+    flex-direction: column;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+    position: relative;
+    box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.5);
+}
+
+.section-header {
+    padding: 1rem 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.3);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dashboard-title {
+    font-size: 1.5rem;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0;
+}
+
+.theme-switcher-compact .theme-btn {
+    background: transparent;
+    border: 1px solid var(--color-primary);
+    color: var(--color-text);
+    padding: 0.4rem 0.8rem;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.theme-switcher-compact .theme-btn:hover {
+    background: var(--color-primary);
+    color: var(--color-background);
+}
+
+.interactive-field {
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    /* Fill remaining space */
+    border: none;
+    /* Override older style */
+    background: transparent;
+    border-radius: 0;
+}
+
+/* Adjust Icon Grid for compact view if needed */
+.icon-grid {
+    width: 95%;
+    height: 90%;
+    padding: 0;
+}
+
+
+/* Right: Control Section */
+.control-section {
+    flex: 4;
+    /* 40% */
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.control-unit {
+    flex: 1;
+    background: var(--color-surface);
+    border: 1px solid var(--color-primary);
+    border-radius: 20px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.control-unit::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background: var(--gradient-primary);
+}
+
+.unit-title {
+    padding: 1rem 1.5rem;
+    font-size: 1.1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(0, 0, 0, 0.2);
+    margin: 0;
+    color: var(--color-text-muted);
+    font-weight: normal;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.unit-content {
+    flex: 1;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 1.5rem;
+}
+
+
+/* BGM Controls */
+.playback-controls {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+.play-btn {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: var(--gradient-primary);
+    border: none;
+    color: white;
+    font-size: 1.5rem;
+    cursor: pointer;
+    box-shadow: 0 0 20px var(--shadow-color);
+    transition: transform 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-left: 4px;
+    /* Optical center for triangle */
+}
+
+.play-btn:hover {
+    transform: scale(1.1);
+}
+
+.play-btn.playing {
+    padding-left: 0;
+}
+
+.track-info {
+    flex: 1;
+}
+
+#currentTrackName {
+    display: block;
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: var(--color-primary);
+    margin-bottom: 0.5rem;
+}
+
+.visualizer-mini {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    position: relative;
+    overflow: hidden;
+}
+
+.visualizer-mini::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 50%;
+    background: var(--color-primary);
+    animation: visualize 2s infinite linear;
+}
+
+@keyframes visualize {
+    0% {
+        width: 10%;
+        left: 0;
+    }
+
+    50% {
+        width: 80%;
+        left: 10%;
+    }
+
+    100% {
+        width: 10%;
+        left: 90%;
+    }
+}
+
+.genre-selector {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: space-between;
+}
+
+.genre-btn {
+    flex: 1;
+    background: transparent;
+    border: 1px solid var(--color-text-muted);
+    color: var(--color-text-muted);
+    padding: 0.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+
+.genre-btn.active,
+.genre-btn:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    background: rgba(212, 175, 55, 0.1);
+}
+
+.volume-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+/* Ambience Spatializer (XY Pad) */
+.xy-pad-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+}
+
+.amb-xy-pad {
+    width: 100%;
+    /* Make it responsive */
+    aspect-ratio: 1 / 1;
+    /* Square */
+    max-height: 250px;
+    max-width: 250px;
+    border: 1px solid var(--color-primary);
+    background: radial-gradient(circle at center, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.5) 100%);
+    position: relative;
+    border-radius: 4px;
+    /* Square with slight rounded corners */
+    cursor: crosshair;
+    box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.5);
+}
+
+.pad-corner {
+    position: absolute;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    pointer-events: none;
+}
+
+.top-left {
+    top: 15%;
+    left: 15%;
+    transform: translate(-50%, -50%);
+}
+
+.top-right {
+    top: 15%;
+    right: 15%;
+    transform: translate(50%, -50%);
+}
+
+.bottom-left {
+    bottom: 15%;
+    left: 15%;
+    transform: translate(-50%, 50%);
+}
+
+.bottom-right {
+    bottom: 15%;
+    right: 15%;
+    transform: translate(50%, 50%);
+}
+
+.xy-center-marker {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: rgba(255, 255, 255, 0.1);
+    font-size: 1.5rem;
+    pointer-events: none;
+}
+
+.xy-cursor {
+    width: 20px;
+    height: 20px;
+    background: var(--color-accent);
+    border-radius: 50%;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    /* Start center */
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 15px var(--color-accent);
+    pointer-events: none;
+    transition: width 0.1s, height 0.1s;
+}
+
+.amb-xy-pad:active .xy-cursor {
+    width: 25px;
+    height: 25px;
+    background: white;
+}
+
+.pad-hint {
+    margin-top: 1rem;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    text-align: center;
+}
+
+/* ============================================
+   Japanese Theme Update (High Quality Icons)
+   ============================================ */
+
+.icon-grid-new {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    width: 90%;
+    max-width: 1000px;
+    z-index: 10;
+}
+
+.icon-row {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    width: 100%;
+    perspective: 1000px;
+}
+
+.interactive-icon-new {
+    width: 140px;
+    height: 140px;
+    position: relative;
+    cursor: pointer;
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    border-radius: 50%;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    background: transparent;
+}
+
+.interactive-icon-new:hover {
+    transform: scale(1.1);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+    z-index: 100;
+}
+
+.interactive-icon-new:active {
+    transform: scale(0.95);
+}
+
+.icon-inner {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    transition: filter 0.3s ease;
+    /* Ensure sprite fits properly */
+    background-repeat: no-repeat;
+    /* Create a paper-like texture background for the icon itself if transparent */
+    background-color: #fdfdfd;
+}
+
+/* Row 1 Specifics */
+[data-type="system"] .icon-inner {
+    /* Base styles */
+}
+
+/* Animations */
+@keyframes shake {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    25% {
+        transform: rotate(5deg);
+    }
+
+    50% {
+        transform: rotate(0deg);
+    }
+
+    75% {
+        transform: rotate(-5deg);
+    }
+
+    100% {
+        transform: rotate(0deg);
+    }
+}
+
+.shake-anim {
+    animation: shake 0.5s ease-in-out;
+}
+
+.interactive-icon-new.active::after {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: -5px;
+    right: -5px;
+    bottom: -5px;
+    border-radius: 50%;
+    border: 2px solid rgba(212, 175, 55, 0.8);
+    /* Gold border for active */
+    animation: rippleOut 0.5s ease-out forwards;
+}
+
+@keyframes rippleOut {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    100% {
+        transform: scale(1.5);
+        opacity: 0;
+    }
+}
+
+/* Effect Triggers */
+.fx-grid {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+}
+
+.fx-trigger-btn {
+    background: linear-gradient(135deg, #2a2a2a, #333);
+    border: 2px solid var(--color-primary);
+    color: var(--color-primary);
+    border-radius: 12px;
+    padding: 1rem 2rem;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s;
+    width: 100%;
+    max-width: 150px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+.fx-trigger-btn:hover {
+    background: var(--color-primary);
+    color: var(--color-background);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 15px rgba(212, 175, 55, 0.4);
+}
+
+.fx-icon {
+    font-size: 2rem;
+}
+
+.fx-label {
+    font-size: 0.9rem;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.expanded-video-fx {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80%;
+    max-width: 800px;
+    height: auto;
+    z-index: 2000;
+    pointer-events: none;
+    mix-blend-mode: screen;
+}
+
+@media (max-width: 768px) {
+    .expanded-video-fx {
+        width: 100%;
+    }
+}

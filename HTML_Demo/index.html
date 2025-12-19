@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio - Creative Interactive Experience</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+    <!-- 初回アクセス時のオーバーレイ（音声初期化用） -->
+    <div id="startOverlay" class="start-overlay">
+        <div class="start-content">
+            <h1 class="start-title">Portfolio</h1>
+            <button id="startButton" class="start-button">Start / Enter</button>
+            <p class="start-hint">クリックして体験を開始</p>
+        </div>
+    </div>
+
+    <!-- メインコンテナ -->
+    <div id="mainContainer" class="main-container hidden">
+        <!-- メインコンテンツ (1画面レイアウト) -->
+        <main class="dashboard-container">
+            <!-- 左側：インタラクティブフィールド -->
+            <section class="field-section">
+                <div class="section-header">
+                    <h2 class="dashboard-title">Main Field</h2>
+                    <div class="theme-switcher-compact">
+                        <button id="themeToggle" class="theme-btn" aria-label="Switch Theme">
+                            <span class="theme-icon">🎌</span> Theme
+                        </button>
+                    </div>
+                </div>
+                <div id="interactiveField" class="interactive-field">
+                    <!-- JSで生成 -->
+                </div>
+            </section>
+
+            <!-- 右側：コントロールパネル -->
+            <aside class="control-section">
+                <!-- Unit 1: BGM Generator -->
+                <div class="control-unit bgm-unit">
+                    <h3 class="unit-title">BGM Generator</h3>
+                    <div class="unit-content">
+                        <div class="playback-controls">
+                            <button id="bgmPlayStop" class="play-btn">▶</button>
+                            <div class="track-info">
+                                <span id="currentTrackName">Techno</span>
+                                <div class="visualizer-mini" id="musicVisualizer"></div>
+                            </div>
+                        </div>
+                        <div class="genre-selector">
+                            <button class="genre-btn active" data-genre="bgm1">BGM 01</button>
+                            <button class="genre-btn" data-genre="bgm2">BGM 02</button>
+                        </div>
+                        <div class="volume-row">
+                            <span class="vol-icon">🔊</span>
+                            <input type="range" id="bgmVolume" min="0" max="1" step="0.05" value="0.5">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Unit 2: Ambience Spatializer (XY) -->
+                <div class="control-unit amb-unit">
+                    <h3 class="unit-title">Ambience Spatializer</h3>
+                    <div class="unit-content">
+                        <div class="xy-pad-container">
+                            <div id="ambXYPad" class="amb-xy-pad">
+                                <div class="pad-corner top-left">Rain 🌧️</div>
+                                <div class="pad-corner top-right">Star ✨</div>
+                                <div class="pad-corner bottom-left">Snow ❄️</div>
+                                <div class="pad-corner bottom-right">Leaves 🍂</div>
+                                <div class="xy-cursor"></div>
+                                <div class="xy-center-marker">+</div>
+                            </div>
+                            <p class="pad-hint">Drag cursor to mix environments.<br>Center is silent.</p>
+                        </div>
+                    </div>
+                </div>
+
+
+            </aside>
+        </main>
+
+        <!-- フッター -->
+        <footer class="footer">
+            <p class="footer-text">&copy; 2024 Portfolio. All rights reserved.</p>
+        </footer>
+    </div>
+
+    <!-- JavaScript -->
+    <script src="js/themeManager.js"></script>
+    <script src="js/audioManager.js"></script>
+    <script src="js/soundGenerator.js"></script>
+    <script src="js/visualEffects.js"></script>
+    <script src="js/interactiveField.js"></script>
+    <script src="js/app.js"></script>
+    <script src="js/cyberTheme.js"></script>
+</body>
+
+</html>
