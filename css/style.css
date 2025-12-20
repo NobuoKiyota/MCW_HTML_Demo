@@ -1072,6 +1072,20 @@ body::before {
     overflow: hidden;
 }
 
+.dashboard-container {
+    display: flex;
+    width: 100%;
+    min-height: 100vh;
+    /* Allow growing */
+    /* background: radial-gradient(circle at center, #1a1a1a 0%, #000 100%);  <-- Removed to reduce visual noise if body has bg */
+    position: relative;
+    z-index: 10;
+    padding: 2rem;
+    box-sizing: border-box;
+    gap: 1.5rem;
+    /* overflow: hidden; <-- REMOVED */
+}
+
 /* ホログラムボタン */
 .hologram-button {
     position: absolute;
@@ -1149,6 +1163,38 @@ body::before {
     50% {
         box-shadow: 0 0 80px var(--shadow-color);
     }
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    color: var(--color-text);
+    background-color: #0d0d0d;
+    background-image:
+        radial-gradient(var(--color-background-light) 1px, transparent 1px),
+        radial-gradient(var(--color-background-light) 1px, transparent 1px);
+    background-size: 40px 40px;
+    background-position: 0 0, 20px 20px;
+    /* overflow: hidden;  <-- REMOVED to allow scrolling by default, especially on mobile */
+    overflow-x: hidden;
+    /* Prevent horizontal scroll only */
+    width: 100%;
+    min-height: 100vh;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #1a1a1a;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-primary);
+    border-radius: 4px;
 }
 
 /* グリッドパターン（サイバー背景） */
@@ -2116,12 +2162,40 @@ body {
     .icon-grid {
         gap: 0.5rem;
         width: 95%;
-        height: 90%;
+        height: 80%;
+        /* Reduce height usage to avoid crowding */
+        display: flex;
+        /* Use flexbox to wrap for better control on small screens if grid fails? No, keep grid but adjust sizing */
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        /* Still 5 columns? Might be too crowded. Maybe 4 or 3? User image shows 5 cols getting squeezed */
+        /* Let's keep 5 but force square aspect ratio */
+        align-items: center;
+        justify-items: center;
     }
 
     .interactive-icon {
-        max-width: 80px;
-        max-height: 80px;
+        width: 100%;
+        /* Fill the grid cell */
+        max-width: 60px;
+        /* Limit max size */
+        aspect-ratio: 1 / 1;
+        /* Force Square */
+        height: auto;
+        /* Let height assume aspect ratio */
+        border-radius: 50% !important;
+        /* Ensure perfect circle */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Adjust ripple image inside to cover purely */
+    .interactive-icon img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 50%;
     }
 }
 
