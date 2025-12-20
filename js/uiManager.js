@@ -62,6 +62,14 @@ class UIManager {
                         // Optional: Reset time? media.currentTime = 0;
                     }
                 });
+
+                // Stop YouTube iframes
+                const iframes = section.querySelectorAll('iframe');
+                iframes.forEach(iframe => {
+                    // Resetting the src forces the iframe to reload and stop playing
+                    const currentSrc = iframe.src;
+                    iframe.src = currentSrc;
+                });
             }
 
             section.classList.remove('active');
