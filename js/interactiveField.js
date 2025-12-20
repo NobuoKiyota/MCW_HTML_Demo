@@ -10,6 +10,14 @@ const VIDEO_FX_CONFIG = {
     playbackRate: 1.0      // Speed of video
 };
 
+// Configuration for Ripple Effect
+const RIPPLE_CONFIG = {
+    radiusBase: 40,
+    radiusVar: 20,    // 40-60
+    strengthBase: 0.04,
+    strengthVar: 0.02 // 0.04-0.06
+};
+
 class InteractiveField {
     constructor(fieldElement, audioManager) {
         this.fieldElement = fieldElement;
@@ -19,6 +27,9 @@ class InteractiveField {
             japanese: null,
             cyber: null
         };
+
+        // Cooldown Flags
+        this.isCandleCoolingDown = false;
 
         // Initialize VFX with error handling
         try {
@@ -75,6 +86,13 @@ class InteractiveField {
      */
     clear() {
         if (this.fieldElement) {
+            // Destroy Ripples if active (prevent WebGL leak)
+            if (typeof $ !== 'undefined') {
+                try {
+                    const $room = $(this.fieldElement).find('.japanese-room');
+                    if ($room.length) $room.ripples('destroy');
+                } catch (e) { console.warn('Ripples destroy error', e); }
+            }
             this.fieldElement.innerHTML = '';
         }
     }
@@ -138,6 +156,19 @@ class InteractiveField {
         });
 
         this.fieldElement.appendChild(roomContainer);
+
+        // Initialize jQuery Ripples
+        if (typeof $ !== 'undefined') {
+            try {
+                $(roomContainer).ripples({
+                    resolution: 512,
+                    dropRadius: 20,
+                    perturbance: 0.04,
+                    interactive: false // Disable mouseover ripples
+                });
+            } catch (e) { console.warn('jQuery Ripples init failed:', e); }
+        }
+
         this.setupJapaneseInteractions(roomContainer);
     }
 
@@ -195,8 +226,12 @@ class InteractiveField {
                 const basePath = 'assets/images/japanese/';
 
                 // Audio
+                // Audio
                 if (this.audioManager) {
-                    this.audioManager.playClickSound(); // Simple trigger
+                    // Don't play generic click sound for ripple (it has its own sound) or candle
+                    if (effectType !== 'ripple' && behavior !== 'flicker_off') {
+                        this.audioManager.playClickSound(); // Simple trigger
+                    }
                 }
 
                 // Row 1 System Behaviors
@@ -217,15 +252,22 @@ class InteractiveField {
                         setTimeout(() => icon.classList.remove('shake-anim'), 1000);
 
                     } else if (behavior === 'flicker_off') {
-                        // Flicker then extinguish (darken)
-                        inner.style.transition = 'filter 0.2s';
-                        inner.style.filter = 'brightness(1.5) sepia(0.5)'; // Flare
+                        // CANDLE CLICK: Stop Glow -> Darken -> Stop Loop -> Play TorchOff -> Restore
+
+                        // 1. Visuals
+                        icon.classList.remove('candle-glow');
+                        icon.classList.add('icon-dark');
+
+                        // 2. Audio
+                        if (this.audioManager) {
+                            this.audioManager.stopTorchLoop();
+                            this.audioManager.playTorchOff();
+                        }
+
+                        // 3. Restore after delay (e.g. 5 seconds or match audio length)
                         setTimeout(() => {
-                            inner.style.filter = 'brightness(0.2)'; // Extinguish
-                            setTimeout(() => {
-                                inner.style.filter = ''; // Restore
-                            }, 2000);
-                        }, 200);
+                            icon.classList.remove('icon-dark');
+                        }, 5000);
 
                     } else if (behavior === 'light_up') {
                         // Gray -> Color
@@ -268,8 +310,30 @@ class InteractiveField {
                         fieldSection.appendChild(video);
                     }
 
-                    // Trigger Canvas Particle Effect as well
-                    this.vfx.trigger(effectType, centerX, centerY);
+                    // Trigger Canvas Particle Effect as well (unless it's ripple, we handle that specifically or additive)
+                    // If effect is 'ripple', we use jQuery Ripples AND Sound
+                    if (effectType === 'ripple') {
+                        if (typeof $ !== 'undefined') {
+                            const rect = container.getBoundingClientRect();
+                            const relX = centerX - rect.left;
+                            const relY = centerY - rect.top;
+
+                            // Use Config for Speed/Size control
+                            const rConf = RIPPLE_CONFIG;
+                            const radius = rConf.radiusBase + Math.random() * rConf.radiusVar;
+                            const strength = rConf.strengthBase + Math.random() * rConf.strengthVar;
+
+                            $(container).ripples('drop', relX, relY, radius, strength);
+                        }
+
+                        // Play Water Drop Sound
+                        if (this.audioManager) {
+                            this.audioManager.playWaterDrop();
+                        }
+                    } else {
+                        // Regular Canvas Trigger for others
+                        this.vfx.trigger(effectType, centerX, centerY);
+                    }
                 }
 
                 // Add active class for generic pop effect
@@ -289,6 +353,32 @@ class InteractiveField {
             if (icon && this.audioManager) {
                 // Debounce/limit hover sounds
                 // this.audioManager.playHoverSound(); 
+
+                // SPECIAL CANDLE HOVER
+                const id = icon.getAttribute('data-id');
+                if (id === 'candle') {
+                    // Double check: if cooling down or icon is dark, DO NOT play
+                    if (this.isCandleCoolingDown || icon.classList.contains('icon-dark')) return;
+
+                    // Visual: Glow
+                    icon.classList.add('candle-glow');
+                    // Audio: Loop
+                    this.audioManager.playTorchLoop();
+                }
+            }
+        });
+
+        // Mouse Leave
+        container.addEventListener('mouseout', (e) => {
+            const icon = e.target.closest('.interactive-icon-new');
+            if (icon && this.audioManager) {
+                const id = icon.getAttribute('data-id');
+                if (id === 'candle') {
+                    // Visual: Stop Glow
+                    icon.classList.remove('candle-glow');
+                    // Audio: Stop Loop
+                    this.audioManager.stopTorchLoop();
+                }
             }
         });
     }

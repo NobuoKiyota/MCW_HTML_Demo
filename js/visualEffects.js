@@ -37,6 +37,35 @@ const FX_CONFIG = {
     leavesSizeVar: 5
 };
 
+const SNOW_SPRITESource = [
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAACt0lEQVRYhe2X25KjMBBDFcNM/v9zJwGzD4sqQnQbk/AYV7lsrj6obwb4tm/7tma7cbIsS3g+mN/svD64JKPPj8Fu/18/RteC+S3o3hRqwR7udhYyAszgisEV7CGrwVUD57tOQUYKOnCRUbsrSagKYBZovX4aUgEjX1PFhvV+zl1Fgs3r+UsgexUcBHCUY0Iq3Axgko+bEsiulgWJ+9oA4Mc61eSiBJvsHUggoyzQBeigVGpcwe4AfgWQ5qoAnmsvAB4GQMhTEd1rYpr1Z4W7r/NBFpvlvigNEa5gq2YTNgN0E6mC7HeDof9p8FBZTTszOs3bAlRQTTMMFJrY/VD9r1ofBJSq+Xga0B/SfEhYqlixD5oqoyrZ7YcZYKuGeuoZsFWaEBO2aWcQ4O5S2FJQX+JlTK8pGO+lGxBsFFiCFrySuX78BrJg3xxC/YiLEBgyetUpeOXLEdvE7rU9ivodoMvrcJP0J7aVQ32MjabXqqMu0QRjO/JBQtKPmIgf67OaLrLU4ZsNzhnNbtbNsQPqQhC4IoAPbJXge4o9V2XuG11XMM2LR0HCkaZ8AvjD1oeo8mDHjGJPLRHcqUoSqchdSVkBvVKwzBX7IEJqFgD2yqWtN1ET4hm8WOtwkfsZUB71EVzqh60gcZW4CS0rKK+7gmpmqqhRnv2zhO3IB93UwF49TUMaOFnuvPSfxEsQzen3cBulqUc/QIPF1fwI0CFrcI3nR7xKmJc+3Ty0TP0WYATs23cF9TTif3s9CqaJugXlkaaQGgj+S6rw6ovVrr+1H8xgHVIXiX7qo43H5Sb2qFYfc4ioSlS7R+HSlPOOggqri+v2PaoQ0X7y8iDRahD5ZQaoSkVzIAF9V0EHWmyeKRiNzfaJiYGtgp7QW7+W0eb4UkB9cQQSbaEOc17UPgXUBaII7302bf8AK4CD/00svIQAAAAASUVORK5CYII=',
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAADNUlEQVRYhe2YyZbaMBBFnzHdkP//2DSDcRbRa12VS0aQRTZd5+jIg4ZLTSoj/ciP/F+ZJGld16Fx6CmHnfGUFf3aeb6R4xtgfEa4QzImg4ltCv0wYIRzfwDclFxz/iMBe5TG+y5kDzBu5Pu5XM8Fyr3BDfrAfEK5LYBU6BvIDDCDM5TbocwlqIWmNqiB7qoaMyjHbSCfmdjNMLOkT1x/qNWkNUj/WtDukm5l3C1AvRQk9C3DHAF3LvcfajXJHyW1mjMcg4vBJLU+O0laI+CkrVkN8ol2Ku2I9zPW8CaGWwrcpcB94f2s6o/DQSK1/vVR2knSr9KfC+xR1Sfpv6uqWe8YR3iDHVS11w0SLm5/sgaPqlo7A/Kkqj3Pobnse1dVF1jCuwlzN5ocMbEDw9pzO6ua2eMojtibWr+0ye+Y9whjvvNiL80wQGxe+p61GIPEspbnd2xqf/QcWok/oknwe4C9KDakA4YRbLF/WTuGZSrivOw8l1RNnJ259CtrkanFmrM2GL0HVV8jREwv8fyOJu6eJFO4pjl4mrBRVrWWyPYYkdQH4wIxAfdaBGQ0szCI1QzneO/dsziTdLJas1oe6OMxx/sIrNA3J4kfRKBYIi2hNwzP4AjGM9hJO1Y0PciNBjPTcMOoBZ8QXDQeb9fSuxk2/sjhYoGqJwwXdwQ7Z7EOfGDctbQLrr2O1yUky64NYDyss0rkS21aWdUmaWubgJ53Aai1mUHuFguGtFa82VU19/0GXFYEWNtu1uBFtaKhFjM/7AISNNMGE/KivyfKjGc9DV7wjI3aS9NPpkFrL0JeEpCb9k2cQfFdBNzIMw26PLon7xa1/kizs8xigMVskKWbhmMP0P4UkzH9jFWJ1OZLQtzCdfb5mX7A99KMA2VWzfoRPCsUmJ4M0/vcZDrj3s1176+P+O8BSy9W2nzPBN9r2T8Lmea+r3uAPUhWNtlXnBendiKcwnWEa+5HigUGDL95/Yw/JjvD94AyzQx/1bGA2FQZ2mouLv7UfHtgI4A9yGzBZ2N6UM/e7frgZtzAs9GNn25oeadgfXmTN8dLGgeMm4x+U3DOW/IqYNw0873N/yv/In8AJT3tg+KFGroAAAAASUVORK5CYII=',
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAADEElEQVRYhe2Y27KiMBBFF94vM/P/HzrqQUHngd5mE0EEfZkquyoVCkNY6bvAV77ylf9bivzG7XZ763lg1AYPGxbtLRdT9yHB6Vpg15jfApVMASyAWcxzu74F3BWoY+3bkGMBBTcHljHmBlgBl1j7EcgpgILbAhtgFfeuwBn4iXEmafRmoKOAxwDK1xYB9wv4DaxptFoDZcCvgGNA1gZYM9JHx2pQ5l0D+wDcxn0BHIC/AVrSmPwacxVrqlchXwWU9mTeVYDtgV3sU8TLNzTaPZK0WGbz2cCfQg4BejpZkAJjGWDbmFckM+9JvniKUdr1KcALkgtMAnStzWjM6ppTBHs0SzYxtgF6jOfXsVYucbV5FGBuUm0ujSl69bJFDOXE2u7pgHNbAylg8ih/GXAWAPKpHY3mHHJpEBoFbdfwA3tSz32x0x+fmVgn3gXgn7jekcwtk+XaERS0K4yuz3FA+aenn0FA18AiIAS5p+1L0qDgZtle0uoyIFY2r2lrvVO6AKVm+aAHgvxxxaOPyXyQgqDI7uW+6H7rDcdd8hM7pEeZr/d67IDPWi/3wRzIu6IH6QOE1JVcSLW1oh1x7vh5YGBrfPaDd2rNpS9ItIkAVbLOJLPM6U8PXfc9WDxg3gKsAq6k0aI6F/fNRQbk2u0DV90e7HCepRltoh7vRCpp3hN2RaFrxzvtmnZ3kwfSg8mHarEgZd4fUnDkJU7BoufyDru2vZSch/x3MqBH8NzWetAJqCJZQXuUpICjD+4VwDxQPOd5eqlI/qmXOZw6mwNN4+CAvdobAtTpPNXkm+kAGxrtSKPSfE3S2iHGiZSyJjcLLuqGJe5HakC9cdABKtoa1NCz0rD/CxwN6BF4If1zq0jdSEm7aShIKepq6+vsWn8BvLMe1c04pDoNP7k0qNrsUezRq+Bxc+p5QfaaeOynD6+5qihuWu+UdTh/zlOP/4m6V5T808eUbzOet/Li7/XWGwF4rMUOdn/pJ77N+Am80exqCjT7b6P+yE/9eNSloWcv6mseBmUqYN+LP/457ivvyj+oIlupz86ZbQAAAABJRU5ErkJggg==',
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAABpElEQVRYhe2W7W6DMAxFDx+lXff+b7qtlIWyH/FVPLYVKDBpU65kpSkhOdixE8jKysrKyvrXKh55aRiGqfkKMz9wGPU/v1h8j1Ivx7sLVpoV1nqwm9ld0D0A5a3K7GDzCnQA3oFgrQfdHVBwtYEdgZO1tT3rgQ5ogatZbzYJuQbQwzXA2eDOBtgQvdgb1Csp7C3Ri0xBPgoouNLmOAFPZmczD6jf473YT0Gu9WBlizfEEAvwmehFhbgi7sETMdzBTKDjjN8MsHSQCqs82diYYJBKnoYY8oq0D3fxIKQQqz06O9iYgZTR/sMKZtThcmrAAlB5szarHMCNheVlC0BfgIeReSDVP9VChXwW7JoQKwsFEIgJ0JH2VwAupBoo0G4u5FrAmy2oAtzanMFBXog10IP6DIYdkkSloXeAb6RadyXVwA54sedvDnD3k0ST66QoXf8wAhSYwjz70rDFZaEnerO1BYMB+otCa6CL4LYA9KHWotp/ApQXfVL86nVLoEqYnq93Qf8Bi+rgFoD+LFXtK0bP1S6Cg209eK//039ZWVlZWX9dH7LguI6yCNZ8AAAAAElFTkSuQmCC',
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAACIElEQVRYhe2X7U7DMAxFT+nYGO//qgjWT37Ml9yGdstKkUCqJStbm6an146TwG677fa/rVq6MY5jaf8KmO1843p6uFpEAOBwb4AMRK17DjLMPHsXdMlKAB3sybyO1iEG89Ha1aClClYBVAPP4YdwQY5AN+MD0Mf9W+mwClBhrKPvEThFKxfkCLThF6CJtotrPfPh/xGgIKXcKfzF/Bj3CZgL8A58xDPvMUYTffKwrwaUeso5KXgMsFfgHMAC7OO/UqC2cQQmuCLI0hwUYE0K8zkgBVhxVfCZ77O8j3sK8yYKyvxlrqRC7QrqI6SUJkjPNcR1/C62EsDRXKAHpjNZgF56BtIEuTAN9yaAnit5qZDleeqlRHCtfYTXzR8DyjxMLSmX9NsVFIBmfEsKbf5hm02S0YBU2z645uGFpF5lreqm4N03C7HgVCJaUm3Ty/1lA6loD0zTweHVFqlYqiCkmfhmL+nNzwGvMDfhXYwhVeu4VmSldVATpeOqooBb84ZpydGq0pAmmKfD3E5oNaAG0otyQOXmC0nFzq639txDpeYRQEEqHzW7HfI1AFWsVQO1q/Gl7lcAHTLf/wlSKkJa4nzrtflStwQJUzV95fDJIqU761us5FpAh/SlUCD5yuGAUtLHWLRHD023xlg6Eji8djNfYb53aNoCMB/Hi/FkSGbCu+Wp7pblByMvKXN9im0rwNzmYFYfPXfbbbfddvvD9gl6XuAhzsNFLQAAAABJRU5ErkJggg=='
+];
+
+const SNOW_SPRITES = SNOW_SPRITESource.map(src => {
+    const img = new Image();
+    img.src = src;
+    return img;
+});
+
+// Mapping sprites to match the reference quality [color, spriteIndex, sizeMin, sizeExtra]
+// Reference: 
+// 0: sprite2 (ref source 1), size 10-10
+// 1: sprite3 (ref source 2), size 10-15
+// 2: sprite1 (ref source 0), size 10-15
+// 3: sprite5 (ref source 4), size 5-10
+// 4: sprite4 (ref source 3), size 5-10
+const SNOW_TYPES = [
+    { spriteIndex: 1, sizeMin: 10, sizeVar: 0 },
+    { spriteIndex: 2, sizeMin: 10, sizeVar: 5 },
+    { spriteIndex: 0, sizeMin: 10, sizeVar: 5 },
+    { spriteIndex: 4, sizeMin: 5, sizeVar: 5 },
+    { spriteIndex: 3, sizeMin: 5, sizeVar: 5 }
+];
+
 class VisualFX {
     constructor() {
         this.canvas = null;
@@ -44,7 +73,11 @@ class VisualFX {
         this.particles = [];
         this.isActive = false;
         this.animationFrameId = null;
+        this.animationFrameId = null;
         this.darkness = 0; // Screen darken intensity
+        this.snowAngle = 0; // For snow sinusoidal movement
+        this.starField = []; // High Quality Star Field Particles
+        this.starTime = 0; // Time accumulator for stars
 
         // Ambient Intensities (0.0 - 1.0)
         this.ambience = {
@@ -55,6 +88,25 @@ class VisualFX {
         };
 
         this.init();
+        this.initStarField(); // Pre-calculate stars
+    }
+
+    initStarField() {
+        // Reproducing the "Several layers of stars" from the GLSL sample
+        // Layers: z=5, 10, 20, 30, 40 (roughly)
+        // We will just creating a distribution of Z values
+        this.starField = [];
+        const count = 300;
+        for (let i = 0; i < count; i++) {
+            this.starField.push({
+                x: Math.random() * 2000, // Wide range for scrolling
+                y: Math.random() * 1000,
+                z: 5 + Math.random() * 35, // Depth (determines speed and size)
+                phase: Math.random() * Math.PI * 2, // Twinkle phase
+                baseAlpha: 0.3 + Math.random() * 0.7,
+                color: Math.random() < 0.1 ? '#ffffaa' : '#ffffff' // Slight yellow tint from sample
+            });
+        }
     }
 
     init() {
@@ -357,16 +409,22 @@ class VisualFX {
     }
 
     createSnowParticle() {
+        const typeConfig = SNOW_TYPES[Math.floor(Math.random() * SNOW_TYPES.length)];
+        const img = SNOW_SPRITES[typeConfig.spriteIndex];
+
         this.particles.push({
             x: Math.random() * this.canvas.width,
-            y: -10,
-            vx: (Math.random() - 0.5) * FX_CONFIG.snowSway,
+            y: -20,
+            vx: 0, // Will be driven by snowAngle in loop
             vy: FX_CONFIG.snowSpeedY + Math.random() * FX_CONFIG.snowSpeedYVar,
             life: 1.0,
             decay: 0.005,
             color: '#ffffff',
-            size: FX_CONFIG.snowSizeBase + Math.random() * FX_CONFIG.snowSizeVar,
-            type: 'sparkle' // Re-use sparkle for snow
+            size: typeConfig.sizeMin + Math.random() * typeConfig.sizeVar,
+            type: 'snow',
+            sprite: img,
+            rotation: Math.random() * Math.PI * 2,
+            vRot: (Math.random() - 0.5) * 0.1
         });
     }
 
@@ -431,10 +489,25 @@ class VisualFX {
             this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         }
 
+        // Update Snow Angle
+        this.snowAngle += 0.003;
+        this.starTime += 0.01;
+
+        // Draw Star Background (if active)
+        if (this.ambience.star > 0.01) {
+            this.updateAndDrawStarField();
+        }
+
         // Ambience Generation (Configurable)
         this._spawnAmbience('rain', this.ambience.rain, FX_CONFIG.rainMass, () => this.createRainParticle());
-        this._spawnAmbience('star', this.ambience.star, FX_CONFIG.starMass, () => this.createStarParticle());
-        this._spawnAmbience('snow', this.ambience.snow, FX_CONFIG.snowMass, () => this.createSnowParticle());
+        // this._spawnAmbience('star', this.ambience.star, FX_CONFIG.starMass, () => this.createStarParticle()); // Disabled: using Background Field now
+
+        // Variable snow amount (Sine wave modulation for natural gusts)
+        // Reference: "Quantity expression is not constant... but variable"
+        const snowVar = 0.5 + 0.5 * Math.sin(this.snowAngle * 0.5); // 0 to 1 slow wave
+        const dynamicSnowMass = FX_CONFIG.snowMass * (0.5 + snowVar * 2.5); // Fluctuates between 0.5x and 3x
+
+        this._spawnAmbience('snow', this.ambience.snow, dynamicSnowMass, () => this.createSnowParticle());
         this._spawnAmbience('leaves', this.ambience.leaves, FX_CONFIG.leavesMass, () => this.createLeafParticle());
 
         // Draw darkening overlay
@@ -463,7 +536,28 @@ class VisualFX {
                 this.ctx.strokeStyle = p.color;
                 this.ctx.lineWidth = 1;
                 this.ctx.globalAlpha = p.life;
+                this.ctx.globalAlpha = p.life;
                 this.ctx.stroke();
+            } else if (p.type === 'snow') {
+                // Sinusoidal movement
+                p.vx = Math.sin(this.snowAngle) * Math.cos(this.snowAngle) * 5;
+                p.x += p.vx;
+                p.y += p.vy;
+                p.rotation += p.vRot;
+
+                if (p.sprite && p.sprite.complete) {
+                    this.ctx.save();
+                    this.ctx.translate(p.x, p.y);
+                    this.ctx.rotate(p.rotation);
+                    this.ctx.globalAlpha = p.life;
+                    // Draw centered
+                    this.ctx.drawImage(p.sprite, -p.size / 2, -p.size / 2, p.size, p.size);
+                    this.ctx.restore();
+                } else {
+                    // Fallback
+                    this.ctx.beginPath(); this.ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2);
+                    this.ctx.fillStyle = p.color; this.ctx.globalAlpha = p.life; this.ctx.fill();
+                }
             } else if (p.type === 'tornado_particle') {
                 p.y += p.vy;
                 p.angle += 0.2;
@@ -528,6 +622,47 @@ class VisualFX {
         this.ctx.globalCompositeOperation = 'source-over';
 
         requestAnimationFrame(() => this.loop());
+    }
+
+    updateAndDrawStarField() {
+        // Reproducing the shader effect:
+        // uv.x += _t / scale; -> x += speed / z
+        // k = smoothstep(..., sin(f.x+f.y)*0.003) -> Twinkle
+
+        const intensity = this.ambience.star; // 0.0 - 1.0 (Master fade)
+
+        // We use 'lighter' composite for glowing effect
+        this.ctx.globalCompositeOperation = 'lighter';
+
+        for (let star of this.starField) {
+            // Movement (Parallax)
+            // Speed inversely proportional to Z
+            const speed = 20 / star.z;
+            star.x += speed;
+
+            // Wrap around
+            if (star.x > this.canvas.width) star.x = 0;
+
+            // Draw
+            // Size inversely proportional to Z
+            // Sample uses 0.9, 0.8, 0.99 color or 1,1,0. We defined per-star.
+
+            // Twinkle: sin(time + phase)
+            const twinkle = Math.sin(this.starTime * 3 + star.phase);
+            const alpha = star.baseAlpha * (0.5 + 0.5 * twinkle) * intensity;
+
+            if (alpha <= 0.01) continue;
+
+            const size = Math.max(0.5, 40 / star.z); // Perspective size
+
+            this.ctx.beginPath();
+            this.ctx.arc(star.x, star.y, size, 0, Math.PI * 2);
+            this.ctx.fillStyle = star.color;
+            this.ctx.globalAlpha = alpha;
+            this.ctx.fill();
+        }
+
+        this.ctx.globalCompositeOperation = 'source-over';
     }
 }
 window.VisualFX = VisualFX;

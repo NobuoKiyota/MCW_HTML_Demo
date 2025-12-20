@@ -2049,3 +2049,320 @@ body {
         width: 100%;
     }
 }
+
+/* Candle Specific Styles */
+.candle-glow .icon-inner {
+    filter: drop-shadow(0 0 25px rgba(255, 140, 0, 0.9));
+    transition: filter 0.3s ease;
+}
+
+.icon-dark .icon-inner {
+    filter: brightness(0.3) !important;
+    transition: filter 0.5s ease;
+}
+
+/* ============================================
+   レスポンシブデザイン (Mobile Optimization)
+   ============================================ */
+
+@media (max-width: 1024px) {
+
+    /* ダッシュボードのレイアウト変更：2カラム -> 1カラム */
+    .dashboard-container {
+        flex-direction: column;
+        gap: 2rem;
+    }
+
+    .field-section,
+    .control-section {
+        width: 100%;
+        max-width: none;
+        flex: none;
+    }
+
+    /* フィールドの高さ調整：スマホで見やすい高さに */
+    .interactive-field {
+        height: 50vh;
+        /* 画面半分くらい */
+        min-height: 350px;
+        max-height: 600px;
+    }
+
+    /* コントロールパネルの配置調整 */
+    .control-section {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    /* メニューボタンの位置調整（コンテンツに被らないように） */
+    .menu-button {
+        top: 1rem;
+        left: 1rem;
+        background: rgba(0, 0, 0, 0.5);
+        /* 視認性確保の背景 */
+        border-radius: 50%;
+        width: 45px;
+        height: 45px;
+        padding: 8px;
+    }
+
+    .theme-switcher-compact {
+        margin-right: 0.5rem;
+        /* 右端のマージン微調整 */
+    }
+
+    /* アイコングリッドのサイズ調整 */
+    .icon-grid {
+        gap: 0.5rem;
+        width: 95%;
+        height: 90%;
+    }
+
+    .interactive-icon {
+        max-width: 80px;
+        max-height: 80px;
+    }
+}
+
+/* さらに小さい画面（スマホ縦）向け微調整 */
+@media (max-width: 480px) {
+    .section-header {
+        flex-direction: row;
+        /* タイトルとボタンを横並び維持 */
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+    }
+
+    .dashboard-title {
+        font-size: 1.5rem;
+        text-align: left;
+        /* 左寄せ */
+        padding-left: 3rem;
+        /* メニューボタン分の余白 */
+    }
+
+    .interactive-field {
+        height: 45vh;
+    }
+
+    /* XYパッドを少し大きくして操作しやすく */
+    .amb-xy-pad {
+        height: 250px;
+    }
+
+    .pad-corner {
+        font-size: 0.8rem;
+    }
+}
+
+/* ============================================
+   グローバルナビゲーション & SPA
+   ============================================ */
+
+/* Menu Button */
+.menu-button {
+    position: fixed;
+    top: 2rem;
+    left: 2rem;
+    z-index: 1001;
+    /* Above start-overlay if needed, or matched */
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-around;
+    padding: 0;
+}
+
+.menu-button .bar {
+    display: block;
+    width: 100%;
+    height: 3px;
+    background: var(--color-primary);
+    border-radius: 2px;
+    transition: all 0.3s ease;
+    box-shadow: 0 0 5px var(--shadow-color);
+}
+
+.menu-button.open .bar:nth-child(1) {
+    transform: rotate(45deg) translate(8px, 8px);
+}
+
+.menu-button.open .bar:nth-child(2) {
+    opacity: 0;
+}
+
+.menu-button.open .bar:nth-child(3) {
+    transform: rotate(-45deg) translate(7px, -7px);
+}
+
+/* Global Navigation Overlay */
+.global-nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(26, 26, 26, 0.95);
+    backdrop-filter: blur(10px);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.4s ease;
+}
+
+.global-nav.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+.nav-list {
+    list-style: none;
+    text-align: center;
+}
+
+.nav-list li {
+    margin: 2rem 0;
+    transform: translateY(20px);
+    opacity: 0;
+    transition: all 0.4s ease;
+}
+
+.global-nav.active .nav-list li {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+/* Stagger animation for links */
+.global-nav.active .nav-list li:nth-child(1) {
+    transition-delay: 0.1s;
+}
+
+.global-nav.active .nav-list li:nth-child(2) {
+    transition-delay: 0.2s;
+}
+
+.global-nav.active .nav-list li:nth-child(3) {
+    transition-delay: 0.3s;
+}
+
+.global-nav.active .nav-list li:nth-child(4) {
+    transition-delay: 0.4s;
+}
+
+.nav-link {
+    font-size: 2.5rem;
+    font-weight: var(--font-weight-bold);
+    color: var(--color-text);
+    text-decoration: none;
+    position: relative;
+    transition: color 0.3s ease;
+}
+
+.nav-link:hover {
+    color: var(--color-primary);
+    text-shadow: 0 0 20px var(--color-primary);
+}
+
+/* Page Sections */
+.page-section {
+    width: 100%;
+    min-height: 100vh;
+    /* Using absolute positioning overlap or display swap? */
+    /* Implementation choice: Display Switching for simplicity now, 
+       but we want animations. Let's use opacity/transition active classes. */
+    transition: opacity 0.5s ease;
+    opacity: 1;
+}
+
+.page-section.hidden {
+    display: none;
+    /* Hide completely from layout */
+    opacity: 0;
+}
+
+/* Content Layouts */
+.content-wrapper {
+    max-width: 1000px;
+    margin: 6rem auto 2rem;
+    padding: 2rem;
+    text-align: center;
+    animation: fadeInUp 0.5s ease;
+}
+
+.section-heading {
+    font-size: 3rem;
+    margin-bottom: 2rem;
+    color: var(--color-primary);
+    text-shadow: 0 0 15px var(--shadow-color);
+}
+
+/* Profile Specific */
+.profile-card {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2rem;
+    background: var(--color-surface);
+    padding: 2rem;
+    border-radius: 20px;
+    border: 1px solid var(--color-primary);
+    box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+    align-items: center;
+}
+
+.profile-img-placeholder {
+    width: 200px;
+    height: 200px;
+    background: var(--color-background);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--color-primary);
+    color: var(--color-primary);
+    font-weight: bold;
+    box-shadow: 0 0 15px var(--shadow-color);
+}
+
+.profile-info {
+    text-align: left;
+}
+
+.profile-info h3 {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+    color: var(--color-text);
+}
+
+/* Contact Specific */
+.contact-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+.form-input {
+    width: 100%;
+    padding: 1rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-primary);
+    color: var(--color-text);
+    border-radius: 8px;
+    outline: none;
+    font-family: inherit;
+}
+
+.form-input:focus {
+    box-shadow: 0 0 10px var(--shadow-color);
+}

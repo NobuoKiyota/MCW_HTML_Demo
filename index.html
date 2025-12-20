@@ -19,69 +19,153 @@
     </div>
 
     <!-- メインコンテナ -->
-    <div id="mainContainer" class="main-container hidden">
-        <!-- メインコンテンツ (1画面レイアウト) -->
-        <main class="dashboard-container">
-            <!-- 左側：インタラクティブフィールド -->
-            <section class="field-section">
-                <div class="section-header">
-                    <h2 class="dashboard-title">Main Field</h2>
-                    <div class="theme-switcher-compact">
-                        <button id="themeToggle" class="theme-btn" aria-label="Switch Theme">
-                            <span class="theme-icon">🎌</span> Theme
-                        </button>
-                    </div>
-                </div>
-                <div id="interactiveField" class="interactive-field">
-                    <!-- JSで生成 -->
-                </div>
-            </section>
+    <div id="mainContainer" class="main-container">
 
-            <!-- 右側：コントロールパネル -->
-            <aside class="control-section">
-                <!-- Unit 1: BGM Generator -->
-                <div class="control-unit bgm-unit">
-                    <h3 class="unit-title">BGM Generator</h3>
-                    <div class="unit-content">
-                        <div class="playback-controls">
-                            <button id="bgmPlayStop" class="play-btn">▶</button>
-                            <div class="track-info">
-                                <span id="currentTrackName">Techno</span>
-                                <div class="visualizer-mini" id="musicVisualizer"></div>
+        <!-- Global Navigation Button -->
+        <button id="menuButton" class="menu-button" aria-label="Toggle Menu">
+            <span class="bar"></span>
+            <span class="bar"></span>
+            <span class="bar"></span>
+        </button>
+
+        <!-- Global Navigation Overlay -->
+        <!-- Global Navigation Overlay -->
+        <nav id="globalNav" class="global-nav">
+            <ul class="nav-list">
+                <li><a href="#" class="nav-link" data-target="section-interactive">INTERACTIVE</a></li>
+                <li><a href="#" class="nav-link" data-target="section-profile">PROFILE</a></li>
+                <li><a href="#" class="nav-link" data-target="section-gallery">GALLERY</a></li>
+                <li><a href="#" class="nav-link" data-target="section-contact">CONTACT</a></li>
+            </ul>
+        </nav>
+
+        <!-- SECTION: INTERACTIVE (Main Field) -->
+        <section id="section-interactive" class="page-section active">
+            <!-- メインコンテンツ (1画面レイアウト) -->
+            <main class="dashboard-container">
+                <!-- 左側：インタラクティブフィールド -->
+                <section class="field-section">
+                    <div class="section-header">
+                        <h2 class="dashboard-title">Virtual Experience</h2>
+                        <div class="theme-switcher-compact">
+                            <button id="themeToggle" class="theme-btn" aria-label="Switch Theme">
+                                <span class="theme-icon">🎌</span> Theme
+                            </button>
+                        </div>
+                    </div>
+                    <div id="interactiveField" class="interactive-field">
+                        <!-- JSで生成 -->
+                    </div>
+                </section>
+
+                <!-- 右側：コントロールパネル -->
+                <aside class="control-section">
+                    <!-- Unit 1: BGM Generator -->
+                    <div class="control-unit bgm-unit">
+                        <h3 class="unit-title">BGM Generator</h3>
+                        <div class="unit-content">
+                            <div class="playback-controls">
+                                <button id="bgmPlayStop" class="play-btn">▶</button>
+                                <div class="track-info">
+                                    <span id="currentTrackName">Techno</span>
+                                    <div class="visualizer-mini" id="musicVisualizer"></div>
+                                </div>
+                            </div>
+                            <div class="genre-selector">
+                                <button class="genre-btn active" data-genre="bgm1">BGM 01</button>
+                                <button class="genre-btn" data-genre="bgm2">BGM 02</button>
+                            </div>
+                            <div class="volume-row">
+                                <span class="vol-icon">🔊</span>
+                                <input type="range" id="bgmVolume" min="0" max="1" step="0.05" value="0.5">
                             </div>
                         </div>
-                        <div class="genre-selector">
-                            <button class="genre-btn active" data-genre="bgm1">BGM 01</button>
-                            <button class="genre-btn" data-genre="bgm2">BGM 02</button>
-                        </div>
-                        <div class="volume-row">
-                            <span class="vol-icon">🔊</span>
-                            <input type="range" id="bgmVolume" min="0" max="1" step="0.05" value="0.5">
-                        </div>
                     </div>
-                </div>
 
-                <!-- Unit 2: Ambience Spatializer (XY) -->
-                <div class="control-unit amb-unit">
-                    <h3 class="unit-title">Ambience Spatializer</h3>
-                    <div class="unit-content">
-                        <div class="xy-pad-container">
-                            <div id="ambXYPad" class="amb-xy-pad">
-                                <div class="pad-corner top-left">Rain 🌧️</div>
-                                <div class="pad-corner top-right">Star ✨</div>
-                                <div class="pad-corner bottom-left">Snow ❄️</div>
-                                <div class="pad-corner bottom-right">Leaves 🍂</div>
-                                <div class="xy-cursor"></div>
-                                <div class="xy-center-marker">+</div>
+                    <!-- Unit 2: Ambience Spatializer (XY) -->
+                    <div class="control-unit amb-unit">
+                        <h3 class="unit-title">Ambience Spatializer</h3>
+                        <div class="unit-content">
+                            <div class="xy-pad-container">
+                                <div id="ambXYPad" class="amb-xy-pad">
+                                    <div class="pad-corner top-left">Rain 🌧️</div>
+                                    <div class="pad-corner top-right">Star ✨</div>
+                                    <div class="pad-corner bottom-left">Snow ❄️</div>
+                                    <div class="pad-corner bottom-right">Leaves 🍂</div>
+                                    <div class="xy-cursor"></div>
+                                    <div class="xy-center-marker">+</div>
+                                </div>
+                                <p class="pad-hint">Drag cursor to mix environments.<br>Center is silent.</p>
                             </div>
-                            <p class="pad-hint">Drag cursor to mix environments.<br>Center is silent.</p>
+                        </div>
+                    </div>
+                </aside>
+            </main>
+        </section>
+
+        <!-- SECTION: PROFILE -->
+        <section id="section-profile" class="page-section hidden">
+            <div class="content-wrapper">
+                <h2 class="section-heading">PROFILE</h2>
+                <div class="profile-card">
+                    <div class="profile-img-placeholder">USER ICON</div>
+                    <div class="profile-info">
+                        <h3>Creator Name</h3>
+                        <p>Web Developer / Sound Designer</p>
+                        <p>Creating immersive web experiences with audio and visuals.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SECTION: GALLERY (Works) -->
+        <section id="section-gallery" class="page-section hidden">
+            <div class="content-wrapper">
+                <h2 class="section-heading">GALLERY</h2>
+                <div class="works-grid">
+                    <!-- Works Item 1: Asian Temple -->
+                    <div class="work-card">
+                        <div class="card-inner">
+                            <div class="card-image" style="padding:0;">
+                                <video src="assets/mp4/AsianSample.mp4" controls
+                                    style="width:100%; height:100%; object-fit:cover;"></video>
+                            </div>
+                            <div class="card-content">
+                                <h3 class="card-title">Asian Temple Journey</h3>
+                                <p class="card-description">
+                                    A cinematic sample featuring a custom level designed in Unreal Engine.
+                                    The original soundtrack, composed in Cubase, evokes the atmospheric depth of
+                                    exploring an ancient Asian temple.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Works Item 2 -->
+                    <div class="work-card">
+                        <div class="card-inner">
+                            <div class="card-image"><span class="card-placeholder">Project B</span></div>
+                            <div class="card-content">
+                                <h3 class="card-title">Project Beta</h3>
+                                <p class="card-description">3D Visualizer.</p>
+                            </div>
                         </div>
                     </div>
                 </div>
+            </div>
+        </section>
 
-
-            </aside>
-        </main>
+        <!-- SECTION: CONTACT -->
+        <section id="section-contact" class="page-section hidden">
+            <div class="content-wrapper">
+                <h2 class="section-heading">CONTACT</h2>
+                <p>Feel free to reach out.</p>
+                <form class="contact-form" onsubmit="event.preventDefault(); alert('Demo only');">
+                    <input type="email" placeholder="Your Email" class="form-input">
+                    <textarea placeholder="Message" class="form-input"></textarea>
+                    <button type="submit" class="start-button">Send</button>
+                </form>
+            </div>
+        </section>
 
         <!-- フッター -->
         <footer class="footer">
@@ -89,12 +173,18 @@
         </footer>
     </div>
 
+    <!-- jQuery & Plugins -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.ripples/0.5.3/jquery.ripples.min.js"></script>
+
     <!-- JavaScript -->
     <script src="js/themeManager.js"></script>
     <script src="js/audioManager.js"></script>
     <script src="js/soundGenerator.js"></script>
+    <script src="js/soundGenerator.js"></script>
     <script src="js/visualEffects.js"></script>
     <script src="js/interactiveField.js"></script>
+    <script src="js/uiManager.js"></script>
     <script src="js/app.js"></script>
     <script src="js/cyberTheme.js"></script>
 </body>

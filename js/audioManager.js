@@ -28,7 +28,9 @@ class AudioManager {
                 shishi: 'assets/sounds/japanese/shishi.wav',
                 fusuma: 'assets/sounds/japanese/fusuma.wav',
                 bgm: 'assets/sounds/japanese/Japanese01.mp3',  // Fixed path
-                amb: 'assets/sounds/japanese/amb.wav'
+                amb: 'assets/sounds/japanese/Ambience_Snow.mp3',
+                torchLoop: 'assets/sounds/japanese/Icon/TorchLoop.wav',
+                torchOff: 'assets/sounds/japanese/Icon/TorchOff.mp3'
             },
             cyber: {
                 hologram: 'assets/sounds/cyber/hologram.wav',
@@ -40,6 +42,7 @@ class AudioManager {
         // 現在再生中のBGM/AMBソース
         this.bgmSource = null;
         this.ambSource = null;
+        this.torchSource = null; // ろうそくループ音源
 
         // フォールバック用の音の設定（WAVファイルが存在しない場合）
         this.fallbackSoundSettings = {
@@ -122,6 +125,7 @@ class AudioManager {
         }
 
         try {
+            console.log('🔊 AudioManager playing file:', url);
             const source = this.audioContext.createBufferSource();
             const gainNode = this.audioContext.createGain();
 
@@ -190,11 +194,47 @@ class AudioManager {
             await this.loadAudioFile(this.soundPaths.japanese.fusuma);
             await this.loadAudioFile(this.soundPaths.japanese.bgm);
             await this.loadAudioFile(this.soundPaths.japanese.amb);
+            await this.loadAudioFile(this.soundPaths.japanese.torchLoop);
+            await this.loadAudioFile(this.soundPaths.japanese.torchOff);
+
+            // Preload Ripple Sounds
+            for (let i = 1; i <= 6; i++) {
+                await this.loadAudioFile(`assets/sounds/japanese/Icon/Icon_Ripples0${i}.mp3`);
+            }
         } else {
             await this.loadAudioFile(this.soundPaths.cyber.hologram);
             await this.loadAudioFile(this.soundPaths.cyber.bgm);
             await this.loadAudioFile(this.soundPaths.cyber.amb);
         }
+    }
+
+    /**
+     * ろうそくループ音を再生
+     */
+    playTorchLoop() {
+        if (this.torchSource) return; // 既に再生中
+        const path = this.soundPaths.japanese.torchLoop;
+        this.torchSource = this.playAudioFile(path, 0.4, true); // Loop
+    }
+
+    /**
+     * ろうそくループ音を停止
+     */
+    stopTorchLoop() {
+        if (this.torchSource) {
+            try {
+                this.torchSource.stop();
+            } catch (e) { }
+            this.torchSource = null;
+        }
+    }
+
+    /**
+     * ろうそく消灯音を再生
+     */
+    playTorchOff() {
+        const path = this.soundPaths.japanese.torchOff;
+        this.playAudioFile(path, 0.6, false);
     }
 
     /**
@@ -234,6 +274,7 @@ class AudioManager {
         const soundConfig = settings[soundType];
 
         try {
+            console.log('🎹 AudioManager playing fallback (generated):', soundType);
             const oscillator = this.audioContext.createOscillator();
             const gainNode = this.audioContext.createGain();
 
@@ -335,6 +376,27 @@ class AudioManager {
 
         // フォールバック: Oscillatorで生成
         this.playFallbackSound(soundType);
+    }
+
+    /**
+     * Play random water drop sound from Icon_Ripples01.mp3 to 06.mp3
+     */
+    playWaterDrop() {
+        if (!this.audioContext) return;
+        if (this.audioContext.state === 'suspended') this.audioContext.resume();
+
+        // Randomly select 1 to 6
+        const index = Math.floor(Math.random() * 6) + 1;
+        const path = `assets/sounds/japanese/Icon/Icon_Ripples0${index}.mp3`;
+
+        // Play if loaded, otherwise try to load and play (async)
+        if (this.audioBuffers.has(path)) {
+            this.playAudioFile(path, 0.6); // Slightly louder
+        } else {
+            this.loadAudioFile(path).then(buffer => {
+                if (buffer) this.playAudioFile(path, 0.6);
+            });
+        }
     }
 
     /**

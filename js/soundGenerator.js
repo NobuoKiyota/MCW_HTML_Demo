@@ -16,6 +16,7 @@ class SoundGenerator {
         this.isAmbienceActive = false;
         this.starBuffer = null; // Buffer for Star Ambience (MP3)
         this.rainBuffer = null; // Buffer for Rain Ambience (MP3)
+        this.snowBuffer = null; // Buffer for Snow Ambience (MP3)
 
         // Try init immediately if context exists (unlikely in this flow), otherwise wait for explicit init() call
         if (this.audioManager && this.audioManager.audioContext) {
@@ -38,6 +39,7 @@ class SoundGenerator {
         // Load Ambience Sounds
         this._loadAmbienceSound('star', 'assets/sounds/japanese/Ambience_Star.mp3');
         this._loadAmbienceSound('rain', 'assets/sounds/japanese/Ambience_Rain.mp3');
+        this._loadAmbienceSound('snow', 'assets/sounds/japanese/Ambience_Snow.mp3');
     }
 
     async _loadAmbienceSound(type, url) {
@@ -48,6 +50,7 @@ class SoundGenerator {
             this.context.decodeAudioData(arrayBuffer, (buffer) => {
                 if (type === 'star') this.starBuffer = buffer;
                 if (type === 'rain') this.rainBuffer = buffer;
+                if (type === 'snow') this.snowBuffer = buffer;
                 console.log(`${type} ambience loaded`);
 
                 // If ambience is already active, restart to include new sound
@@ -169,8 +172,12 @@ class SoundGenerator {
             this._createAmbNode('star', 'highpass', 3000);
         }
 
-        // Snow (Noise + Bandpass)
-        this._createAmbNode('snow', 'bandpass', 400); // Windy
+        // Snow (MP3 or Fallback)
+        if (this.snowBuffer) {
+            this._createSampleNode('snow');
+        } else {
+            this._createAmbNode('snow', 'bandpass', 400); // Windy
+        }
 
         // Leaves (Noise + Peaking)
         this._createAmbNode('leaves', 'peaking', 1500);
@@ -207,6 +214,7 @@ class SoundGenerator {
         let buffer = null;
         if (id === 'star') buffer = this.starBuffer;
         if (id === 'rain') buffer = this.rainBuffer;
+        if (id === 'snow') buffer = this.snowBuffer;
 
         if (!buffer) return;
 

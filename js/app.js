@@ -8,6 +8,7 @@ let themeManager;
 let audioManager;
 let interactiveField;
 let soundGenerator;
+let uiManager;
 
 /**
  * DOMContentLoadedイベント：DOMが読み込まれた後に実行
@@ -43,6 +44,10 @@ function init() {
         }
 
         themeManager.setupThemeButton();
+
+        uiManager = new UIManager();
+        console.log('App: UIManager initialized');
+
         setupStartOverlay();
         console.log('App: StartOverlay setup complete');
 
