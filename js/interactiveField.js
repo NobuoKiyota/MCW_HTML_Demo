@@ -123,7 +123,7 @@ class InteractiveField {
             { id: 'furin', name: '風鈴', type: 'system', image: 'icon_furin.png', behavior: 'shake' },
             { id: 'candle', name: '蝋燭', type: 'system', image: 'icon_candle.png', behavior: 'flicker_off' },
             { id: 'koto', name: '琴', type: 'system', image: 'icon_koto.png', behavior: 'light_up' },
-            { id: 'tsuzumi', name: '鼓', type: 'system', image: 'icon_tsuzumi.png', behavior: 'light_up' }
+            { id: 'kotsuzumi', name: '鼓', type: 'system', image: 'icon_tsuzumi.png', behavior: 'light_up' }
         ];
 
         // Row 2: Elements
@@ -226,11 +226,27 @@ class InteractiveField {
                 const basePath = 'assets/images/japanese/';
 
                 // Audio
-                // Audio
                 if (this.audioManager) {
-                    // Don't play generic click sound for ripple (it has its own sound) or candle
-                    if (effectType !== 'ripple' && behavior !== 'flicker_off') {
-                        this.audioManager.playClickSound(); // Simple trigger
+                    const id = icon.getAttribute('data-id');
+
+                    // Don't play generic click for special audio icons
+                    const specialAudioIds = ['ripple', 'candle', 'decision', 'furin', 'koto', 'kotsuzumi'];
+                    if (!specialAudioIds.includes(id) && effectType !== 'ripple' && behavior !== 'flicker_off') {
+                        this.audioManager.playClickSound();
+                    }
+
+                    // Special Audio Triggers
+                    if (id === 'decision') {
+                        this.audioManager.playAudioFile(this.audioManager.soundPaths.japanese.decision, 0.6);
+                    } else if (id === 'koto') {
+                        this.audioManager.playAudioFile(this.audioManager.soundPaths.japanese.koto, 0.6);
+                    } else if (id === 'kotsuzumi') {
+                        this.audioManager.playAudioFile(this.audioManager.soundPaths.japanese.kotsuzumi, 0.6);
+                    } else if (id === 'furin') {
+                        // Random 1-4
+                        const idx = Math.floor(Math.random() * 4) + 1;
+                        const path = `assets/sounds/japanese/Icon/IconFurin0${idx}.mp3`;
+                        this.audioManager.playAudioFile(path, 0.5);
                     }
                 }
 

@@ -27,10 +27,16 @@ class AudioManager {
                 pond: 'assets/sounds/japanese/pond.wav',
                 shishi: 'assets/sounds/japanese/shishi.wav',
                 fusuma: 'assets/sounds/japanese/fusuma.wav',
-                bgm: 'assets/sounds/japanese/Japanese01.mp3',  // Fixed path
+                bgm: 'assets/sounds/japanese/Japanese01.mp3',
                 amb: 'assets/sounds/japanese/Ambience_Snow.mp3',
                 torchLoop: 'assets/sounds/japanese/Icon/TorchLoop.wav',
-                torchOff: 'assets/sounds/japanese/Icon/TorchOff.mp3'
+                torchOff: 'assets/sounds/japanese/Icon/TorchOff.mp3',
+
+                // New Icon Sounds
+                decision: 'assets/sounds/japanese/Icon/IconDecision.mp3',
+                koto: 'assets/sounds/japanese/Icon/IconKoto.mp3',
+                kotsuzumi: 'assets/sounds/japanese/Icon/IconKotsuzumi.mp3'
+                // Furin loaded dynamically 01-04
             },
             cyber: {
                 hologram: 'assets/sounds/cyber/hologram.wav',
@@ -51,7 +57,11 @@ class AudioManager {
                 click: { type: 'sine', frequency: 523, duration: 0.15, volume: 0.3 },
                 pond: { type: 'sine', frequency: 200, duration: 0.3, volume: 0.15 },
                 shishi: { type: 'sine', frequency: 150, duration: 0.5, volume: 0.4 },
-                fusuma: { type: 'sine', frequency: 100, duration: 0.2, volume: 0.25 }
+                fusuma: { type: 'sine', frequency: 100, duration: 0.2, volume: 0.25 },
+                decision: { type: 'triangle', frequency: 300, duration: 0.2, volume: 0.4 },
+                koto: { type: 'sawtooth', frequency: 400, duration: 0.4, volume: 0.3 },
+                kotsuzumi: { type: 'square', frequency: 200, duration: 0.1, volume: 0.5 },
+                furin: { type: 'sine', frequency: 1200, duration: 0.5, volume: 0.2 }
             },
             cyber: {
                 hover: { type: 'square', frequency: 800, duration: 0.05, volume: 0.15 },
@@ -197,9 +207,18 @@ class AudioManager {
             await this.loadAudioFile(this.soundPaths.japanese.torchLoop);
             await this.loadAudioFile(this.soundPaths.japanese.torchOff);
 
-            // Preload Ripple Sounds
+            // New Icons
+            await this.loadAudioFile(this.soundPaths.japanese.decision);
+            await this.loadAudioFile(this.soundPaths.japanese.koto);
+            await this.loadAudioFile(this.soundPaths.japanese.kotsuzumi);
+
+            // Preload Ripple Sounds 01-06
             for (let i = 1; i <= 6; i++) {
                 await this.loadAudioFile(`assets/sounds/japanese/Icon/Icon_Ripples0${i}.mp3`);
+            }
+            // Preload Furin Sounds 01-04
+            for (let i = 1; i <= 4; i++) {
+                await this.loadAudioFile(`assets/sounds/japanese/Icon/IconFurin0${i}.mp3`);
             }
         } else {
             await this.loadAudioFile(this.soundPaths.cyber.hologram);
