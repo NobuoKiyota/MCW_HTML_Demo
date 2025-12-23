@@ -14,6 +14,9 @@ class AudioManager {
         // 現在のテーマ（音の種類を決定）
         this.currentTheme = 'japanese';
 
+        // Master Gain Node
+        this.masterGainNode = null;
+
         // 読み込んだ音声バッファのキャッシュ
         this.audioBuffers = new Map();
 
@@ -28,6 +31,7 @@ class AudioManager {
                 shishi: 'assets/sounds/japanese/shishi.wav',
                 fusuma: 'assets/sounds/japanese/fusuma.wav',
                 bgm: 'assets/sounds/japanese/Japanese01.mp3',
+                bgm2: 'assets/sounds/japanese/Japanese02.mp3',
                 amb: 'assets/sounds/japanese/Ambience_Snow.mp3',
                 torchLoop: 'assets/sounds/japanese/Icon/TorchLoop.wav',
                 torchOff: 'assets/sounds/japanese/Icon/TorchOff.mp3',
@@ -40,7 +44,9 @@ class AudioManager {
             },
             cyber: {
                 hologram: 'assets/sounds/cyber/hologram.wav',
-                bgm: 'assets/sounds/cyber/bgm-01.wav',  // 1曲のみ
+                bgm: 'assets/sounds/cyber/Cyber_bgm01.mp3',
+                bgm2: 'assets/sounds/cyber/Cyber_bgm02.mp3',
+                transitionSE: 'assets/sounds/cyber/Transition_Cyber.mp3',
                 amb: 'assets/sounds/cyber/amb.wav'
             }
         };
@@ -74,11 +80,136 @@ class AudioManager {
         this.bgmGainNode = null;
         this.bgmVolume = 0.5;  // 固定音量
         this.bgmIsPlaying = false;
+        this.bgmSource = null;
+        this.currentBgmKey = null; // Track current loaded BGM
+        this.bgmStartTime = 0;
+        this.bgmPauseTime = 0;
+        this.bgmOffset = 0; // Resume point
+        this.isBgmPaused = false;
 
         // AMB（アンビエント）関連
         this.ambGainNode = null;
         this.ambVolume = 0.3;
         this.ambIsPlaying = false;
+    }
+
+    /**
+     * BGMを開始
+     * @param {string} bgmKey - 再生するBGMのキー ('bgm' or 'bgm2')
+     * @param {boolean} fromResume - 再開かどうか
+     */
+    async startBGM(bgmKey = 'bgm', fromResume = false) {
+        // If requesting a new track while playing/paused, stop and reset first
+        if (this.currentBgmKey && this.currentBgmKey !== bgmKey) {
+            this.stopBGM(); // This resets offset
+        }
+
+        if (this.bgmIsPlaying) return; // Already playing
+
+        try {
+            // ゲインノードを作成（音量制御用）
+            if (!this.bgmGainNode) {
+                this.bgmGainNode = this.audioContext.createGain();
+                if (this.masterGainNode) {
+                    this.bgmGainNode.connect(this.masterGainNode);
+                } else {
+                    this.bgmGainNode.connect(this.audioContext.destination);
+                }
+            }
+
+            this.bgmGainNode.gain.value = this.bgmVolume;
+
+            // BGMファイルのパスを取得
+            const themePaths = this.soundPaths[this.currentTheme];
+            const bgmPath = themePaths ? themePaths[bgmKey] : null;
+
+            if (!bgmPath) {
+                console.warn(`AudioManager: BGMファイルのパスが見つかりません (${bgmKey})`);
+                return;
+            }
+
+            // 音声ファイルを読み込む
+            let audioBuffer = this.audioBuffers.get(bgmPath);
+            if (!audioBuffer) {
+                audioBuffer = await this.loadAudioFile(bgmPath);
+            }
+
+            if (!audioBuffer) {
+                console.error('AudioManager: BGMファイルの読み込みに失敗しました:', bgmPath);
+                return;
+            }
+
+            // BGMを再生
+            const source = this.audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.loop = true;
+
+            source.connect(this.bgmGainNode);
+
+            // Offset calculation for resume
+            const offset = fromResume ? this.bgmOffset : 0;
+            const startTime = this.audioContext.currentTime;
+
+            // Adjust loop points if offset > buffer duration (if implementing loop manual, but BufferSource handles loop)
+            source.start(0, offset % audioBuffer.duration);
+
+            this.bgmSource = source;
+            this.bgmIsPlaying = true;
+            this.isBgmPaused = false;
+            this.currentBgmKey = bgmKey;
+            this.bgmStartTime = startTime;
+
+            console.log(`AudioManager: BGM Playing (${bgmKey}) offset: ${offset}`);
+
+        } catch (error) {
+            console.error('AudioManager: BGM開始エラー', error);
+        }
+    }
+
+    /**
+     * BGMを一時停止 (Resume用にOffset保存)
+     */
+    pauseBGM() {
+        if (!this.bgmIsPlaying || !this.bgmSource) return;
+
+        try {
+            this.bgmSource.stop();
+            this.bgmPauseTime = this.audioContext.currentTime;
+            // Calculate new offset
+            // Playback duration = now - startTime
+            // Total current position = startOffset + playbackDuration
+            const elapsed = this.bgmPauseTime - this.bgmStartTime;
+            this.bgmOffset = (this.bgmOffset + elapsed);
+            // Modulo handled at next start if needed, but buffer.duration needed. 
+            // For checking max:
+            if (this.bgmSource.buffer) {
+                this.bgmOffset = this.bgmOffset % this.bgmSource.buffer.duration;
+            }
+
+            this.bgmIsPlaying = false;
+            this.isBgmPaused = true;
+            this.bgmSource = null;
+            console.log(`AudioManager: BGM Paused at ${this.bgmOffset}`);
+        } catch (e) { console.error('Pause error', e); }
+    }
+
+    /**
+     * BGMを完全停止 (リセット)
+     */
+    stopBGM() {
+        this.bgmIsPlaying = false;
+        this.isBgmPaused = false;
+        this.bgmOffset = 0;
+        this.currentBgmKey = null;
+
+        if (this.bgmSource) {
+            try {
+                this.bgmSource.stop();
+            } catch (e) { }
+            this.bgmSource = null;
+        }
+        console.log('AudioManager: BGM Stopped (Reset)');
+        document.dispatchEvent(new CustomEvent('bgm-stopped'));
     }
 
     /**
@@ -111,7 +242,6 @@ class AudioManager {
             return audioBuffer;
         } catch (error) {
             console.warn(`AudioManager: 音声ファイルの読み込みに失敗しました (${error.message}): ${url}`);
-            // エラーを投げずにnullを返すことで、後続の処理（発振音フォールバックなど）へ進ませる
             return null;
         }
     }
@@ -144,7 +274,12 @@ class AudioManager {
             gainNode.gain.value = volume;
 
             source.connect(gainNode);
-            gainNode.connect(this.audioContext.destination);
+            // MasterGainに接続
+            if (this.masterGainNode) {
+                gainNode.connect(this.masterGainNode);
+            } else {
+                gainNode.connect(this.audioContext.destination);
+            }
 
             source.start(0);
             return source;
@@ -156,12 +291,10 @@ class AudioManager {
 
     /**
      * AudioContextを初期化し、音声ファイルをプリロードする
-     * ブラウザの自動再生制限を回避するため、ユーザー操作後に呼び出す必要がある
      * @returns {Promise<boolean>} 初期化が成功したかどうか
      */
     async init() {
         try {
-            // AudioContextを作成（ブラウザ互換性のため、プレフィックス付きのバージョンも試す）
             const AudioContextClass = window.AudioContext || window.webkitAudioContext;
             if (!AudioContextClass) {
                 console.warn('Web Audio APIがサポートされていません。');
@@ -170,15 +303,18 @@ class AudioManager {
 
             this.audioContext = new AudioContextClass();
 
-            // AudioContextがsuspended状態の場合、resumeする
             if (this.audioContext.state === 'suspended') {
                 await this.audioContext.resume();
             }
 
+            // Master Gain Node作成
+            this.masterGainNode = this.audioContext.createGain();
+            this.masterGainNode.connect(this.audioContext.destination);
+            this.masterGainNode.gain.value = 1.0;
+
             this.isInitialized = true;
             console.log('AudioManager: 初期化完了');
 
-            // 音声ファイルをプリロード（バックグラウンドで読み込み）
             this.preloadAudioFiles();
 
             return true;
@@ -193,7 +329,6 @@ class AudioManager {
      * 音声ファイルをプリロードする
      */
     async preloadAudioFiles() {
-        // 共通音声
         await this.loadAudioFile(this.soundPaths.common.hover);
         await this.loadAudioFile(this.soundPaths.common.click);
 
@@ -207,16 +342,13 @@ class AudioManager {
             await this.loadAudioFile(this.soundPaths.japanese.torchLoop);
             await this.loadAudioFile(this.soundPaths.japanese.torchOff);
 
-            // New Icons
             await this.loadAudioFile(this.soundPaths.japanese.decision);
             await this.loadAudioFile(this.soundPaths.japanese.koto);
             await this.loadAudioFile(this.soundPaths.japanese.kotsuzumi);
 
-            // Preload Ripple Sounds 01-06
             for (let i = 1; i <= 6; i++) {
                 await this.loadAudioFile(`assets/sounds/japanese/Icon/Icon_Ripples0${i}.mp3`);
             }
-            // Preload Furin Sounds 01-04
             for (let i = 1; i <= 4; i++) {
                 await this.loadAudioFile(`assets/sounds/japanese/Icon/IconFurin0${i}.mp3`);
             }
@@ -224,21 +356,16 @@ class AudioManager {
             await this.loadAudioFile(this.soundPaths.cyber.hologram);
             await this.loadAudioFile(this.soundPaths.cyber.bgm);
             await this.loadAudioFile(this.soundPaths.cyber.amb);
+            await this.loadAudioFile(this.soundPaths.cyber.transitionSE);
         }
     }
 
-    /**
-     * ろうそくループ音を再生
-     */
     playTorchLoop() {
-        if (this.torchSource) return; // 既に再生中
+        if (this.torchSource) return;
         const path = this.soundPaths.japanese.torchLoop;
-        this.torchSource = this.playAudioFile(path, 0.4, true); // Loop
+        this.torchSource = this.playAudioFile(path, 0.4, true);
     }
 
-    /**
-     * ろうそくループ音を停止
-     */
     stopTorchLoop() {
         if (this.torchSource) {
             try {
@@ -248,50 +375,28 @@ class AudioManager {
         }
     }
 
-    /**
-     * ろうそく消灯音を再生
-     */
     playTorchOff() {
         const path = this.soundPaths.japanese.torchOff;
         this.playAudioFile(path, 0.6, false);
     }
 
-    /**
-     * 音を再生する（WAVファイル優先、フォールバックでOscillator）
-     * @param {string} soundType - 音の種類（'hover' または 'click'）
-     */
     playSound(soundType) {
-        if (!this.isInitialized || !this.audioContext) {
-            return;
-        }
+        if (!this.isInitialized || !this.audioContext) return;
+        if (this.audioContext.state === 'suspended') this.audioContext.resume();
 
-        if (this.audioContext.state === 'suspended') {
-            this.audioContext.resume();
-        }
-
-        // 共通音声を試す
         const commonPath = this.soundPaths.common[soundType];
         if (commonPath && this.audioBuffers.has(commonPath)) {
             this.playAudioFile(commonPath, 0.5);
             return;
         }
-
-        // フォールバック: Oscillatorで生成
         this.playFallbackSound(soundType);
     }
 
-    /**
-     * フォールバック音を再生（Oscillatorで生成）
-     * @param {string} soundType - 音の種類
-     */
     playFallbackSound(soundType) {
         const settings = this.fallbackSoundSettings[this.currentTheme];
-        if (!settings || !settings[soundType]) {
-            return;
-        }
+        if (!settings || !settings[soundType]) return;
 
         const soundConfig = settings[soundType];
-
         try {
             console.log('🎹 AudioManager playing fallback (generated):', soundType);
             const oscillator = this.audioContext.createOscillator();
@@ -305,7 +410,11 @@ class AudioManager {
             gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + soundConfig.duration);
 
             oscillator.connect(gainNode);
-            gainNode.connect(this.audioContext.destination);
+            if (this.masterGainNode) {
+                gainNode.connect(this.masterGainNode);
+            } else {
+                gainNode.connect(this.audioContext.destination);
+            }
 
             oscillator.start(this.audioContext.currentTime);
             oscillator.stop(this.audioContext.currentTime + soundConfig.duration);
@@ -315,75 +424,69 @@ class AudioManager {
     }
 
     /**
-     * テーマを設定する（音の種類を変更）
-     * @param {string} themeName - テーマ名（'japanese' または 'cyber'）
-     */
+         * テーマ切り替え：すべての音を強制停止（Nuclear Stop）して切り替える
+         */
     async setTheme(themeName) {
+        console.log(`AudioManager: Switching theme from ${this.currentTheme} to ${themeName} (FORCE STOP)`);
+
+        const now = this.audioContext.currentTime;
+
+        // 1. 【重要】マスターボリュームを一瞬で0にして、残響ごとかき消す
+        if (this.masterGainNode) {
+            this.masterGainNode.gain.cancelScheduledValues(now);
+            this.masterGainNode.gain.setValueAtTime(0, now);
+        }
+
+        // 2. AudioManager管理の音声を停止
+        this.stopBGM();
+        this.stopAMB();
+        this.stopTorchLoop();
+
+        // 3. 【重要】SoundGenerator（雨・風・生成BGM）も強制停止
+        // windowオブジェクト経由でアクセスして止める
+        if (window.soundGenerator) {
+            window.soundGenerator.stopAmbience(); // 雨・風・星などのXYパッド音
+            window.soundGenerator.stopBGM();      // 生成系のBGM
+            window.soundGenerator.isPlaying = false;
+            window.soundGenerator.isAmbienceActive = false;
+        }
+
+        // 4. テーマ変数の更新
         this.currentTheme = themeName;
 
-        // テーマ別音声をプリロード
+        // 5. 新しい音のロード
         if (this.isInitialized) {
-            if (themeName === 'japanese') {
-                await this.loadAudioFile(this.soundPaths.japanese.pond);
-                await this.loadAudioFile(this.soundPaths.japanese.shishi);
-                await this.loadAudioFile(this.soundPaths.japanese.fusuma);
-                await this.loadAudioFile(this.soundPaths.japanese.bgm);
-                await this.loadAudioFile(this.soundPaths.japanese.amb);
-            } else {
-                await this.loadAudioFile(this.soundPaths.cyber.hologram);
-                await this.loadAudioFile(this.soundPaths.cyber.bgm);
-                await this.loadAudioFile(this.soundPaths.cyber.amb);
-            }
+            await this.preloadAudioFiles();
+        }
+
+        // 6. 音量を復帰させる（0.1秒後に戻すことで、停止時のノイズを防ぎつつ即復帰）
+        if (this.masterGainNode) {
+            this.masterGainNode.gain.setValueAtTime(0, now);
+            this.masterGainNode.gain.linearRampToValueAtTime(1.0, now + 0.1);
         }
     }
 
-    /**
-     * ホバー時の音を再生
-     */
     playHoverSound() {
         this.playSound('hover');
     }
 
-    /**
-     * クリック時の音を再生
-     */
     playClickSound() {
         this.playSound('click');
     }
 
-    /**
-     * 要素に音声イベントを設定する
-     * @param {HTMLElement} element - 音声を設定する要素
-     * @param {string} soundType - 音の種類（'hover' または 'click'）
-     */
     attachSoundToElement(element, soundType) {
         if (!element) return;
-
         if (soundType === 'hover') {
-            element.addEventListener('mouseenter', () => {
-                this.playHoverSound();
-            });
+            element.addEventListener('mouseenter', () => this.playHoverSound());
         } else if (soundType === 'click') {
-            element.addEventListener('click', () => {
-                this.playClickSound();
-            });
+            element.addEventListener('click', () => this.playClickSound());
         }
     }
 
-    /**
-     * 特定の音を再生（和テーマ用：池、鹿威し、ふすまなど）
-     * @param {string} soundType - 音の種類
-     */
     playCustomSound(soundType) {
-        if (!this.isInitialized || !this.audioContext) {
-            return;
-        }
+        if (!this.isInitialized || !this.audioContext) return;
+        if (this.audioContext.state === 'suspended') this.audioContext.resume();
 
-        if (this.audioContext.state === 'suspended') {
-            this.audioContext.resume();
-        }
-
-        // テーマ別音声を試す
         const themePaths = this.soundPaths[this.currentTheme];
         if (themePaths && themePaths[soundType]) {
             const path = themePaths[soundType];
@@ -392,25 +495,18 @@ class AudioManager {
                 return;
             }
         }
-
-        // フォールバック: Oscillatorで生成
         this.playFallbackSound(soundType);
     }
 
-    /**
-     * Play random water drop sound from Icon_Ripples01.mp3 to 06.mp3
-     */
     playWaterDrop() {
         if (!this.audioContext) return;
         if (this.audioContext.state === 'suspended') this.audioContext.resume();
 
-        // Randomly select 1 to 6
         const index = Math.floor(Math.random() * 6) + 1;
         const path = `assets/sounds/japanese/Icon/Icon_Ripples0${index}.mp3`;
 
-        // Play if loaded, otherwise try to load and play (async)
         if (this.audioBuffers.has(path)) {
-            this.playAudioFile(path, 0.6); // Slightly louder
+            this.playAudioFile(path, 0.6);
         } else {
             this.loadAudioFile(path).then(buffer => {
                 if (buffer) this.playAudioFile(path, 0.6);
@@ -418,15 +514,11 @@ class AudioManager {
         }
     }
 
-    /**
-     * BGMを開始/停止
-     */
     toggleBGM() {
         if (!this.isInitialized || !this.audioContext) {
             console.warn('AudioManager: 初期化されていません');
             return;
         }
-
         if (this.bgmIsPlaying) {
             this.stopBGM();
         } else {
@@ -434,83 +526,6 @@ class AudioManager {
         }
     }
 
-    /**
-     * BGMを開始（シンプル版：1曲のみ）
-     */
-    async startBGM() {
-        if (this.bgmIsPlaying) return;
-
-        try {
-            // ゲインノードを作成（音量制御用）
-            if (!this.bgmGainNode) {
-                this.bgmGainNode = this.audioContext.createGain();
-                this.bgmGainNode.connect(this.audioContext.destination);
-            }
-
-            this.bgmGainNode.gain.value = this.bgmVolume;
-
-            // BGMファイルのパスを取得
-            const themePaths = this.soundPaths[this.currentTheme];
-            const bgmPath = themePaths?.bgm;
-
-            if (!bgmPath) {
-                console.warn('AudioManager: BGMファイルのパスが見つかりません');
-                return;
-            }
-
-            // 音声ファイルを読み込む（まだ読み込まれていない場合）
-            let audioBuffer = this.audioBuffers.get(bgmPath);
-            if (!audioBuffer) {
-                console.log('AudioManager: BGMファイルを読み込み中:', bgmPath);
-                audioBuffer = await this.loadAudioFile(bgmPath);
-            }
-
-            if (!audioBuffer) {
-                console.error('AudioManager: BGMファイルの読み込みに失敗しました:', bgmPath);
-                return;
-            }
-
-            console.log('AudioManager: BGMを再生開始');
-
-            // BGMを再生
-            const source = this.audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.loop = true;
-
-            source.connect(this.bgmGainNode);
-            source.start(0);
-
-            this.bgmSource = source;
-            this.bgmIsPlaying = true;
-
-        } catch (error) {
-            console.error('AudioManager: BGM開始エラー', error);
-        }
-    }
-
-    /**
-     * BGMを停止
-     */
-    stopBGM() {
-        this.bgmIsPlaying = false;
-
-        if (this.bgmSource) {
-            try {
-                this.bgmSource.stop();
-            } catch (e) {
-                // 既に停止している場合は無視
-            }
-            this.bgmSource = null;
-        }
-
-        console.log('AudioManager: BGMを停止');
-    }
-
-
-    /**
-     * BGMの音量を設定
-     * @param {number} volume - 音量（0.0〜1.0）
-     */
     setBGMVolume(volume) {
         this.bgmVolume = Math.max(0, Math.min(1, volume));
         if (this.bgmGainNode) {
@@ -518,15 +533,11 @@ class AudioManager {
         }
     }
 
-    /**
-     * AMB（アンビエント）を開始/停止
-     */
     toggleAMB() {
         if (!this.isInitialized || !this.audioContext) {
             console.warn('AudioManager: 初期化されていません');
             return;
         }
-
         if (this.ambIsPlaying) {
             this.stopAMB();
         } else {
@@ -534,21 +545,21 @@ class AudioManager {
         }
     }
 
-    /**
-     * AMBを開始（環境音：和なら水の音、サイバーなら電子音）
-     */
     async startAMB() {
         if (this.ambIsPlaying) return;
 
         try {
             if (!this.ambGainNode) {
                 this.ambGainNode = this.audioContext.createGain();
-                this.ambGainNode.connect(this.audioContext.destination);
+                if (this.masterGainNode) {
+                    this.ambGainNode.connect(this.masterGainNode);
+                } else {
+                    this.ambGainNode.connect(this.audioContext.destination);
+                }
             }
 
             this.ambGainNode.gain.value = this.ambVolume;
 
-            // AMBファイルのパスを取得
             const themePaths = this.soundPaths[this.currentTheme];
             const ambPath = themePaths?.amb;
 
@@ -557,7 +568,6 @@ class AudioManager {
                 return;
             }
 
-            // 音声ファイルを読み込む（まだ読み込まれていない場合）
             let audioBuffer = this.audioBuffers.get(ambPath);
             if (!audioBuffer) {
                 audioBuffer = await this.loadAudioFile(ambPath);
@@ -568,7 +578,6 @@ class AudioManager {
                 return;
             }
 
-            // AMBを再生（ループ）
             const source = this.audioContext.createBufferSource();
             source.buffer = audioBuffer;
             source.loop = true;
@@ -584,34 +593,44 @@ class AudioManager {
         }
     }
 
-    /**
-     * AMBを停止
-     */
     stopAMB() {
         this.ambIsPlaying = false;
-
         if (this.ambSource) {
             try {
                 this.ambSource.stop();
-            } catch (e) {
-                // 既に停止している場合は無視
-            }
+            } catch (e) { }
             this.ambSource = null;
         }
     }
 
-    /**
-     * AMBの音量を設定
-     * @param {number} volume - 音量（0.0〜1.0）
-     */
     setAMBVolume(volume) {
         this.ambVolume = Math.max(0, Math.min(1, volume));
         if (this.ambGainNode) {
             this.ambGainNode.gain.value = this.ambVolume;
         }
     }
+
+    fadeOutAll(duration = 0.2) {
+        if (!this.audioContext || !this.masterGainNode) return;
+
+        const now = this.audioContext.currentTime;
+
+        this.masterGainNode.gain.cancelScheduledValues(now);
+        this.masterGainNode.gain.setValueAtTime(this.masterGainNode.gain.value, now);
+        this.masterGainNode.gain.linearRampToValueAtTime(0, now + duration);
+
+        setTimeout(() => {
+            console.log('NOTICE: All sounds stopped via fadeOutAll');
+            this.stopBGM();
+            this.stopAMB();
+            this.stopTorchLoop();
+
+            if (this.masterGainNode) {
+                this.masterGainNode.gain.cancelScheduledValues(this.audioContext.currentTime);
+                this.masterGainNode.gain.value = 1.0;
+            }
+        }, duration * 1000 + 50);
+    }
 }
 
-// グローバルにエクスポート
 window.AudioManager = AudioManager;
-

@@ -237,7 +237,7 @@ function setupAmbienceXYPad() {
 
             // Visual FX Update (Particles)
             if (interactiveField && interactiveField.vfx && levels) {
-                interactiveField.vfx.setAmbience(levels.rain, levels.star, levels.snow, levels.leaves);
+                interactiveField.vfx.setAmbience(levels.rain || 0, levels.star || 0, levels.snow || 0, levels.leaves || 0);
             }
         };
 
@@ -253,6 +253,24 @@ function setupAmbienceXYPad() {
             isDragging = false;
             // Optionally stop ambience or fade out? User said "Center is silent", so dragging release might just leave it there or stop?
             // "Multi-Puck" logic usually leaves it. But let's keep it running for ambience.
+        };
+
+        // Expose reset function for external use (Theme Transition)
+        window.resetAmbienceXYPad = () => {
+            // Reset visual cursor to center
+            if (cursor) {
+                cursor.style.left = '50%';
+                cursor.style.top = '50%';
+            }
+            // Reset mix to center (silence)
+            if (window.soundGenerator) {
+                soundGenerator.updateAmbienceMix(0.5, 0.5);
+                soundGenerator.stopAmbience();
+            }
+            // Reset Visual FX
+            if (interactiveField && interactiveField.vfx) {
+                interactiveField.vfx.setAmbience(0, 0, 0, 0);
+            }
         };
 
         // Mouse Events

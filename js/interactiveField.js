@@ -77,6 +77,8 @@ class InteractiveField {
         if (themeName === 'japanese') {
             this.setupJapaneseTheme();
         } else if (themeName === 'cyber') {
+            // Reset VFX for Cyber (Japanese effects off)
+            if (this.vfx) this.vfx.setAmbience(0, 0, 0, 0);
             this.setupCyberTheme();
         }
     }

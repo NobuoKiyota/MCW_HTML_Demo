@@ -49,9 +49,11 @@
     --color-text: #00ffff;
     --color-text-muted: #888888;
 
-    /* グラデーション */
+    /* グラデーション & 画像 */
     --gradient-primary: linear-gradient(135deg, #00ffff 0%, #ff00ff 100%);
     --gradient-background: radial-gradient(circle at center, #1a1a1a 0%, #0a0a0a 100%);
+    /* Cyber Background Image Override */
+    --background-image-url: url('../assets/images/cyber/room_background_cyber.png');
 
     /* フォント */
     --font-primary: 'Courier New', 'Monaco', monospace;
@@ -726,6 +728,24 @@ body::before {
     background: var(--color-background);
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
     transition: all var(--transition-speed) ease;
+}
+
+/* Cyberテーマ時のフィールド背景 */
+[data-theme="cyber"] .interactive-field {
+    /* パスを修正（相対パスに注意） */
+    /* assetsフォルダがcssフォルダの隣にある場合のパス */
+    background-image: url('../assets/images/cyber/room_background_cyber.png') !important;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-color: #000;
+    /* 画像がない場合の保険 */
+}
+
+/* ついでに Japaneseテーマ時の背景も明示的に指定しておくと安全 */
+[data-theme="japanese"] .interactive-field {
+    background: linear-gradient(to bottom, #f5e6d3 0%, #e8d5b7 50%, #d4c4a8 100%);
+    /* 画像を使う場合はここに url(...) を記述 */
 }
 
 /* ============================================
