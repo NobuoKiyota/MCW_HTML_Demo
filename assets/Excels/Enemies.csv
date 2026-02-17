@@ -1,0 +1,4 @@
+ID,Name,PrefabName,HP,Defense,Score,BehaviorID,SpeedMult,EbID,BulletSpeedMult,BulletDmgMult,DropID,Note
+EN001,DeburiA,ENE001,20,0,20,BH_ZAKO_BASIC,1.0,EB_NORMAL,1.0,1.0,DT_ZAKO,Common Enemy
+EN002,DeburiB,ENE002,30,1,30,BH_ZAKO_BASIC,1.5,EB_AIM,1.2,1.0,DT_ZAKO,Fast Enemy
+EN003,DeburiC,ENE003,50,2,50,BH_BOSS_1,1.0,EB_BOSS_1,1.0,1.0,DT_BOSS,Level 1 Boss

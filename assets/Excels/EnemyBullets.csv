@@ -1,0 +1,5 @@
+ID,Type,Speed,Damage,Interval,PrefabName,Note
+EB_NORMAL,0,5.0,10,1.5,BulletNormal,Standard Bullet
+EB_FAST,0,8.0,15,1.0,BulletFast,Fast Shot
+EB_AIM,1,6.0,20,2.0,BulletAim,Aiming Shot
+EB_BOSS_1,2,4.0,30,2.5,BulletBoss,Boss Heavy Shot

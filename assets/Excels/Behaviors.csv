@@ -1,0 +1,5 @@
+ID,LogicID,BaseSpeed,BaseTurn,Note
+BH_ZAKO_BASIC,MPID001,2.0,2.0,Basic Straight/Curve
+BH_HOVER,MPID002,1.5,1.5,Hover and Shoot
+BH_RUSH,MPID003,4.0,3.0,Rush Attack
+BH_BOSS_1,MPBOSS01,1.0,0.5,Boss Pattern 1
