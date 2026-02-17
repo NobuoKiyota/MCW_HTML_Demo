@@ -32,15 +32,53 @@
         <!-- Global Navigation Overlay -->
         <nav id="globalNav" class="global-nav">
             <ul class="nav-list">
-                <li><a href="#" class="nav-link" data-target="section-interactive">INTERACTIVE</a></li>
+                <li><a href="#" class="nav-link" data-target="section-top-menu">TOP</a></li>
+                <li><a href="shooter_game/index.html" class="nav-link">GAME</a></li>
+                <li><a href="#" class="nav-link" data-target="section-portfolio-interactive">INTERACTIVE</a></li>
                 <li><a href="#" class="nav-link" data-target="section-profile">PROFILE</a></li>
                 <li><a href="#" class="nav-link" data-target="section-gallery">GALLERY</a></li>
-                <li><a href="#" class="nav-link" data-target="section-contact">CONTACT</a></li>
+                <!-- <li><a href="#" class="nav-link" data-target="section-contact">CONTACT</a></li> -->
             </ul>
         </nav>
 
+        <!-- SECTION: TOP MENU -->
+        <section id="section-top-menu" class="page-section active">
+            <div class="content-wrapper" style="text-align: center; padding-top: 5rem;">
+                <h2 class="section-title"
+                    style="font-size: 3rem; margin-bottom: 3rem; text-shadow: 0 0 20px rgba(0,255,255,0.5);">SELECT MODE
+                </h2>
+                <div class="menu-grid" style="display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap;">
+
+                    <div class="menu-card" onclick="window.location.href='shooter_game/index.html'"
+                        style="background: rgba(0, 50, 100, 0.6); border: 2px solid #00d4ff; padding: 2rem; border-radius: 10px; cursor: pointer; width: 300px; transition: all 0.3s;">
+                        <h3 style="color: #00d4ff; font-size: 2rem; margin-bottom: 1rem;">GAME START</h3>
+                        <p style="color: #fff;">INTERSTELLAR CARRIER<br>本格シューティングゲーム</p>
+                    </div>
+                    <div class="menu-card" onclick="document.querySelector('[data-target=\'section-profile\']').click()"
+                        style="background: rgba(50, 30, 0, 0.6); border: 2px solid #fa0; padding: 2rem; border-radius: 10px; cursor: pointer; width: 300px; transition: all 0.3s;">
+                        <h3 style="color: #fa0; font-size: 2rem; margin-bottom: 1rem;">PROFILE</h3>
+                        <p style="color: #fff;">制作者プロフィール</p>
+                    </div>
+
+                    <div class="menu-card" onclick="document.querySelector('[data-target=\'section-gallery\']').click()"
+                        style="background: rgba(0, 50, 20, 0.6); border: 2px solid #4f4; padding: 2rem; border-radius: 10px; cursor: pointer; width: 300px; transition: all 0.3s;">
+                        <h3 style="color: #4f4; font-size: 2rem; margin-bottom: 1rem;">GALLERY</h3>
+                        <p style="color: #fff;">制作実績・作品集</p>
+                    </div>
+
+                    <div class="menu-card"
+                        onclick="document.querySelector('[data-target=\'section-portfolio-interactive\']').click()"
+                        style="background: rgba(80, 0, 80, 0.6); border: 2px solid #f0f; padding: 2rem; border-radius: 10px; cursor: pointer; width: 300px; transition: all 0.3s;">
+                        <h3 style="color: #f0f; font-size: 2rem; margin-bottom: 1rem;">INTERACTIVE</h3>
+                        <p style="color: #fff;">Web Audio & Visuals<br>ポートフォリオ体験</p>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
         <!-- SECTION: INTERACTIVE (Main Field) -->
-        <section id="section-interactive" class="page-section active">
+        <section id="section-portfolio-interactive" class="page-section hidden">
             <!-- メインコンテンツ (1画面レイアウト) -->
             <main class="dashboard-container">
                 <!-- 左側：インタラクティブフィールド -->

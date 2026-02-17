@@ -52,6 +52,7 @@ function init() {
         console.log('App: StartOverlay setup complete');
 
         setupThemeChangeListener();
+        setupSectionChangeListener();
         setupDashboardControls();
         console.log('App: init() completed');
 
@@ -111,6 +112,9 @@ function setupStartOverlay() {
 /**
  * テーマ変更イベントのリスナーを設定
  */
+/**
+ * テーマ変更イベントのリスナーを設定
+ */
 function setupThemeChangeListener() {
     document.addEventListener('themeChanged', async (event) => {
         const newTheme = event.detail.theme;
@@ -126,6 +130,31 @@ function setupThemeChangeListener() {
         }
 
         console.log(`テーマが "${newTheme}" に変更されました。`);
+    });
+}
+
+function setupSectionChangeListener() {
+    document.addEventListener('sectionChanged', (event) => {
+        const sectionId = event.detail.sectionId;
+        console.log(`Section Changed: ${sectionId}`);
+
+        // Handle Interactive Field Restoration & Resize Fix
+        if (sectionId === 'section-portfolio-interactive') {
+            console.log('Restoring Interactive Portfolio Content...');
+            if (interactiveField) {
+                // Ensure correct theme is set
+                const themeToSet = interactiveField.currentTheme || 'japanese';
+                interactiveField.setTheme(themeToSet);
+
+                // CRITICAL FIX: Trigger resize for VisualFX and Layout
+                if (interactiveField.vfx) {
+                    setTimeout(() => {
+                        interactiveField.vfx.resize();
+                        window.dispatchEvent(new Event('resize'));
+                    }, 100);
+                }
+            }
+        }
     });
 }
 

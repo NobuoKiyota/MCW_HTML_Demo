@@ -222,6 +222,30 @@ body::before {
 }
 
 /* ============================================
+   ページセクション制御
+   ============================================ */
+.page-section {
+    display: block;
+    width: 100%;
+    height: 100%;
+    animation: fadeIn 0.5s ease;
+}
+
+.page-section.hidden {
+    display: none !important;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+/* ============================================
    テーマ切り替えとBGM/AMBコントロール
    ============================================ */
 

@@ -24,12 +24,16 @@ class UIManager {
         this.menuButton.addEventListener('click', () => this.toggleMenu());
 
         // Navigation Links
+        // Navigation Links
         this.navLinks.forEach(link => {
             link.addEventListener('click', (e) => {
-                e.preventDefault();
                 const targetId = link.getAttribute('data-target');
-                this.navigateTo(targetId);
-                this.closeMenu();
+                if (targetId) {
+                    e.preventDefault();
+                    this.navigateTo(targetId);
+                    this.closeMenu();
+                }
+                // If no data-target, let the link invoke default behavior (href navigation)
             });
         });
     }
