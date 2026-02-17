@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interstellar Carrier - MCW Portfolio</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/shooter_style.css">
+</head>
+
+<body>
+    <div class="header-section">
+        <!-- Internal Back button enabled for Portfolio return -->
+        <button id="global-back-btn" class="back-btn">← PORTFOLIO</button>
+        <span class="header-label">CAREER</span>
+        <span class="header-val"><span id="career-clears">0</span> Clears</span>
+        <span class="header-val"><span id="career-destroys">0</span> Destroys</span>
+        <span class="header-val"><span id="career-rate">0</span>% Achieve</span>
+    </div>
+    <div class="header-section main-title">INTERSTELLAR CARRIER</div>
+    <div class="header-section">
+        <button id="sound-toggle-btn" class="header-btn" onclick="engine.toggleSound()">🔊</button>
+        <span class="header-label">CREDITS:</span>
+        <span id="global-money" class="money-val">$0</span>
+    </div>
+    </div>
+
+    <div id="main-layout-container">
+        <!-- Left Panel -->
+        <div id="gui-left-panel" class="side-panel">
+            <div class="panel-header">CONTROL</div>
+            <div style="padding: 10px; text-align: center;">
+                <button id="retire-btn" onclick="engine.retireMission()">RETIRE</button>
+            </div>
+
+            <div class="panel-header">MISSION INFO</div>
+            <div class="panel-content">
+                <div id="mission-title" style="color: #fa0; font-weight: bold; margin-bottom: 5px;">-</div>
+                <div id="mission-stars" style="color: #ff0; margin-bottom: 5px;"></div>
+                <div>Weight: <span id="weight-val" class="val">0</span>.0</div>
+                <div style="margin-top: 10px; border-top: 1px solid #444; padding-top: 5px;">
+                    LOOT:<br>
+                    <div id="loot-list-ingame" style="font-size: 0.8em; color: #0f0;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="game-container">
+            <canvas id="gameCanvas"></canvas>
+
+            <!-- Title Screen -->
+            <div id="title-screen" class="screen hide">
+                <h1>INTERSTELLAR CARRIER</h1>
+                <p>~ Deliver or Die ~</p>
+                <button onclick="engine.changeState(GAME_STATE.MENU)">START GAME</button>
+            </div>
+
+            <!-- Main Menu -->
+            <div id="main-menu" class="screen hide">
+                <h2>Ship Terminal</h2>
+                <div class="stats-info">
+                    Units Waiting for Delivery...
+                </div>
+                <button onclick="engine.changeState(GAME_STATE.MISSION_SELECT)">MISSIONS</button>
+                <button onclick="engine.changeState(GAME_STATE.GRID_MODIFY)">SHIP EDIT</button>
+                <button onclick="engine.changeState(GAME_STATE.UPGRADE)">UPGRADE</button>
+                <button id="reset-save-btn">RESET DATA</button>
+            </div>
+
+            <div id="upgrade-screen" class="screen hide">
+                <h2>Ship Upgrades</h2>
+                <div id="upgrade-list"></div>
+            </div>
+
+            <div id="mission-select-screen" class="screen hide">
+                <h2>Available Missions</h2>
+                <div id="mission-list"></div>
+            </div>
+
+            <div id="grid-screen" class="screen hide">
+                <h2>Ship Configuration</h2>
+                <div id="grid-ui-layout">
+                    <div id="grid-container-wrapper">
+                        <div id="ship-grid" class="ship-grid"></div>
+                        <div class="grid-controls">
+                            <div id="sell-zone" class="sell-zone">Drag here to SELL</div>
+                            <button onclick="engine.resetGrid()">Reset All (50% Refund)</button>
+                        </div>
+                    </div>
+                    <div id="part-inventory-panel">
+                        <div class="panel-header">WAREHOUSE</div>
+                        <div id="warehouse-list" class="warehouse-list"></div>
+                        <div class="panel-header">SHOP</div>
+                        <div id="part-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- In-Game GUI Overlay -->
+            <div id="ingame-gui" class="gui-overlay hide">
+                <div class="hp-bar-container">
+                    <span>HP: </span>
+                    <div class="hp-bar-bg">
+                        <div id="hp-bar-fill" class="hp-bar-fill"></div>
+                    </div>
+                    <span id="hp-text">100/100</span>
+                </div>
+                <div class="energy-bar-container">
+                    <span>EN: </span>
+                    <div class="energy-bar-bg">
+                        <div id="energy-bar-fill" class="energy-bar-fill"></div>
+                    </div>
+                </div>
+                <div id="weapon-slots" class="weapon-slots"></div>
+                <div id="message-area"></div>
+            </div>
+
+            <!-- Result Screen -->
+            <div id="result-screen" class="screen hide">
+                <h2 id="result-title">MISSION COMPLETE</h2>
+                <div id="result-info"></div>
+                <button onclick="engine.changeState(GAME_STATE.MENU)">RETURN TO TERMINAL</button>
+            </div>
+
+            <!-- Game Over Screen -->
+            <div id="game-over-screen" class="screen hide">
+                <h2 style="color:red;">MISSION FAILED</h2>
+                <p>Your ship was destroyed.</p>
+                <button onclick="engine.changeState(GAME_STATE.MENU)">RETURN TO TERMINAL</button>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <!-- Shooter Scripts (Order matters) -->
+    <!-- Using min build or individual files? Individual as verified in file list -->
+    <script src="js/shooter/settings_data.js"></script>
+    <script src="js/shooter/settings.js"></script>
+    <script src="js/shooter/saveManager.js"></script>
+    <script src="js/shooter/missionManager.js"></script>
+    <script src="js/shooter/gridManager.js"></script>
+    <script src="js/shooter/upgradeManager.js"></script>
+    <script src="js/shooter/soundManager.js"></script>
+    <script src="js/shooter/engine.js"></script>
+
+</body>
+
+</html>
