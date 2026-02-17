@@ -103,7 +103,7 @@ export class Item extends Component {
     collect() {
         // console.log(`[Item] Collected ${this.id} x${this.amount}`);
         if (this._gm) {
-            this._gm.onItemCollected(this.id, this.amount);
+            this._gm.onItemCollected(this.id, this.amount, this.node.worldPosition);
         }
         this.node.destroy();
     }

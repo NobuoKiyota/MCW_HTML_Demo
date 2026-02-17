@@ -1,8 +1,8 @@
-import { _decorator, Component, Node, Input, input, EventTouch, Vec3, view, math, UITransform, find, Enum } from 'cc';
+import { _decorator, Component, Node, Input, input, EventTouch, Vec3, view, math, UITransform, find, Enum, Prefab, instantiate, Color } from 'cc';
 import { DataManager } from './DataManager';
 import { GAME_SETTINGS, IGameManager, GameState } from './Constants';
-// import { GameManager } from './GameManager'; // Cycle
 import { UIManager } from './UIManager';
+import { BuffVisualEffect } from './BuffVisualEffect';
 
 const { ccclass, property } = _decorator;
 
@@ -11,8 +11,6 @@ export class PlayerController extends Component {
 
     @property({ tooltip: "Current Speed (Read Only)" })
     public speed: number = 0;
-
-    // ... (Stats properties omitted for brevity, they remain unchanged) ...
 
     // Stats (Exposed for Tuning)
     @property({ tooltip: "Max HP" })
@@ -53,6 +51,12 @@ export class PlayerController extends Component {
     @property({ tooltip: "Max Speed Ratio (at Top)" })
     public maxSpeedRatio: number = 1.0;
 
+    @property(Prefab)
+    public powerBuffPrefab: Prefab = null;
+
+    @property(Prefab)
+    public rapidBuffPrefab: Prefab = null;
+
     public hp: number = 100;
 
     private targetPos: Vec3 = new Vec3();
@@ -64,21 +68,24 @@ export class PlayerController extends Component {
     // Cache GM
     private _gm: IGameManager = null;
 
+    // Buff State
+    public damageMultiplier: number = 1.0;
+    public fireRateMultiplier: number = 1.0;
+    private buffPowerTimer: number = 0;
+    private buffRapidTimer: number = 0;
+
+    // Visuals (To be assigned or created)
+    private powerEffectNode: Node = null;
+    private rapidEffectNode: Node = null;
+
     public setup(gm: IGameManager) {
         this._gm = gm;
     }
 
     start() {
         // Initialize Input
-        // Mouse for Desktop
         input.on(Input.EventType.MOUSE_MOVE, this.onMouseMove, this);
-        // input.on(Input.EventType.MOUSE_DOWN, this.onMouseDown, this); // Unused
-        // input.on(Input.EventType.MOUSE_UP, this.onMouseUp, this);     // Unused
-
-        // Touch for Mobile (Fallbacks)
         input.on(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
-        // input.on(Input.EventType.TOUCH_START, this.onTouchStart, this); // Unused
-        // input.on(Input.EventType.TOUCH_END, this.onTouchEnd, this);     // Unused
 
         // Initial Pos
         this.node.getPosition(this.currentPos);
@@ -114,14 +121,12 @@ export class PlayerController extends Component {
     }
 
     private updateTargetPos(uiLoc: any) {
-        // Convert UI World Space to Node Local Space (Parent)
         const parentTransform = this.node.parent?.getComponent(UITransform);
         if (parentTransform) {
             const localPos = parentTransform.convertToNodeSpaceAR(new Vec3(uiLoc.x, uiLoc.y, 0));
             this.targetPos.set(localPos);
             this.clampTarget();
         } else {
-            // Fallback
             const halfW = GAME_SETTINGS.CANVAS_WIDTH / 2;
             const halfH = GAME_SETTINGS.CANVAS_HEIGHT / 2;
             this.targetPos.x = uiLoc.x - halfW;
@@ -140,7 +145,6 @@ export class PlayerController extends Component {
         if (this.targetPos.y > halfH) this.targetPos.y = halfH;
     }
 
-    // Helper to check state
     private canControl(): boolean {
         return this._gm && this._gm.state === GameState.INGAME;
     }
@@ -148,104 +152,148 @@ export class PlayerController extends Component {
     update(deltaTime: number) {
         if (!this.canControl()) return;
 
-        // --- 1. Movement (X/Y) ---
-        // Smooth Movement (Lerp) to Mouse Pointer
+        // Buff Timers
+        if (this.buffPowerTimer > 0) {
+            this.buffPowerTimer -= deltaTime;
+            this.updateBuffVisuals(); // Update UI/Bars every frame
+            if (this.buffPowerTimer <= 0) {
+                this.buffPowerTimer = 0;
+                this.damageMultiplier = 1.0;
+                this.updateBuffVisuals();
+                console.log("[Player] Power Buff Expired");
+            }
+        }
+
+        if (this.buffRapidTimer > 0) {
+            this.buffRapidTimer -= deltaTime;
+            this.updateBuffVisuals(); // Update UI/Bars every frame
+            if (this.buffRapidTimer <= 0) {
+                this.buffRapidTimer = 0;
+                this.fireRateMultiplier = 1.0;
+                this.updateBuffVisuals();
+                console.log("[Player] Rapid Fire Buff Expired");
+            }
+        }
+
+        // 1. Movement
         this.node.getPosition(this.currentPos);
         const nextX = math.lerp(this.currentPos.x, this.targetPos.x, this.lerpFactor);
         const nextY = math.lerp(this.currentPos.y, this.targetPos.y, this.lerpFactor);
         this.node.setPosition(nextX, nextY, 0);
 
-        // --- 2. Forward Speed Physics (Z-axis concept) ---
-        // Calculate Zone Multiplier based on Y Position
-        // Map Y (-Height/2 to +Height/2) to 0.0 - 1.0
+        // 2. Physics
         const halfH = GAME_SETTINGS.CANVAS_HEIGHT / 2;
-        // Clamp Y to safe range
         let yRatio = (this.currentPos.y + halfH) / (GAME_SETTINGS.CANVAS_HEIGHT);
         yRatio = math.clamp01(yRatio);
 
         let zoneMult = this.minSpeedRatio;
-
         switch (this.speedCurveType) {
-            case 0: // STEP (Original)
+            case 0:
                 if (this.currentPos.y > 100) zoneMult = this.maxSpeedRatio;
-                else if (this.currentPos.y > -100) zoneMult = (this.maxSpeedRatio + this.minSpeedRatio) / 2; // Mid
+                else if (this.currentPos.y > -100) zoneMult = (this.maxSpeedRatio + this.minSpeedRatio) / 2;
                 else zoneMult = this.minSpeedRatio;
                 break;
-            case 1: // LINEAR
-                zoneMult = math.lerp(this.minSpeedRatio, this.maxSpeedRatio, yRatio);
-                break;
-            case 2: // SMOOTH (Sine EaseInOut)
-                // -cos(t*PI) + 1 / 2 logic or SmoothStep
-                const t = yRatio * Math.PI;
-                const smoothT = (1 - Math.cos(t)) * 0.5; // EaseInOut
-                zoneMult = math.lerp(this.minSpeedRatio, this.maxSpeedRatio, smoothT);
-                break;
-            case 3: // EXP (Exponential - Sharp Top)
-                const expT = yRatio * yRatio; // Quadratic
-                zoneMult = math.lerp(this.minSpeedRatio, this.maxSpeedRatio, expT);
-                break;
+            case 1: zoneMult = math.lerp(this.minSpeedRatio, this.maxSpeedRatio, yRatio); break;
+            case 2: zoneMult = math.lerp(this.minSpeedRatio, this.maxSpeedRatio, (1 - Math.cos(yRatio * Math.PI)) * 0.5); break;
+            case 3: zoneMult = math.lerp(this.minSpeedRatio, this.maxSpeedRatio, yRatio * yRatio); break;
         }
 
         const targetMax = this.baseMaxSpeed * zoneMult;
-
-        // Auto-Accelerate Logic (Always seek targetMax)
         if (this.speed < targetMax) {
             this.speed += this.accel;
         } else {
-            // Natural deceleration if we entered a slower zone (Top -> Bot)
-            // Use friction to slow down to new targetMax
-            this.speed = math.lerp(this.speed, targetMax, 0.05); // Smooth brake
+            this.speed = math.lerp(this.speed, targetMax, 0.05);
         }
 
-        // --- 3. Shooting Logic ---
+        // 3. Shooting
         this.fireTimer += deltaTime;
-        if (this.fireTimer >= this.fireInterval) {
+        let actualInterval = this.fireInterval * this.fireRateMultiplier;
+        if (actualInterval < 0.05) actualInterval = 0.05;
+
+        if (this.fireTimer >= actualInterval) {
             this.fireTimer = 0;
             this.fire();
         }
+
+        // Manual orbit logic removed, now handled by BuffVisualEffect component
     }
 
     private fire() {
         const gm = this._gm;
         if (gm) {
-            const angle = Math.PI / 2; // Up
-            gm.spawnBullet(
-                this.currentPos.x,
-                this.currentPos.y + 20,
-                angle,
-                this.bulletSpeed,
-                this.bulletDamage,
-                false
-            );
+            const angle = Math.PI / 2;
+            const finalDamage = Math.floor(this.bulletDamage * this.damageMultiplier);
+            gm.spawnBullet(this.node.position.x, this.node.position.y + 20, angle, this.bulletSpeed, finalDamage, false);
+        }
+    }
+
+    public applyBuff(type: string, duration: number, value: number) {
+        if (type === "Power") {
+            this.buffPowerTimer = duration;
+            this.damageMultiplier = 1.0 + value;
+            this.createBuffVisual("Power");
+        } else if (type === "Rapid") {
+            this.buffRapidTimer = duration;
+            this.fireRateMultiplier = 1.0 - value;
+            if (this.fireRateMultiplier < 0.1) this.fireRateMultiplier = 0.1;
+            this.createBuffVisual("Rapid");
+        }
+        this.updateBuffVisuals();
+    }
+
+    private createBuffVisual(type: string) {
+        if (type === "Power") {
+            if (!this.powerEffectNode) {
+                if (this.powerBuffPrefab) {
+                    this.powerEffectNode = instantiate(this.powerBuffPrefab);
+                } else {
+                    this.powerEffectNode = new Node("AIPowerEffect");
+                    const effect = this.powerEffectNode.addComponent(BuffVisualEffect);
+                    effect.starColor = new Color(255, 50, 50, 255);
+                    effect.orbitRadius = 75;
+                }
+                this.node.addChild(this.powerEffectNode);
+            }
+            if (this.powerEffectNode) this.powerEffectNode.active = true;
+        } else if (type === "Rapid") {
+            if (!this.rapidEffectNode) {
+                if (this.rapidBuffPrefab) {
+                    this.rapidEffectNode = instantiate(this.rapidBuffPrefab);
+                } else {
+                    this.rapidEffectNode = new Node("AIRapidEffect");
+                    const effect = this.rapidEffectNode.addComponent(BuffVisualEffect);
+                    effect.starColor = new Color(0, 180, 255, 255);
+                    effect.orbitRadius = 55;
+                    effect.orbitSpeed = 900;
+                }
+                this.node.addChild(this.rapidEffectNode);
+            }
+            if (this.rapidEffectNode) this.rapidEffectNode.active = true;
+        }
+    }
+
+    private updateBuffVisuals() {
+        if (this.powerEffectNode) this.powerEffectNode.active = (this.buffPowerTimer > 0);
+        if (this.rapidEffectNode) this.rapidEffectNode.active = (this.buffRapidTimer > 0);
+
+        if (UIManager.instance) {
+            UIManager.instance.updateBuffs(this.buffPowerTimer, this.buffRapidTimer);
         }
     }
 
     public heal(amount: number) {
         this.hp += amount;
         if (this.hp > this.maxHp) this.hp = this.maxHp;
-
-        console.log(`[Player] Healed: ${amount}. HP: ${this.hp}/${this.maxHp}`);
-
-        if (UIManager.instance) {
-            UIManager.instance.updateHP(this.hp, this.maxHp);
-        }
+        if (UIManager.instance) UIManager.instance.updateHP(this.hp, this.maxHp);
     }
 
     public takeDamage(amount: number) {
         this.hp -= amount;
         if (this.hp < 0) this.hp = 0;
-
-        console.log(`[Player] Taken damage: ${amount}. HP: ${this.hp}/${this.maxHp}`);
-
-        if (UIManager.instance) {
-            UIManager.instance.updateHP(this.hp, this.maxHp);
-        }
-
+        if (UIManager.instance) UIManager.instance.updateHP(this.hp, this.maxHp);
         if (this.hp <= 0) {
-            const gm = this._gm;
-            if (gm) gm.onGameOver();
-            console.log("Game Over");
-            this.node.active = false; // Hide player
+            if (this._gm) this._gm.onGameOver();
+            this.node.active = false;
         }
     }
 }

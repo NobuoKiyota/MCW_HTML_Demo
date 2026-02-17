@@ -67,7 +67,9 @@ export const GAME_SETTINGS = {
             "ItemI": { name: "超伝導コイル", rare: 3, type: "material" },
             "ItemJ": { name: "AIニューロコア", rare: 4, type: "material" },
             "ItemK": { name: "ゼロ点エネルギー", rare: 4, type: "material" },
-            "ItemL": { name: "ダークマター結晶", rare: 5, type: "material" }
+            "ItemL": { name: "ダークマター結晶", rare: 5, type: "material" },
+            "ItemPowerUp": { name: "火力増幅ユニット", rare: 3, type: "buff", duration: 10, value: 0.3 },
+            "ItemRapidFire": { name: "急速冷却装置", rare: 3, type: "buff", duration: 10, value: 0.8 }
         }
     },
 
@@ -149,7 +151,7 @@ export interface IGameManager {
     spawnBullet(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean): void;
     spawnItem(x: number, y: number, id: string, amount: number): void;
     spawnItemFromPrefab(prefab: any, x: number, y: number): void;
-    onItemCollected(id: string, amount: number): void;
+    onItemCollected(id: string, amount: number, pos?: any): void;
     onGameOver(): void;
     onMissionComplete(): void;
     spawnDamageText(x: number, y: number, amount: number, isKill: boolean): void;

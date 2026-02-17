@@ -2,13 +2,12 @@
   "ver": "1.1.50",
   "importer": "prefab",
   "imported": true,
-  "uuid": "758f4046-fd67-4c35-acef-e532c7c4bdcc",
+  "uuid": "9b544d1c-7858-4f08-9bdd-fe27e8532c04",
   "files": [
     ".json"
   ],
   "subMetas": {},
   "userData": {
-    "syncNodeName": "ENE001",
-    "persistent": false
+    "syncNodeName": "ENE004"
   }
 }

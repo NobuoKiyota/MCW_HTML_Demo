@@ -1,4 +1,4 @@
-import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab } from 'cc';
+import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab, resources } from 'cc';
 import { EnemyData, EnemyBulletData, BehaviorData, DropData } from './GameDataTypes';
 import { CSVHelper } from './CSVHelper';
 const { ccclass, property } = _decorator;
@@ -41,13 +41,28 @@ export class GameDatabase extends Component {
 
     // Singleton access helper (Component based)
     public static instance: GameDatabase = null;
+    public isReady: boolean = false;
 
     onLoad() {
         GameDatabase.instance = this;
     }
 
     start() {
-        this.loadAllCSV();
+        this.loadPrefabs();
+    }
+
+    private loadPrefabs() {
+        resources.loadDir("Prefabs/Enemy", Prefab, (err, assets) => {
+            if (err) {
+                console.error("[GameDatabase] Failed to load Enemy Prefabs:", err);
+                return;
+            }
+            this.enemyPrefabs = assets;
+            console.log(`[GameDatabase] Loaded ${assets.length} Enemy Prefabs from resources/Prefabs/Enemy`);
+
+            // CSV Load after Prefabs are ready
+            this.loadAllCSV();
+        });
     }
 
     private loadAllCSV() {
@@ -63,6 +78,11 @@ export class GameDatabase extends Component {
         if (this.enemyCsv) this.parseEnemyCSV(this.enemyCsv.text); // Consumes above data
 
         console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.enemyBullets.length} Bullets, ${this.behaviors.length} Behaviors, ${this.drops.length} Drops`);
+
+        this.isReady = true;
+
+        // Notify Manager that Database is ready (Optional, if needed for tight coupling)
+        // GameManager.instance.onDatabaseReady();
     }
 
     private parseBulletCSV(text: string) {

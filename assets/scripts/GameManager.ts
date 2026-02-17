@@ -198,6 +198,8 @@ export class GameManager extends Component {
     }
 
     spawnEnemy() {
+        if (!this.gameDatabase || !this.gameDatabase.isReady) return;
+
         // Method 1: Use GameDatabase (New System)
         if (this.gameDatabase && this.gameDatabase.enemies.length > 0) {
             const enemyData = this.gameDatabase.getRandomEnemy();
@@ -273,12 +275,44 @@ export class GameManager extends Component {
     }
 
     // Item Factory
-    public onItemCollected(id: string, amount: number) {
+    public onItemCollected(id: string, amount: number, pos?: Vec3) {
+        // UI Notification
+        const def = GAME_SETTINGS.ECONOMY.ITEMS[id];
+        const name = def ? def.name : id;
+        const rarity = def ? (def.rare || 1) : 1;
+
         // 1. Instant Effects (HP, Buffer)
+        const pCtrl = this.playerNode.getComponent("PlayerController") as any;
+
         if (id === "ItemRepair") {
-            const pCtrl = this.playerNode.getComponent("PlayerController") as any;
-            if (pCtrl) pCtrl.heal(20);
+            if (UIManager.instance) UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
+            if (pCtrl && pCtrl.heal) pCtrl.heal(def ? def.value : 20);
             return;
+        }
+
+        if (id === "ItemPowerUp") {
+            if (UIManager.instance) {
+                UIManager.instance.showBuffNotification("POWER UP!", new Color(255, 50, 50), pos);
+            }
+            const val = def ? (def.value || 0.3) : 0.3;
+            const dur = def ? (def.duration || 10) : 10;
+            if (pCtrl && pCtrl.applyBuff) pCtrl.applyBuff("Power", dur, val);
+            return;
+        }
+
+        if (id === "ItemRapidFire") {
+            if (UIManager.instance) {
+                UIManager.instance.showBuffNotification("SPEED UP!", new Color(0, 200, 255), pos);
+            }
+            const val = def ? (def.value || 0.8) : 0.8;
+            const dur = def ? (def.duration || 10) : 10;
+            if (pCtrl && pCtrl.applyBuff) pCtrl.applyBuff("Rapid", dur, val);
+            return;
+        }
+
+        // Standard Item Log (for materials, etc.)
+        if (UIManager.instance) {
+            UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
         }
 
         // 2. Storage for Result
