@@ -665,7 +665,7 @@
     "maxSpeedRatio": 1,
     "powerBuffPrefab": null,
     "rapidBuffPrefab": null,
-    "audioVolDropoff": 400,
+    "audioVolDropoff": 800,
     "useHoming": true,
     "_id": "dcT6UzqYBGOKEst7Ah0sqr"
   },
