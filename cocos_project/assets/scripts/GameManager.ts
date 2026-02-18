@@ -135,6 +135,18 @@ export class GameManager extends Component implements IGameManager {
         SoundManager.instance.playBGM("sounds/BGM/Shooter_IngameA", 1.0);
     }
 
+    public setPaused(paused: boolean) {
+        this.isPaused = paused;
+        if (this.speedManager) {
+            this.speedManager.setPaused(paused);
+        }
+
+        // 一時停止時に全てのSEを止める（必要に応じて）
+        if (paused && SoundManager.instance) {
+            SoundManager.instance.stopAllSE();
+        }
+    }
+
     update(deltaTime: number) {
         if (this.state !== GameState.INGAME || this.isPaused) return;
 
@@ -296,6 +308,7 @@ export class GameManager extends Component implements IGameManager {
 
         if (id === "ItemRepair") {
             if (UIManager.instance) UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
+            SoundManager.instance.playSE("sounds/SE/itemget01", "System");
             if (pCtrl && pCtrl.heal) pCtrl.heal(def ? def.value : 20);
             return;
         }
@@ -304,6 +317,7 @@ export class GameManager extends Component implements IGameManager {
             if (UIManager.instance) {
                 UIManager.instance.showBuffNotification("POWER UP!", new Color(255, 50, 50), pos);
             }
+            SoundManager.instance.playSE("sounds/SE/powerup01", "System");
             const val = def ? (def.value || 0.3) : 0.3;
             const dur = def ? (def.duration || 10) : 10;
             if (pCtrl && pCtrl.applyBuff) pCtrl.applyBuff("Power", dur, val);
@@ -314,6 +328,7 @@ export class GameManager extends Component implements IGameManager {
             if (UIManager.instance) {
                 UIManager.instance.showBuffNotification("SPEED UP!", new Color(0, 200, 255), pos);
             }
+            SoundManager.instance.playSE("sounds/SE/powerup01", "System");
             const val = def ? (def.value || 0.8) : 0.8;
             const dur = def ? (def.duration || 10) : 10;
             if (pCtrl && pCtrl.applyBuff) pCtrl.applyBuff("Rapid", dur, val);
@@ -324,6 +339,7 @@ export class GameManager extends Component implements IGameManager {
         if (UIManager.instance) {
             UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
         }
+        SoundManager.instance.playSE("sounds/SE/itemget01", "System");
 
         // 2. Storage for Result
         // Check if exists

@@ -140,3 +140,27 @@ export class EnemyData {
     public _drops: DropData[] = [];
     public _isFromCSV: boolean = false; // Validation Flag
 }
+
+/**
+ * サウンドデータ (Sound)
+ */
+@ccclass('SoundData')
+export class SoundData {
+    @property
+    public id: string = "";
+
+    @property({ tooltip: "Resource Path relative to assets/resources/" })
+    public path: string = "";
+
+    @property({ type: CCFloat, tooltip: "音量倍率 (0.0 - 1.0)" })
+    public volume: number = 1.0;
+
+    @property({ type: CCFloat, tooltip: "重複再生防止期間 (秒)" })
+    public cooldown: number = 0.05;
+
+    @property({ type: CCInteger, tooltip: "同時再生制限数 (0は無制限)" })
+    public limit: number = 0;
+
+    @property({ type: CCInteger, tooltip: "優先度 (0: 後発優先/古いのを消す, 1: 先発優先/新しいのを無視)" })
+    public priority: number = 0;
+}

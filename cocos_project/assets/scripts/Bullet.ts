@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Vec3, BoxCollider2D, Contact2DType, Collider2D, IPhysics2DContact, Sprite, Color, find } from 'cc';
+import { _decorator, Component, Node, Vec3, BoxCollider2D, Contact2DType, Collider2D, IPhysics2DContact, Sprite, Color, find, ParticleSystem2D } from 'cc';
 // import { Enemy } from './Enemy'; // Cycle
 // import { PlayerController } from './PlayerController'; // Cycle
 // import { GameManager } from './GameManager'; // Cycle
@@ -25,6 +25,9 @@ export class Bullet extends Component {
 
     // Cache GM
     private _gm: IGameManager = null;
+
+    @property(ParticleSystem2D)
+    public particleEffect: ParticleSystem2D = null;
 
     onLoad() {
         const collider = this.getComponent(BoxCollider2D);
@@ -57,8 +60,17 @@ export class Bullet extends Component {
 
         // Color differentiation
         const sprite = this.getComponent(Sprite);
+        let bulletColor = isEnemy ? new Color(255, 100, 100) : new Color(100, 255, 100);
+
         if (sprite) {
-            sprite.color = isEnemy ? new Color(255, 100, 100) : new Color(100, 255, 100);
+            sprite.color = bulletColor;
+        }
+
+        // Sync Particle Color
+        if (!this.particleEffect) this.particleEffect = this.getComponentInChildren(ParticleSystem2D);
+        if (this.particleEffect) {
+            this.particleEffect.startColor = bulletColor.clone();
+            this.particleEffect.resetSystem();
         }
     }
 

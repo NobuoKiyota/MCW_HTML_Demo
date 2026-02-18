@@ -1,53 +1,44 @@
 {
   "ver": "1.0.2",
   "importer": "particle",
-  "imported": false,
-  "uuid": "ffa0f245-a693-4b76-91c2-a8549effeb07",
-  "files": [],
+  "imported": true,
+  "uuid": "7384eaff-4d10-4d64-af19-9f07c0968298",
+  "files": [
+    ".json",
+    ".plist"
+  ],
   "subMetas": {},
   "userData": {
     "totalParticles": 50,
-    "life": 1,
-    "lifeVar": 0,
-    "emissionRate": 20,
-    "duration": 2,
-    "srcBlendFactor": 2,
+    "life": 0.3,
+    "lifeVar": 0.1,
+    "emissionRate": 166.66666666666669,
+    "duration": -1,
+    "srcBlendFactor": 770,
     "dstBlendFactor": 1,
     "startColor": {
       "_data": {
-        "0": 202,
-        "1": 71,
-        "2": 71,
+        "0": 255,
+        "1": 255,
+        "2": 255,
         "3": 255
-      },
-      "r": 202,
-      "g": 71,
-      "b": 71,
-      "a": 255
+      }
     },
     "startColorVar": {
       "_data": {
-        "0": 0,
-        "1": 0,
-        "2": 0,
+        "0": 51,
+        "1": 51,
+        "2": 51,
         "3": 0
-      },
-      "r": 0,
-      "g": 0,
-      "b": 0,
-      "a": 0
+      }
     },
     "endColor": {
       "_data": {
-        "0": 185,
-        "1": 163,
-        "2": 140,
+        "0": 255,
+        "1": 255,
+        "2": 255,
         "3": 0
-      },
-      "r": 185,
-      "g": 163,
-      "b": 140,
-      "a": 0
+      }
     },
     "endColorVar": {
       "_data": {
@@ -55,14 +46,10 @@
         "1": 0,
         "2": 0,
         "3": 0
-      },
-      "r": 0,
-      "g": 0,
-      "b": 0,
-      "a": 0
+      }
     },
-    "startSize": 50,
-    "startSizeVar": 0,
+    "startSize": 20,
+    "startSizeVar": 10,
     "endSize": 0,
     "endSizeVar": 0,
     "positionType": 0,
@@ -71,25 +58,25 @@
       "y": 0
     },
     "posVar": {
-      "x": 0,
-      "y": 0
+      "x": 5,
+      "y": 5
     },
-    "angle": 90,
-    "angleVar": 20,
-    "startSpin": 50,
+    "angle": 0,
+    "angleVar": 360,
+    "startSpin": 0,
     "startSpinVar": 0,
     "endSpin": 0,
     "endSpinVar": 0,
     "emitterMode": 0,
     "gravity": {
-      "x": 2,
-      "y": 2
+      "x": 0,
+      "y": 0
     },
-    "speed": 180,
-    "speedVar": 50,
+    "speed": 20,
+    "speedVar": 10,
     "radialAccel": 0,
     "radialAccelVar": 0,
-    "tangentialAccel": 80,
+    "tangentialAccel": 0,
     "tangentialAccelVar": 0,
     "rotationIsDir": false,
     "startRadius": 0,

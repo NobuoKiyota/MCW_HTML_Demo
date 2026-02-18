@@ -16,7 +16,7 @@ export class CSVHelper {
 
         for (let i = 1; i < lines.length; i++) {
             const line = lines[i].trim();
-            if (line === "") continue;
+            if (line === "" || line.startsWith("#") || line.startsWith("//")) continue;
 
             const values = line.split(',');
             if (values.length !== headers.length) {

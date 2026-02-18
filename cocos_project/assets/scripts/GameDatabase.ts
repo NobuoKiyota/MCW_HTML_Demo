@@ -1,5 +1,5 @@
 import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab, resources } from 'cc';
-import { EnemyData, EnemyBulletData, BehaviorData, DropData } from './GameDataTypes';
+import { EnemyData, EnemyBulletData, BehaviorData, DropData, SoundData } from './GameDataTypes';
 import { CSVHelper } from './CSVHelper';
 const { ccclass, property } = _decorator;
 
@@ -25,6 +25,7 @@ export class GameDatabase extends Component {
     public enemyBullets: EnemyBulletData[] = [];
     public behaviors: BehaviorData[] = [];
     public drops: DropData[] = [];
+    public sounds: SoundData[] = [];
 
     // --- CSV Assets ---
     @property({ type: TextAsset, tooltip: "CSV: Enemies" })
@@ -38,6 +39,9 @@ export class GameDatabase extends Component {
 
     @property({ type: TextAsset, tooltip: "CSV: Drops" })
     public dropCsv: TextAsset = null;
+
+    @property({ type: TextAsset, tooltip: "CSV: Sounds" })
+    public soundCsv: TextAsset = null;
 
     // Singleton access helper (Component based)
     public static instance: GameDatabase = null;
@@ -75,6 +79,7 @@ export class GameDatabase extends Component {
         if (this.bulletCsv) this.parseBulletCSV(this.bulletCsv.text);
         if (this.behaviorCsv) this.parseBehaviorCSV(this.behaviorCsv.text);
         if (this.dropCsv) this.parseDropCSV(this.dropCsv.text);
+        if (this.soundCsv) this.parseSoundCSV(this.soundCsv.text);
         if (this.enemyCsv) this.parseEnemyCSV(this.enemyCsv.text); // Consumes above data
 
         console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.enemyBullets.length} Bullets, ${this.behaviors.length} Behaviors, ${this.drops.length} Drops`);
@@ -165,6 +170,20 @@ export class GameDatabase extends Component {
         }
     }
 
+    private parseSoundCSV(text: string) {
+        const data = CSVHelper.parse(text);
+        this.sounds = data.map(row => {
+            const d = new SoundData();
+            d.id = row.ID;
+            d.path = row.Path;
+            d.volume = row.Volume || 1.0;
+            d.cooldown = row.Cooldown || 0.05;
+            d.limit = row.Limit || 0;
+            d.priority = row.Priority || 0;
+            return d;
+        });
+    }
+
     // --- Getters ---
 
     private getPrefab(name: string): Prefab | null {
@@ -208,5 +227,12 @@ export class GameDatabase extends Component {
 
         const idx = Math.floor(Math.random() * validEnemies.length);
         return validEnemies[idx];
+    }
+
+    /**
+     * サウンド設定を取得（パスまたはIDで検索）
+     */
+    public getSoundData(query: string): SoundData | null {
+        return this.sounds.find(d => d.id === query || d.path === query) || null;
     }
 }

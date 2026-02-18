@@ -119,8 +119,8 @@
     "startSizeVar": 250,
     "endSize": 30,
     "endSizeVar": 5,
-    "startSpin": 0,
-    "startSpinVar": 10,
+    "startSpin": 800,
+    "startSpinVar": 500,
     "endSpin": 150,
     "endSpinVar": 50,
     "sourcePos": {
@@ -137,10 +137,10 @@
     "gravity": {
       "__type__": "cc.Vec2",
       "x": -10,
-      "y": 10
+      "y": 500
     },
     "speed": 5,
-    "speedVar": 5,
+    "speedVar": 0,
     "tangentialAccel": 0,
     "tangentialAccelVar": 0,
     "radialAccel": 0,
@@ -168,9 +168,9 @@
     "_totalParticles": 30,
     "_startColor": {
       "__type__": "cc.Color",
-      "r": 102,
-      "g": 91,
-      "b": 80,
+      "r": 201,
+      "g": 124,
+      "b": 47,
       "a": 163
     },
     "_startColorVar": {

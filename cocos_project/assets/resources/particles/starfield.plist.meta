@@ -1,53 +1,44 @@
 {
   "ver": "1.0.2",
   "importer": "particle",
-  "imported": false,
-  "uuid": "ffa0f245-a693-4b76-91c2-a8549effeb07",
-  "files": [],
+  "imported": true,
+  "uuid": "84697abd-d43d-4bb0-8bfd-1c70bd06faa5",
+  "files": [
+    ".json",
+    ".plist"
+  ],
   "subMetas": {},
   "userData": {
-    "totalParticles": 50,
-    "life": 1,
-    "lifeVar": 0,
-    "emissionRate": 20,
-    "duration": 2,
+    "totalParticles": 200,
+    "life": 2,
+    "lifeVar": 1.5,
+    "emissionRate": 100,
+    "duration": -1,
     "srcBlendFactor": 2,
-    "dstBlendFactor": 1,
+    "dstBlendFactor": 4,
     "startColor": {
       "_data": {
-        "0": 202,
-        "1": 71,
-        "2": 71,
+        "0": 255,
+        "1": 255,
+        "2": 204,
         "3": 255
-      },
-      "r": 202,
-      "g": 71,
-      "b": 71,
-      "a": 255
+      }
     },
     "startColorVar": {
       "_data": {
-        "0": 0,
-        "1": 0,
-        "2": 0,
+        "0": 26,
+        "1": 26,
+        "2": 51,
         "3": 0
-      },
-      "r": 0,
-      "g": 0,
-      "b": 0,
-      "a": 0
+      }
     },
     "endColor": {
       "_data": {
-        "0": 185,
-        "1": 163,
-        "2": 140,
+        "0": 255,
+        "1": 255,
+        "2": 255,
         "3": 0
-      },
-      "r": 185,
-      "g": 163,
-      "b": 140,
-      "a": 0
+      }
     },
     "endColorVar": {
       "_data": {
@@ -55,15 +46,11 @@
         "1": 0,
         "2": 0,
         "3": 0
-      },
-      "r": 0,
-      "g": 0,
-      "b": 0,
-      "a": 0
+      }
     },
-    "startSize": 50,
-    "startSizeVar": 0,
-    "endSize": 0,
+    "startSize": 4,
+    "startSizeVar": 2,
+    "endSize": 2,
     "endSizeVar": 0,
     "positionType": 0,
     "sourcePos": {
@@ -71,25 +58,25 @@
       "y": 0
     },
     "posVar": {
-      "x": 0,
+      "x": 400,
       "y": 0
     },
-    "angle": 90,
-    "angleVar": 20,
-    "startSpin": 50,
+    "angle": -90,
+    "angleVar": 0,
+    "startSpin": 0,
     "startSpinVar": 0,
     "endSpin": 0,
     "endSpinVar": 0,
     "emitterMode": 0,
     "gravity": {
-      "x": 2,
-      "y": 2
+      "x": 0,
+      "y": 0
     },
-    "speed": 180,
-    "speedVar": 50,
+    "speed": 100,
+    "speedVar": 20,
     "radialAccel": 0,
     "radialAccelVar": 0,
-    "tangentialAccel": 80,
+    "tangentialAccel": 0,
     "tangentialAccelVar": 0,
     "rotationIsDir": false,
     "startRadius": 0,

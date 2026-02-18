@@ -1,5 +1,6 @@
-import { _decorator, Component, Node, AudioSource, AudioClip, resources, director, math, input, Input, KeyCode, Vec3 } from 'cc';
+import { _decorator, Component, Node, AudioSource, AudioClip, resources, director, math, input, Input, KeyCode, Vec3, game } from 'cc';
 import { SettingsManager } from './SettingsManager';
+import { GameDatabase } from './GameDatabase';
 const { ccclass, property } = _decorator;
 
 /**
@@ -32,6 +33,8 @@ export class SoundManager extends Component {
     private seSources: AudioSource[] = [];
     private seGroups: Map<string, SEGroup> = new Map();
     private activeSEs: Map<string, AudioSource[]> = new Map(); // GroupID -> Active Sources
+    private activeSoundSEs: Map<string, AudioSource[]> = new Map(); // Path/ID -> Active Sources
+    private lastPlayTimes: Map<string, number> = new Map(); // Path/ID -> Last play time (ms)
 
     private isMuted: boolean = false;
     private _bgmVolume: number = 0.8;
@@ -161,6 +164,29 @@ export class SoundManager extends Component {
 
     // --- SE Methods ---
 
+    /**
+     * 再生中の全てのSEを停止する
+     */
+    public stopAllSE() {
+        // 全てのグループのアクティブなSEを停止
+        this.activeSEs.forEach((sources, groupId) => {
+            sources.forEach(src => {
+                if (src && src.isValid) src.stop();
+            });
+            sources.length = 0;
+        });
+
+        // 固有制限用のアクティブSEも停止
+        this.activeSoundSEs.forEach((sources, path) => {
+            sources.forEach(src => {
+                if (src && src.isValid) src.stop();
+            });
+            sources.length = 0;
+        });
+
+        console.log("[SoundManager] All SE stopped.");
+    }
+
     public addSEGroup(group: SEGroup) {
         this.seGroups.set(group.id, group);
         this.activeSEs.set(group.id, []);
@@ -172,15 +198,60 @@ export class SoundManager extends Component {
      * @param groupId Group ID for polyphony control
      */
     public playSE(path: string, groupId: string = "System") {
-        console.log(`[SoundManager] playSE called: ${path}\nStack: ${new Error().stack}`);
-        if (this.isMuted) return;
+        // 1. Check CSV Settings & Cooldown
+        const soundData = GameDatabase.instance ? GameDatabase.instance.getSoundData(path) : null;
+        const cooldown = soundData ? soundData.cooldown : 0.05;
+        const volMult = soundData ? soundData.volume : 1.0;
+        const actualPath = soundData ? soundData.path : path;
 
-        resources.load(path, AudioClip, (err, clip) => {
+        const now = game.totalTime; // In milliseconds
+        const last = this.lastPlayTimes.get(path) || 0;
+        if (now - last < (cooldown * 1000)) {
+            // console.log(`[SoundManager] Cooldown active for: ${path}`);
+            return;
+        }
+
+        // 2. Check Individual Limit (Polyphony)
+        if (soundData && soundData.limit > 0) {
+            let activeList = this.activeSoundSEs.get(actualPath);
+            if (!activeList) {
+                activeList = [];
+                this.activeSoundSEs.set(actualPath, activeList);
+            }
+            if (activeList.length >= soundData.limit) {
+                if (soundData.priority === 1) {
+                    // Priority 1: Newest priority (Ignore new play request)
+                    // console.log(`[SoundManager] Limit reached for ${path}. Ignoring new play.`);
+                    return;
+                } else {
+                    // Priority 0: Oldest priority (Stop oldest)
+                    const oldest = activeList.shift();
+                    if (oldest && oldest.isValid) oldest.stop();
+                }
+            }
+        }
+
+        this.lastPlayTimes.set(path, now);
+
+        // Continue to load and play
+        resources.load(actualPath, AudioClip, (err, clip) => {
             if (err) {
-                console.error(`[SoundManager] Failed to load SE: ${path}`, err);
+                console.error(`[SoundManager] Failed to load SE: ${actualPath}`, err);
                 return;
             }
-            this.executePlaySE(clip, groupId);
+            const source = this.executePlaySE(clip, groupId, volMult);
+
+            // Track for individual limit
+            if (soundData && soundData.limit > 0 && source) {
+                const activeList = this.activeSoundSEs.get(actualPath);
+                if (activeList) {
+                    activeList.push(source);
+                    this.scheduleOnce(() => {
+                        const idx = activeList.indexOf(source);
+                        if (idx > -1) activeList.splice(idx, 1);
+                    }, clip.getDuration());
+                }
+            }
         });
     }
     /**
@@ -192,8 +263,35 @@ export class SoundManager extends Component {
     public play3dSE(path: string, worldPos: Vec3, groupId: string = "System") {
         if (this.isMuted) return;
 
-        // 1. Calculate Volume based on Player Position (Distance Attenuation)
-        let volScale = 1.0;
+        // 1. Check CSV Settings & Cooldown
+        const soundData = GameDatabase.instance ? GameDatabase.instance.getSoundData(path) : null;
+        const cooldown = soundData ? soundData.cooldown : 0.05;
+        const volMult = soundData ? soundData.volume : 1.0;
+        const actualPath = soundData ? soundData.path : path;
+
+        const now = game.totalTime;
+        const last = this.lastPlayTimes.get(path) || 0;
+        if (now - last < (cooldown * 1000)) return;
+
+        // 2. Check Individual Limit (Polyphony)
+        if (soundData && soundData.limit > 0) {
+            let activeList = this.activeSoundSEs.get(actualPath);
+            if (!activeList) {
+                activeList = [];
+                this.activeSoundSEs.set(actualPath, activeList);
+            }
+            if (activeList.length >= soundData.limit) {
+                if (soundData.priority === 1) return; // Skip new
+                const oldest = activeList.shift();
+                if (oldest && oldest.isValid) oldest.stop();
+            }
+        }
+
+        this.lastPlayTimes.set(path, now);
+
+        // 3. Calculate Volume based on Player Position (Distance Attenuation)
+        let volScale = 1.0 * volMult;
+        // ... (rest of logic remains similar, but uses volScale starting from volMult)
 
         const listenerInfo = this.getListenerInfo();
         if (listenerInfo) {
@@ -207,12 +305,24 @@ export class SoundManager extends Component {
 
         if (volScale <= 0.01) return; // Too far to hear
 
-        resources.load(path, AudioClip, (err, clip) => {
+        resources.load(actualPath, AudioClip, (err, clip) => {
             if (err) {
-                console.error(`[SoundManager] Failed to load SE: ${path}`, err);
+                console.error(`[SoundManager] Failed to load SE: ${actualPath}`, err);
                 return;
             }
-            this.executePlaySE(clip, groupId, volScale, worldPos);
+            const source = this.executePlaySE(clip, groupId, volScale, worldPos);
+
+            // Track for individual limit
+            if (soundData && soundData.limit > 0 && source) {
+                const activeList = this.activeSoundSEs.get(actualPath);
+                if (activeList) {
+                    activeList.push(source);
+                    this.scheduleOnce(() => {
+                        const idx = activeList.indexOf(source);
+                        if (idx > -1) activeList.splice(idx, 1);
+                    }, clip.getDuration());
+                }
+            }
         });
     }
 
@@ -243,7 +353,7 @@ export class SoundManager extends Component {
         };
     }
 
-    private executePlaySE(clip: AudioClip, groupId: string, volScale: number = 1.0, worldPos: Vec3 = null) {
+    private executePlaySE(clip: AudioClip, groupId: string, volScale: number = 1.0, worldPos: Vec3 = null): AudioSource {
         const group = this.seGroups.get(groupId);
         if (!group) return;
 
@@ -289,6 +399,8 @@ export class SoundManager extends Component {
             const index = activeList.indexOf(source);
             if (index > -1) activeList.splice(index, 1);
         }, clip.getDuration());
+
+        return source;
     }
 
     private getAvailableSESource(): AudioSource {
