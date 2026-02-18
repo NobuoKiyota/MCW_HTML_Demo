@@ -181,7 +181,7 @@ export class Enemy extends Component {
     }
 
     public takeDamage(amount: number) {
-        console.log(`[Enemy] takeDamage: ${this.node.uuid} Amount:${amount} HP:${this.hp}`);
+        // console.log(`[Enemy] takeDamage: ${this.node.uuid} Amount:${amount} HP:${this.hp}`);
         // Defense Calculation
         let finalDamage = amount;
         if (this.data && this.data.defense) {
@@ -189,6 +189,9 @@ export class Enemy extends Component {
         }
 
         this.hp -= finalDamage;
+
+        // Flash Effect
+        this.flash();
 
         const isKill = this.hp <= 0;
         if (isKill) console.log(`[Enemy] KILLED: ${this.node.uuid}`);
@@ -208,6 +211,39 @@ export class Enemy extends Component {
             }, 0);
         }
     }
+
+    // --- Flash Effect (Simple Color Tint) ---
+    private _sprite: Sprite | null = null;
+    private _defaultColor: Color = new Color(255, 255, 255, 255);
+    private _isFlashing: boolean = false;
+
+    private flash() {
+        if (this._isFlashing) return;
+
+        if (!this._sprite) {
+            this._sprite = this.getComponent(Sprite);
+        }
+        if (!this._sprite) return;
+
+        // Save default color
+        // Note: We need to copy the value, not the reference.
+        this._defaultColor.set(this._sprite.color);
+
+        this._isFlashing = true;
+
+        // Flash Yellow (Requested)
+        // Note: Multiplicative tint. If sprite is white, it becomes yellow.
+        this._sprite.color = new Color(255, 255, 0, 255);
+
+        this.scheduleOnce(() => {
+            if (this.node.isValid && this._sprite) {
+                // Restore
+                this._sprite.color = this._defaultColor;
+            }
+            this._isFlashing = false;
+        }, 0.1);
+    }
+
 
     die() {
         console.log(`[Enemy] die called: ${this.node.uuid}`);

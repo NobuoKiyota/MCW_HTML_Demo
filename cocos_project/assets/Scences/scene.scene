@@ -666,7 +666,7 @@
     "powerBuffPrefab": null,
     "rapidBuffPrefab": null,
     "audioVolDropoff": 800,
-    "useHoming": true,
+    "useHoming": false,
     "_id": "dcT6UzqYBGOKEst7Ah0sqr"
   },
   {

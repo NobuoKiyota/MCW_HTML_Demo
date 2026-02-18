@@ -269,8 +269,6 @@ export class SoundManager extends Component {
             // In Cocos Creator, 1.0 is full 3D, 0.0 is 2D.
             if ('spatialBlend' in source) {
                 (source as any).spatialBlend = 1.0;
-            } else {
-                console.warn("[SoundManager] AudioSource does not support spatialBlend?");
             }
         } else {
             // 2D Audio
