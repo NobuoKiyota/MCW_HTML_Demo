@@ -1,5 +1,5 @@
-import { _decorator, Component, Node, Prefab, instantiate, Vec3, Label, director, math, Rect, Color } from 'cc';
-import { GAME_SETTINGS, GameState } from './Constants';
+import { _decorator, Component, Node, Prefab, instantiate, Vec3, Label, director, math, Rect, Color, ParticleSystem2D, UIOpacity, Vec2 } from 'cc';
+import { GAME_SETTINGS, GameState, IGameManager } from './Constants';
 import { DataManager } from './DataManager';
 // import { PlayerController } from './PlayerController'; // Circular dependency
 // import { Enemy } from './Enemy'; // Circular dependency
@@ -8,11 +8,12 @@ import { UIManager } from './UIManager';
 import { GameSpeedManager } from './GameSpeedManager';
 import { GameDatabase } from './GameDatabase';
 import { EnemyData } from './GameDataTypes';
+import { SoundManager } from './SoundManager';
 
 const { ccclass, property } = _decorator;
 
 @ccclass('GameManager')
-export class GameManager extends Component {
+export class GameManager extends Component implements IGameManager {
 
     public static instance: GameManager;
 
@@ -58,9 +59,10 @@ export class GameManager extends Component {
     public playState: any = {
         distance: 3000,
         enemies: [], // References to EnemyComponents
-        bullets: [],
         items: []
     };
+
+    public isPaused: boolean = false;
 
     private spawnTimer: number = 0;
     private frameCount: number = 0;
@@ -128,10 +130,13 @@ export class GameManager extends Component {
         if (UIManager.instance) {
             UIManager.instance.updateDist(this.playState.distance);
         }
+
+        // Start BGM
+        SoundManager.instance.playBGM("sounds/BGM/Shooter_IngameA", 1.0);
     }
 
     update(deltaTime: number) {
-        if (this.state !== GameState.INGAME) return;
+        if (this.state !== GameState.INGAME || this.isPaused) return;
 
         this.frameCount++;
 
@@ -237,6 +242,9 @@ export class GameManager extends Component {
         if (UIManager.instance) {
             UIManager.instance.showResult();
         }
+
+        // Stop BGM with fade out
+        SoundManager.instance.stopBGM(2.0);
     }
 
     public retryGame() {
@@ -258,8 +266,8 @@ export class GameManager extends Component {
     }
 
     // Bullet Factory
-    public spawnBullet(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean) {
-        if (!this.bulletPrefab) return;
+    public spawnBullet(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean): any {
+        if (!this.bulletPrefab) return null;
         const node = instantiate(this.bulletPrefab);
         node.parent = this.bulletLayer;
 
@@ -267,10 +275,12 @@ export class GameManager extends Component {
         const bulletComp = node.getComponent("Bullet") as any;
         if (bulletComp) {
             bulletComp.init(x, y, angle, speed, damage, isEnemy, this);
+            return bulletComp;
         } else {
             console.warn("[GameManager] Bullet component missing on prefab!");
             // Fallback if component missing or named differently
             node.setPosition(x, y, 0);
+            return null;
         }
     }
 
@@ -365,6 +375,9 @@ export class GameManager extends Component {
         if (UIManager.instance) {
             UIManager.instance.showGameOver();
         }
+
+        // Stop BGM with fade out
+        SoundManager.instance.stopBGM(2.0);
     }
 
     // Damage Text
@@ -400,6 +413,75 @@ export class GameManager extends Component {
         if (popup && popup.init) {
             popup.init(amount, color);
         }
+    }
+
+    @property(Prefab)
+    public explosionPrefab: Prefab = null;
+
+    public spawnExplosion(x: number, y: number) {
+        console.log(`[GameManager] spawnExplosion called\nStack: ${new Error().stack}`);
+        // Priority 1: Use Prefab (Editor Configured)
+        if (this.explosionPrefab) {
+            console.log("[GameManager] Spawning Explosion Prefab");
+            const node = instantiate(this.explosionPrefab);
+            node.parent = this.node.parent || this.node;
+            node.setWorldPosition(x, y, 0);
+
+            // Ensure it destroys itself or we schedule it
+            // If the prefab has AutoRemoveOnFinish (Cocos2d-x style) or custom script, good.
+            // If not, we safe-guard destroy it after 1-2 sec.
+            this.scheduleOnce(() => {
+                if (node.isValid) node.destroy();
+            }, 2.0);
+            return;
+        }
+
+        console.log("[GameManager] Spawning Fallback Explosion (Programmatic)");
+        // Priority 2: Fallback Programmatic Explosion
+        const node = new Node("Explosion");
+        node.layer = this.node.layer;
+        node.parent = this.node.parent || this.node;
+        node.setWorldPosition(x, y, 0);
+
+        const ps = node.addComponent(ParticleSystem2D);
+
+        // Configuration
+        ps.duration = 0.5;
+        ps.life = 0.5;
+        ps.lifeVar = 0.2;
+
+        // Emission
+        ps.totalParticles = 50;
+        ps.emissionRate = 999; // Burst
+        ps.angle = 90;
+        ps.angleVar = 360;
+        ps.speed = 200;
+        ps.speedVar = 50;
+
+        // Gravity
+        ps.gravity = new Vec2(0, 0);
+
+        // Color: White -> Red -> Transparent
+        ps.startColor = new Color(255, 255, 200, 255);
+        ps.startColorVar = new Color(0, 0, 0, 0);
+        ps.endColor = new Color(255, 50, 0, 0);
+        ps.endColorVar = new Color(0, 0, 0, 0);
+
+        // Size
+        ps.startSize = 30;
+        ps.startSizeVar = 10;
+        ps.endSize = 60;
+        ps.endSizeVar = 20;
+
+        // Blend: Additive
+        (ps as any).srcBlendFactor = 770; // SRC_ALPHA
+        (ps as any).dstBlendFactor = 1;   // ONE
+
+        ps.resetSystem();
+
+        this.scheduleOnce(() => {
+            if (node.isValid) node.destroy();
+        }, 1.0);
     }
 
     private processResult(isSuccess: boolean) {

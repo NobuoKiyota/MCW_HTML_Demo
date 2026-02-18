@@ -1,4 +1,4 @@
-import { _decorator, Prefab, CCString, CCInteger, CCFloat } from 'cc';
+import { _decorator, Prefab, CCInteger, CCFloat } from 'cc';
 const { ccclass, property } = _decorator;
 
 /**
@@ -29,7 +29,7 @@ export class LootDropItem {
  */
 @ccclass('EnemyBulletData')
 export class EnemyBulletData {
-    @property({ type: CCString })
+    @property
     public id: string = "";
 
     @property({ type: CCInteger, tooltip: "Bullet Type (0: Normal, 1: Aim, etc)" })
@@ -44,7 +44,7 @@ export class EnemyBulletData {
     @property({ type: CCFloat })
     public interval: number = 1.0;
 
-    @property({ type: CCString, tooltip: "Prefab Name or Resource Path" })
+    @property({ tooltip: "Prefab Name or Resource Path" })
     public prefabName: string = "";
 }
 
@@ -53,10 +53,10 @@ export class EnemyBulletData {
  */
 @ccclass('BehaviorData')
 export class BehaviorData {
-    @property({ type: CCString })
+    @property
     public id: string = "";
 
-    @property({ type: CCString, tooltip: "Internal Logic ID (e.g. MPID001)" })
+    @property({ tooltip: "Internal Logic ID (e.g. MPID001)" })
     public logicId: string = "MPID001";
 
     @property({ type: CCFloat })
@@ -72,11 +72,11 @@ export class BehaviorData {
  */
 @ccclass('DropData')
 export class DropData {
-    @property({ type: CCString })
+    @property
     public id: string = "";
 
     // どのアイテムが出るか
-    @property({ type: CCString })
+    @property
     public itemId: string = "";
 
     @property({ type: CCFloat })
@@ -96,10 +96,10 @@ export class DropData {
 @ccclass('EnemyData')
 export class EnemyData {
 
-    @property({ type: CCString, tooltip: "ユニークID (例: EN001)" })
+    @property({ tooltip: "ユニークID (例: EN001)" })
     public id: string = "";
 
-    @property({ type: CCString, tooltip: "表示名" })
+    @property({ tooltip: "表示名" })
     public name: string = "Enemy";
 
     @property({ type: Prefab, tooltip: "敵のプレハブ" })
@@ -116,13 +116,13 @@ export class EnemyData {
 
     // --- References ---
 
-    @property({ type: CCString, tooltip: "行動パターンID" })
+    @property({ tooltip: "行動パターンID" })
     public behaviorId: string = "";
 
     @property({ type: CCFloat, tooltip: "速度倍率" })
     public speedMult: number = 1.0;
 
-    @property({ type: CCString, tooltip: "敵弾ID" })
+    @property({ tooltip: "敵弾ID" })
     public ebId: string = ""; // EnemyBullet ID
 
     @property({ type: CCFloat, tooltip: "弾速倍率" })
@@ -131,7 +131,7 @@ export class EnemyData {
     @property({ type: CCFloat, tooltip: "弾威力倍率" })
     public bulletDmgMult: number = 1.0;
 
-    @property({ type: CCString, tooltip: "ドロップテーブルID" })
+    @property({ tooltip: "ドロップテーブルID" })
     public dropId: string = "";
 
     // Runtime Cache (Optional, populated by DB)

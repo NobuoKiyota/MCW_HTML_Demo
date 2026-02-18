@@ -55,7 +55,7 @@ export class Item extends Component {
 
     update(dt: number) {
         const gm = this._gm;
-        if (!gm || gm.state !== 4) return;
+        if (!gm || gm.state !== 4 || gm.isPaused) return;
 
         this.node.getPosition(this._tempPos);
         const playerPos = gm.playerNode.position;

@@ -1,0 +1,80 @@
+CCEffect %{
+  techniques:
+  - passes:
+    - vert: sprite-vs:vert
+      frag: sprite-fs:frag
+      depthStencilState:
+        depthTest: false
+        depthWrite: false
+      blendState:
+        targets:
+        - blend: true
+          blendSrc: src_alpha
+          blendDst: one_minus_src_alpha
+          blendDstAlpha: one_minus_src_alpha
+      rasterizerState:
+        cullMode: none
+      properties:
+        blurAmount: { value: 0.0, target: mainParams.x, editor: { slide: true, range: [0, 0.1], step: 0.001 } }
+}%
+
+CCProgram sprite-vs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+  #include <builtin/uniforms/cc-local>
+
+  in vec3 a_position;
+  in vec2 a_texCoord;
+  in vec4 a_color;
+
+  out vec4 v_color;
+  out vec2 v_uv0;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1.0);
+    pos = cc_matViewProj * cc_matWorld * pos;
+    v_uv0 = a_texCoord;
+    v_color = a_color;
+    return pos;
+  }
+}%
+
+CCProgram sprite-fs %{
+  precision highp float;
+  #include <builtin/internal/alpha-test>
+  #include <builtin/internal/sprite-texture>
+
+  in vec4 v_color;
+  in vec2 v_uv0;
+
+  uniform Constants {
+    vec4 mainParams; // x: blurAmount
+  };
+
+  vec4 frag () {
+    vec4 o = texture(cc_spriteTexture, v_uv0);
+    o *= v_color;
+    
+    float amount = mainParams.x;
+    
+    // Safety check: if amount is 0, just return the color
+    if (amount <= 0.0001) {
+        return o;
+    }
+
+    // 9-tap Gaussian blur (Manual sampling to be safe)
+    vec4 sum = vec4(0.0);
+    sum += texture(cc_spriteTexture, v_uv0 + vec2(-amount, -amount)) * 0.05;
+    sum += texture(cc_spriteTexture, v_uv0 + vec2(0.0, -amount)) * 0.1;
+    sum += texture(cc_spriteTexture, v_uv0 + vec2(amount, -amount)) * 0.05;
+    sum += texture(cc_spriteTexture, v_uv0 + vec2(-amount, 0.0)) * 0.1;
+    sum += texture(cc_spriteTexture, v_uv0 + vec2(0.0, 0.0)) * 0.4;
+    sum += texture(cc_spriteTexture, v_uv0 + vec2(amount, 0.0)) * 0.1;
+    sum += texture(cc_spriteTexture, v_uv0 + vec2(-amount, amount)) * 0.05;
+    sum += texture(cc_spriteTexture, v_uv0 + vec2(0.0, amount)) * 0.1;
+    sum += texture(cc_spriteTexture, v_uv0 + vec2(amount, amount)) * 0.05;
+
+    // v_color (UIOpacity等) を最後に反映
+    return sum * v_color;
+  }
+}%

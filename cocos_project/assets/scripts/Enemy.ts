@@ -1,6 +1,7 @@
 import { _decorator, Component, Node, Vec3, math, Sprite, Color, director, find } from 'cc';
 // import { GameManager } from './GameManager'; // Circular Dependency
 import { GAME_SETTINGS, IGameManager } from './Constants';
+import { SoundManager } from './SoundManager';
 const { ccclass, property } = _decorator;
 
 @ccclass('Enemy')
@@ -31,9 +32,19 @@ export class Enemy extends Component {
     public bulletDamage: number = 10;
     public bulletType: number = 0;
 
+    onLoad() {
+        console.log(`[Enemy] onLoad: ${this.node.uuid}`);
+    }
+
+    start() {
+        console.log(`[Enemy] start: ${this.node.uuid} HP:${this.hp}`);
+        if (this.hp <= 0) console.warn(`[Enemy] Started with HP <= 0!`);
+    }
+
     init(data: any, gm: IGameManager) {
         this._gm = gm;
         this.data = data;
+        console.log(`[Enemy] init: ${this.node.uuid} DataHP:${data.hp}`);
 
         // Basic Stats
         this.hp = data.hp || 10;
@@ -70,7 +81,7 @@ export class Enemy extends Component {
 
     update(dt: number) {
         const gm = this._gm;
-        if (!gm || gm.state !== 4) return; // 4 = INGAME
+        if (!gm || gm.state !== 4 || gm.isPaused) return; // 4 = INGAME
 
         // Time processing
         this.cooldown -= dt; // Seconds
@@ -170,6 +181,7 @@ export class Enemy extends Component {
     }
 
     public takeDamage(amount: number) {
+        console.log(`[Enemy] takeDamage: ${this.node.uuid} Amount:${amount} HP:${this.hp}`);
         // Defense Calculation
         let finalDamage = amount;
         if (this.data && this.data.defense) {
@@ -179,11 +191,16 @@ export class Enemy extends Component {
         this.hp -= finalDamage;
 
         const isKill = this.hp <= 0;
+        if (isKill) console.log(`[Enemy] KILLED: ${this.node.uuid}`);
 
+        // ... rest of logic
         // Spawn Damage Text
         if (this._gm) {
             this._gm.spawnDamageText(this.node.position.x, this.node.position.y, finalDamage, isKill);
         }
+
+        // Play Hit SE (3D)
+        SoundManager.instance.play3dSE("sounds/SE/hit", this.node.worldPosition, "Enemy");
 
         if (isKill) {
             this.scheduleOnce(() => {
@@ -193,6 +210,7 @@ export class Enemy extends Component {
     }
 
     die() {
+        console.log(`[Enemy] die called: ${this.node.uuid}`);
         const gm = this._gm;
         if (gm) {
             let dropped = false;
@@ -202,13 +220,6 @@ export class Enemy extends Component {
                 for (const drop of this.data._drops) {
                     // Check Rate
                     if (Math.random() <= drop.rate) {
-                        // Find Prefab by ID mapping? 
-                        // Current system needs Prefab reference. 
-                        // GameDatabase or Constants needs to map "ItemMoney" -> Prefab.
-                        // For now, assume spawnItem (Legacy) can handle string ID, OR we need a lookup.
-                        // Let's use Constants.ECONOMY.ITEMS lookup or similar if standard items.
-
-                        // If GM has a way to spawn by ID (Legacy):
                         gm.spawnItem(this.node.position.x, this.node.position.y, drop.itemId, drop.min);
                         dropped = true;
                     }
@@ -231,6 +242,10 @@ export class Enemy extends Component {
                 // Future: Maybe simple random drop logic if needed, or nothing.
                 // For now, clean up legacy hardcoded drops.
             }
+
+            // Play Explosion SE (3D)
+            gm.spawnExplosion(this.node.worldPosition.x, this.node.worldPosition.y);
+            SoundManager.instance.play3dSE("sounds/SE/explosion", this.node.worldPosition, "Enemy");
         }
         this.node.destroy();
     }

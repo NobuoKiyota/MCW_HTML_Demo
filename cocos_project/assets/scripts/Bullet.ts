@@ -18,6 +18,11 @@ export class Bullet extends Component {
     private velocity: Vec3 = new Vec3();
     private _tempPos: Vec3 = new Vec3();
 
+    // Homing
+    public isHoming: boolean = false;
+    public target: Node = null;
+    public steerForce: number = 0.1; // Radians per frame approx
+
     // Cache GM
     private _gm: IGameManager = null;
 
@@ -31,13 +36,17 @@ export class Bullet extends Component {
     // Init method called by GameManager or Shooter
     init(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean, gm: IGameManager) {
         this._gm = gm;
-        console.log(`[Bullet] init: x=${x}, y=${y}, angle=${angle}, speed=${speed}`);
+        // console.log(`[Bullet] init: x=${x}, y=${y}, angle=${angle}, speed=${speed}`); // Reduce spam
         this.node.setPosition(x, y, 0);
         this.angle = angle;
         this.speed = speed;
         this.damage = damage;
         this.isEnemy = isEnemy;
         this.life = 3.0; // Seconds
+
+        // Reset Homing
+        this.isHoming = false;
+        this.target = null;
 
         // Set Velocity
         this.velocity.x = Math.cos(angle) * speed;
@@ -54,15 +63,41 @@ export class Bullet extends Component {
     }
 
     update(deltaTime: number) {
-        // Need to check GameState? 
-        // We can check if GameManager node has state, OR just move always if Bullet exists.
-        // To avoid finding GM every frame, let's assume Bullets pause only if timeScale is 0, which Cocos handles.
-        // IF we really need valid game state:
-        // const gm = find("GameManager").getComponent("GameManager") as any as IGameManager;
-        // if (gm && gm.state !== 4) return;
+        if (this._gm && this._gm.isPaused) return;
 
-        // Ensure paused if needed. For now, strict check might be heavy. 
-        // Let's rely on TimeScale or GM pausing the Director/Scene.
+        // Homing Logic
+        if (this.isHoming && this.target && this.target.isValid) {
+            const tPos = this.target.position;
+            const cPos = this.node.position;
+
+            const dx = tPos.x - cPos.x;
+            const dy = tPos.y - cPos.y;
+
+            let desiredAngle = Math.atan2(dy, dx);
+
+            // Steer current angle towards desired angle
+            // Simple approach: rotate velocity vector
+            let currentAngle = Math.atan2(this.velocity.y, this.velocity.x);
+
+            // Normalize angles
+            while (desiredAngle - currentAngle > Math.PI) desiredAngle -= Math.PI * 2;
+            while (desiredAngle - currentAngle < -Math.PI) desiredAngle += Math.PI * 2;
+
+            // Steer
+            const maxSteer = this.steerForce;
+            if (desiredAngle > currentAngle) {
+                currentAngle += Math.min(maxSteer, desiredAngle - currentAngle);
+            } else {
+                currentAngle -= Math.min(maxSteer, currentAngle - desiredAngle);
+            }
+
+            // Update Velocity
+            this.velocity.x = Math.cos(currentAngle) * this.speed;
+            this.velocity.y = Math.sin(currentAngle) * this.speed;
+
+            // Update Visual Angle
+            this.node.angle = (currentAngle * 180 / Math.PI) - 90;
+        }
 
         // Move
         this.node.getPosition(this._tempPos);

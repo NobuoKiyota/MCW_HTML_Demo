@@ -3,6 +3,7 @@ import { DataManager } from './DataManager';
 import { GAME_SETTINGS, IGameManager, GameState } from './Constants';
 import { UIManager } from './UIManager';
 import { BuffVisualEffect } from './BuffVisualEffect';
+import { SoundManager } from './SoundManager';
 
 const { ccclass, property } = _decorator;
 
@@ -56,6 +57,13 @@ export class PlayerController extends Component {
 
     @property(Prefab)
     public rapidBuffPrefab: Prefab = null;
+
+    // Audio Tuning
+    @property({ tooltip: "Distance (px) for silence" })
+    public audioVolDropoff: number = 800; // Far off-screen
+
+    @property({ tooltip: "Debug: Use Homing Missiles" })
+    public useHoming: boolean = false;
 
     public hp: number = 100;
 
@@ -146,7 +154,7 @@ export class PlayerController extends Component {
     }
 
     private canControl(): boolean {
-        return this._gm && this._gm.state === GameState.INGAME;
+        return this._gm && this._gm.state === GameState.INGAME && !this._gm.isPaused;
     }
 
     update(deltaTime: number) {
@@ -218,12 +226,48 @@ export class PlayerController extends Component {
         // Manual orbit logic removed, now handled by BuffVisualEffect component
     }
 
+    private findNearestEnemy(): Node {
+        if (!this._gm || !this._gm.enemyLayer) return null;
+
+        let nearest: Node = null;
+        let minRateDist = Number.MAX_VALUE;
+        const myPos = this.node.position;
+
+        for (const enemy of this._gm.enemyLayer.children) {
+            if (!enemy.isValid) continue;
+
+            // Simple distance check
+            const dx = enemy.position.x - myPos.x;
+            const dy = enemy.position.y - myPos.y;
+            const distSq = dx * dx + dy * dy;
+
+            if (distSq < minRateDist) {
+                minRateDist = distSq;
+                nearest = enemy;
+            }
+        }
+        return nearest;
+    }
+
     private fire() {
         const gm = this._gm;
         if (gm) {
             const angle = Math.PI / 2;
             const finalDamage = Math.floor(this.bulletDamage * this.damageMultiplier);
-            gm.spawnBullet(this.node.position.x, this.node.position.y + 20, angle, this.bulletSpeed, finalDamage, false);
+
+            const bullet = gm.spawnBullet(this.node.position.x, this.node.position.y + 20, angle, this.bulletSpeed, finalDamage, false);
+
+            if (bullet && this.useHoming) {
+                const target = this.findNearestEnemy();
+                if (target) {
+                    bullet.isHoming = true;
+                    bullet.target = target;
+                    // console.log(`[Player] Fired Homing Missile at ${target.uuid}`);
+                }
+            }
+
+            // Play Shoot SE (3D)
+            SoundManager.instance.play3dSE("sounds/SE/shoot", this.node.worldPosition, "Player");
         }
     }
 
@@ -245,7 +289,13 @@ export class PlayerController extends Component {
         if (type === "Power") {
             if (!this.powerEffectNode) {
                 if (this.powerBuffPrefab) {
-                    this.powerEffectNode = instantiate(this.powerBuffPrefab);
+                    // Defensive check: Ensure we are not instantiating the OptionsUI by mistake
+                    if (this.powerBuffPrefab.name === "OptionsUI" || this.powerBuffPrefab.data.name === "OptionsUI") {
+                        console.error("[PlayerController] OptionsUI prefab assigned to Power Buff slot! Ignoring.");
+                        this.powerEffectNode = new Node("AIPowerEffect_Fallback");
+                    } else {
+                        this.powerEffectNode = instantiate(this.powerBuffPrefab);
+                    }
                 } else {
                     this.powerEffectNode = new Node("AIPowerEffect");
                     const effect = this.powerEffectNode.addComponent(BuffVisualEffect);
@@ -258,7 +308,13 @@ export class PlayerController extends Component {
         } else if (type === "Rapid") {
             if (!this.rapidEffectNode) {
                 if (this.rapidBuffPrefab) {
-                    this.rapidEffectNode = instantiate(this.rapidBuffPrefab);
+                    // Defensive check
+                    if (this.rapidBuffPrefab.name === "OptionsUI" || this.rapidBuffPrefab.data.name === "OptionsUI") {
+                        console.error("[PlayerController] OptionsUI prefab assigned to Rapid Buff slot! Ignoring.");
+                        this.rapidEffectNode = new Node("AIRapidEffect_Fallback");
+                    } else {
+                        this.rapidEffectNode = instantiate(this.rapidBuffPrefab);
+                    }
                 } else {
                     this.rapidEffectNode = new Node("AIRapidEffect");
                     const effect = this.rapidEffectNode.addComponent(BuffVisualEffect);

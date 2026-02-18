@@ -144,15 +144,18 @@ export const SAVE_KEY = 'SHOOTER_COCOS_V1';
 // IGameManager Interface for breaking circular dependencies
 export interface IGameManager {
     state: GameState;
+    isPaused: boolean;
+    enemyLayer: any; // Add enemyLayer for PlayerController access
     playerNode: any;
     playState: any;
     // currentScrollSpeed: number; // Global Physics -> Moved to GameSpeedManager
     speedManager: any; // GameSpeedManager type (any to avoid circular import here if needed, or import type)
-    spawnBullet(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean): void;
+    spawnBullet(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean): any;
     spawnItem(x: number, y: number, id: string, amount: number): void;
     spawnItemFromPrefab(prefab: any, x: number, y: number): void;
     onItemCollected(id: string, amount: number, pos?: any): void;
     onGameOver(): void;
     onMissionComplete(): void;
     spawnDamageText(x: number, y: number, amount: number, isKill: boolean): void;
+    spawnExplosion(x: number, y: number): void;
 }
