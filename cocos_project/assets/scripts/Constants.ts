@@ -5,6 +5,12 @@ import { GAME_BALANCE_DATA } from "./GameBalanceData";
  */
 export const GAME_SETTINGS = {
     // 画面設定 (Cocos Reference Resolution)
+    // 画面設定 (Cocos Reference Resolution)
+    // 全体解像度 (1280x720)
+    SCREEN_WIDTH: 1280,
+    SCREEN_HEIGHT: 720,
+
+    // ゲームプレイ領域 (中央 800x600)
     CANVAS_WIDTH: 800,
     CANVAS_HEIGHT: 600,
 

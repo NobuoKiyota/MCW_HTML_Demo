@@ -1,4 +1,7 @@
-import { _decorator, Component, Node, ProgressBar, Label, Tween, tween, v3, UIOpacity, director, LabelOutline, Color, Graphics, UITransform, Vec3 } from 'cc';
+import { _decorator, Component, Node, Label, Tween, tween, v3, UIOpacity, director, LabelOutline, Color, UITransform, Vec3 } from 'cc';
+import { SideBarUI } from './SideBarUI';
+import { SettingsManager } from './SettingsManager';
+
 const { ccclass, property } = _decorator;
 
 @ccclass('UIManager')
@@ -6,34 +9,17 @@ export class UIManager extends Component {
 
     public static instance: UIManager;
 
-    @property(ProgressBar)
-    public hpBar: ProgressBar = null;
+    // @property(Label)
+    // public distLabel: Label = null; // Removed
 
-    @property(Label)
-    public distLabel: Label = null;
-
-    @property(Label)
-    public speedLabel: Label = null;
+    // @property(Label)
+    // public speedLabel: Label = null; // Removed
 
     @property(Node)
     public gameOverPanel: Node = null;
 
     @property(Node)
     public resultPanel: Node = null;
-
-    // Buff UI (Labels)
-    @property(Label)
-    public buffPowerLabel: Label = null;
-
-    @property(Label)
-    public buffRapidLabel: Label = null;
-
-    // Buff UI (Gauges)
-    @property(ProgressBar)
-    public buffPowerBar: ProgressBar = null;
-
-    @property(ProgressBar)
-    public buffRapidBar: ProgressBar = null;
 
     @property(Node)
     public notificationLayer: Node = null;
@@ -51,15 +37,30 @@ export class UIManager extends Component {
     @property(Color)
     public notifyTextColor: Color = new Color(0, 0, 0, 255); // 文字本体の色 (デフォルト黒)
 
+    // --- SideBar Integration ---
+    @property({ type: SideBarUI })
+    public sideBarUI: SideBarUI = null;
+
     onLoad() {
         UIManager.instance = this;
         if (this.gameOverPanel) this.gameOverPanel.active = false;
         if (this.resultPanel) this.resultPanel.active = false;
+
+        // Auto-create SideBarUI if not assigned
+        if (!this.sideBarUI) {
+            console.log("[UIManager] SideBarUI not assigned. Creating programmatically.");
+            const node = new Node("SideBarUI");
+            this.node.addChild(node); // Add to UIManager's node (Canvas)
+            this.sideBarUI = node.addComponent(SideBarUI);
+        }
+
+        // Force settings application (Resolution etc)
+        SettingsManager.instance.applySettings();
     }
 
     public updateHP(currentHp: number, maxHp: number) {
-        if (this.hpBar) {
-            this.hpBar.progress = currentHp / maxHp;
+        if (this.sideBarUI) {
+            this.sideBarUI.updateHP(currentHp, maxHp);
         }
     }
 
@@ -76,46 +77,21 @@ export class UIManager extends Component {
     }
 
     public updateDist(distance: number) {
-        if (this.distLabel) {
-            const distStr = distance.toFixed(2);
-            const padded = ("00000000" + distStr).slice(-8);
-            this.distLabel.string = `DIST: ${padded} km`;
+        if (this.sideBarUI) {
+            this.sideBarUI.updateMissionInfo(distance);
         }
     }
 
     public updateSpeed(speed: number) {
-        if (this.speedLabel) {
-            const displaySpeed = Math.floor(speed * 100);
-            const speedStr = displaySpeed.toString();
-            const padded = ("0000" + speedStr).slice(-4);
-            this.speedLabel.string = `SPD: ${padded} km/h`;
+        if (this.sideBarUI) {
+            this.sideBarUI.updateSpeed(speed);
         }
     }
 
-    /**
-     * バフの残り時間を更新。ProgressBarがあればゲージとして表示。
-     */
     public updateBuffs(powerTime: number, rapidTime: number) {
-        const maxDur = 10.0;
-
-        // 1. Power
-        if (this.buffPowerLabel) {
-            this.buffPowerLabel.node.active = (powerTime > 0);
-            if (powerTime > 0) this.buffPowerLabel.string = `BuffPower: ${powerTime.toFixed(1)}s`;
-        }
-        if (this.buffPowerBar) {
-            this.buffPowerBar.node.active = (powerTime > 0);
-            this.buffPowerBar.progress = Math.min(powerTime / maxDur, 1.0);
-        }
-
-        // 2. Rapid
-        if (this.buffRapidLabel) {
-            this.buffRapidLabel.node.active = (rapidTime > 0);
-            if (rapidTime > 0) this.buffRapidLabel.string = `BuffSpeed: ${rapidTime.toFixed(1)}s`;
-        }
-        if (this.buffRapidBar) {
-            this.buffRapidBar.node.active = (rapidTime > 0);
-            this.buffRapidBar.progress = Math.min(rapidTime / maxDur, 1.0);
+        // SideBar UI
+        if (this.sideBarUI) {
+            this.sideBarUI.updateBuffs(powerTime, rapidTime);
         }
     }
 
@@ -138,10 +114,6 @@ export class UIManager extends Component {
 
     /**
      * 指定された位置へ通知を表示
-     * @param text 表示テキスト
-     * @param rarity レア度 (1-5)
-     * @param pos 取得場所の座標 (Vec3)
-     * @param customColor カスタムカラー
      */
     public showItemLog(text: string, rarity: number = 1, pos?: Vec3, customColor?: Color) {
         if (!this.notificationLayer) return;
@@ -158,7 +130,7 @@ export class UIManager extends Component {
         const label = labelNode.addComponent(Label);
         label.string = text;
         label.fontSize = this.notifyFontSize;
-        label.color = this.notifyTextColor; // 文字を黒（または背景色）にする
+        label.color = this.notifyTextColor;
         label.horizontalAlign = Label.HorizontalAlign.CENTER;
         label.verticalAlign = Label.VerticalAlign.CENTER;
 

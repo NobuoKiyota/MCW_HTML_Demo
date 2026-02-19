@@ -25,7 +25,7 @@ export class SettingsManager {
         seVolume: 0.8,
         voiceVolume: 1.0,
         language: 'JP',
-        resolution: { width: 800, height: 600 }
+        resolution: { width: 1280, height: 720 }
     };
 
     constructor() {
