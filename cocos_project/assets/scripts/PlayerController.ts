@@ -267,7 +267,7 @@ export class PlayerController extends Component {
             }
 
             // Play Shoot SE (3D)
-            SoundManager.instance.play3dSE("sounds/SE/shoot", this.node.worldPosition, "Player");
+            SoundManager.instance.play3dSE("shoot01", this.node.worldPosition, "Player");
         }
     }
 

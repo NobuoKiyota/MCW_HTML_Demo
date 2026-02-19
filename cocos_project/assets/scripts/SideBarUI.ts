@@ -94,48 +94,40 @@ export class SideBarUI extends Component {
     }
 
     /**
-     * ノードの生成のみを行う
+     * ノードの生成または取得を行う
      */
     private setupNodes() {
         const sideWidth = 240;
+        const innerWidth = 180; // 内部要素の最大幅（200から180に縮小して余裕を持たせる）
 
         // --- Left Panel ---
         if (!this.leftPanel) {
             this.leftPanel = this.createPanel("LeftPanel", sideWidth, true, new Color(0, 20, 50, 200));
             this.node.addChild(this.leftPanel);
-
-            // 背景プレート（固定）
             this.createPlate(this.leftPanel, 0, 160, 220, 180, new Color(0, 0, 0, 150));
-
-            // Create Elements (Initially hidden or positioned 0)
-            this.missionLabel = this.createLabel(this.leftPanel, "DESTINATION\n3000 km", 0, 0, 24, Color.WHITE);
-            this.speedLabel = this.createLabel(this.leftPanel, "SPD: 0 km/h", 0, 0, 24, Color.WHITE);
-
-            this.hpLabel = this.createLabel(this.leftPanel, "HP: 100/100", 0, 0, 24, Color.GREEN);
-            this.hpBarNode = this.createBar(this.leftPanel, 0, 0, 200, 15, Color.GREEN);
-
-            this.buffPowerLabel = this.createLabel(this.leftPanel, "POWER: READY", 0, 0, 20, Color.GRAY);
-            this.buffPowerBarNode = this.createBar(this.leftPanel, 0, 0, 200, 10, Color.RED);
-
-            this.buffRapidLabel = this.createLabel(this.leftPanel, "RAPID: READY", 0, 0, 20, Color.GRAY);
-            this.buffRapidBarNode = this.createBar(this.leftPanel, 0, 0, 200, 10, Color.CYAN);
-
-            // Hide buffs initially
-            this.setNodeVisible(this.buffPowerLabel.node, false);
-            this.setNodeVisible(this.buffPowerBarNode, false);
-            this.setNodeVisible(this.buffRapidLabel.node, false);
-            this.setNodeVisible(this.buffRapidBarNode, false);
         }
+
+        // 手動でアサインされていない場合のみ生成
+        if (!this.missionLabel) this.missionLabel = this.createLabel(this.leftPanel, "DESTINATION\n3000 km", 0, 0, 24, Color.WHITE, true);
+        if (!this.speedLabel) this.speedLabel = this.createLabel(this.leftPanel, "SPD: 0 km/h", 0, 0, 24, Color.WHITE, true);
+        if (!this.hpLabel) this.hpLabel = this.createLabel(this.leftPanel, "HP: 100/100", 0, 0, 24, Color.GREEN, true);
+        if (!this.hpBarNode) this.hpBarNode = this.createBar(this.leftPanel, 0, 0, innerWidth, 15, Color.GREEN);
+
+        if (!this.buffPowerLabel) this.buffPowerLabel = this.createLabel(this.leftPanel, "POWER: READY", 0, 0, 20, Color.GRAY, true);
+        if (!this.buffPowerBarNode) this.buffPowerBarNode = this.createBar(this.leftPanel, 0, 0, innerWidth, 10, Color.RED);
+
+        if (!this.buffRapidLabel) this.buffRapidLabel = this.createLabel(this.leftPanel, "RAPID: READY", 0, 0, 20, Color.GRAY, true);
+        if (!this.buffRapidBarNode) this.buffRapidBarNode = this.createBar(this.leftPanel, 0, 0, innerWidth, 10, Color.CYAN);
 
         // --- Right Panel ---
         if (!this.rightPanel) {
             this.rightPanel = this.createPanel("RightPanel", sideWidth, false, new Color(0, 20, 50, 200));
             this.node.addChild(this.rightPanel);
-
-            this.shipNameLabel = this.createLabel(this.rightPanel, "SS-ALPHA-01", 0, 300, 28, Color.CYAN);
-            this.shipStatsLabel = this.createLabel(this.rightPanel, "CREDITS: 0\nTOTAL DIST: 0 km", 0, 100, 20, Color.WHITE);
-            this.cargoLabel = this.createLabel(this.rightPanel, "CARGO: EMPTY", 0, -100, 20, Color.YELLOW);
         }
+
+        if (!this.shipNameLabel) this.shipNameLabel = this.createLabel(this.rightPanel, "SS-ALPHA-01", 0, 300, 28, Color.CYAN, false);
+        if (!this.shipStatsLabel) this.shipStatsLabel = this.createLabel(this.rightPanel, "CREDITS: 0\nTOTAL DIST: 0 km", 0, 100, 20, Color.WHITE, false);
+        if (!this.cargoLabel) this.cargoLabel = this.createLabel(this.rightPanel, "CARGO: EMPTY", 0, -100, 20, Color.YELLOW, false);
     }
 
     /**
@@ -145,6 +137,11 @@ export class SideBarUI extends Component {
         if (!this.leftPanel) return;
 
         let currentY = SIDEBAR_CONFIG.START_Y;
+        const panelWidth = 240;
+        const margin = 20;
+        // 左パネルのラベル開始位置：パネルの左端(-120) + 余白(20) = -100
+        const labelX = -panelWidth / 2 + margin;
+        const barX = 0; // バーは中央揃え
 
         for (const type of SIDEBAR_CONFIG.ORDER) {
             const gap = SIDEBAR_CONFIG.DEFAULT_GAP;
@@ -152,37 +149,32 @@ export class SideBarUI extends Component {
             const padding = SIDEBAR_CONFIG.PADDING[type] || 0;
 
             let isVisible = true;
-
-            // Visibility Check
             if (type === 'BuffPower') isVisible = this._isPowerActive;
             if (type === 'BuffRapid') isVisible = this._isRapidActive;
 
             if (isVisible) {
-                // Determine Nodes for this type
                 switch (type) {
                     case 'Mission':
-                        this.setNodeVisible(this.missionLabel?.node, true, 0, currentY);
+                        this.setNodeVisible(this.missionLabel?.node, true, labelX, currentY);
                         break;
                     case 'Speed':
-                        this.setNodeVisible(this.speedLabel?.node, true, 0, currentY);
+                        this.setNodeVisible(this.speedLabel?.node, true, labelX, currentY);
                         break;
                     case 'HP':
-                        this.setNodeVisible(this.hpLabel?.node, true, 0, currentY);
-                        this.setNodeVisible(this.hpBarNode, true, 0, currentY - 30);
+                        this.setNodeVisible(this.hpLabel?.node, true, labelX, currentY);
+                        this.setNodeVisible(this.hpBarNode, true, barX, currentY - 30);
                         break;
                     case 'BuffPower':
-                        this.setNodeVisible(this.buffPowerLabel?.node, true, 0, currentY);
-                        this.setNodeVisible(this.buffPowerBarNode, true, 0, currentY - 25);
+                        this.setNodeVisible(this.buffPowerLabel?.node, true, labelX, currentY);
+                        this.setNodeVisible(this.buffPowerBarNode, true, barX, currentY - 25);
                         break;
                     case 'BuffRapid':
-                        this.setNodeVisible(this.buffRapidLabel?.node, true, 0, currentY);
-                        this.setNodeVisible(this.buffRapidBarNode, true, 0, currentY - 25);
+                        this.setNodeVisible(this.buffRapidLabel?.node, true, labelX, currentY);
+                        this.setNodeVisible(this.buffRapidBarNode, true, barX, currentY - 25);
                         break;
                 }
-                // Decrement Y
                 currentY -= (height + gap + padding);
             } else {
-                // Hide Nodes
                 switch (type) {
                     case 'BuffPower':
                         this.setNodeVisible(this.buffPowerLabel?.node, false);
@@ -231,7 +223,9 @@ export class SideBarUI extends Component {
         resources.load(path + "/spriteFrame", SpriteFrame, (err, spriteFrame) => {
             if (err) {
                 console.warn(`[SideBarUI] Failed to load spriteFrame: ${path}`, err);
-                const gr = node.addComponent(Graphics);
+                const bgNode = new Node("FallbackBG");
+                node.addChild(bgNode);
+                const gr = bgNode.addComponent(Graphics);
                 gr.fillColor = color;
                 gr.rect(-w / 2, -360, w, 720);
                 gr.fill();
@@ -243,16 +237,25 @@ export class SideBarUI extends Component {
         return node;
     }
 
-    private createLabel(parent: Node, text: string, x: number, y: number, fontSize: number, color: Color): Label {
+    private createLabel(parent: Node, text: string, x: number, y: number, fontSize: number, color: Color, isLeft: boolean = true): Label {
         const node = new Node("Label");
         parent.addChild(node);
-        node.setPosition(x, y);
 
         const label = node.addComponent(Label);
         label.string = text;
         label.fontSize = fontSize;
         label.color = color;
         label.lineHeight = fontSize + 4;
+
+        // アンカーを設定して端に揃える
+        const trans = node.getComponent(UITransform) || node.addComponent(UITransform);
+        trans.setAnchorPoint(isLeft ? 0 : 1, 0.5);
+        label.horizontalAlign = isLeft ? Label.HorizontalAlign.LEFT : Label.HorizontalAlign.RIGHT;
+
+        const margin = 20;
+        const panelWidth = 240;
+        const posX = isLeft ? (-panelWidth / 2 + margin) : (panelWidth / 2 - margin);
+        node.setPosition(posX, y);
 
         const outline = node.addComponent(LabelOutline);
         outline.color = new Color(0, 0, 0, 255);
@@ -266,7 +269,10 @@ export class SideBarUI extends Component {
         parent.addChild(bgNode);
         bgNode.setPosition(x, y);
 
-        // BG
+        const trans = bgNode.addComponent(UITransform);
+        trans.setContentSize(w, h); // 明示的にサイズを設定
+
+        // BG (中央の錨点はそのまま)
         const gr = bgNode.addComponent(Graphics);
         gr.fillColor = new Color(50, 50, 50, 255);
         gr.rect(-w / 2, -h / 2, w, h);
@@ -276,18 +282,18 @@ export class SideBarUI extends Component {
         const fillNode = new Node("BarFill");
         bgNode.addChild(fillNode);
 
-        // Anchor left for scaling
+        // Fillは左端を錨点にする
         const fillTrans = fillNode.addComponent(UITransform);
+        fillTrans.setContentSize(w, h);
         fillTrans.setAnchorPoint(0, 0.5);
         fillNode.setPosition(-w / 2, 0);
 
         const fillGr = fillNode.addComponent(Graphics);
         fillGr.fillColor = color;
-        // Draw relative to anchor (0, 0.5)
         fillGr.rect(0, -h / 2, w, h);
         fillGr.fill();
 
-        return fillNode;
+        return bgNode;
     }
 
     private createPlate(parent: Node, x: number, y: number, w: number, h: number, color: Color) {
@@ -309,8 +315,11 @@ export class SideBarUI extends Component {
     public updateHP(current: number, max: number) {
         if (this.hpLabel) this.hpLabel.string = `HP: ${Math.floor(current)}/${max}`;
         if (this.hpBarNode) {
-            const ratio = max > 0 ? (current / max) : 0;
-            this.hpBarNode.setScale(ratio, 1, 1);
+            const fill = this.hpBarNode.getChildByName("BarFill");
+            if (fill) {
+                const ratio = max > 0 ? (current / max) : 0;
+                fill.setScale(ratio, 1, 1);
+            }
         }
     }
 
@@ -330,8 +339,11 @@ export class SideBarUI extends Component {
             this.buffPowerLabel.color = Color.RED;
         }
         if (this.buffPowerBarNode && isPowerActive) {
-            const ratio = (powerTime / maxDur);
-            this.buffPowerBarNode.setScale(Math.min(ratio, 1), 1, 1);
+            const fill = this.buffPowerBarNode.getChildByName("BarFill");
+            if (fill) {
+                const ratio = (powerTime / maxDur);
+                fill.setScale(Math.min(ratio, 1), 1, 1);
+            }
         }
 
         // Rapid Check
@@ -346,8 +358,11 @@ export class SideBarUI extends Component {
             this.buffRapidLabel.color = Color.CYAN;
         }
         if (this.buffRapidBarNode && isRapidActive) {
-            const ratio = (rapidTime / maxDur);
-            this.buffRapidBarNode.setScale(Math.min(ratio, 1), 1, 1);
+            const fill = this.buffRapidBarNode.getChildByName("BarFill");
+            if (fill) {
+                const ratio = (rapidTime / maxDur);
+                fill.setScale(Math.min(ratio, 1), 1, 1);
+            }
         }
 
         if (layoutChanged) {

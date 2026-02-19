@@ -1,6 +1,7 @@
-import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab, resources } from 'cc';
+import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab, resources, director } from 'cc';
 import { EnemyData, EnemyBulletData, BehaviorData, DropData, SoundData } from './GameDataTypes';
 import { CSVHelper } from './CSVHelper';
+import { SoundManager } from './SoundManager';
 const { ccclass, property } = _decorator;
 
 /**
@@ -48,7 +49,13 @@ export class GameDatabase extends Component {
     public isReady: boolean = false;
 
     onLoad() {
+        if (GameDatabase.instance && GameDatabase.instance.isValid && GameDatabase.instance !== this) {
+            console.log("[GameDatabase] Duplicate valid instance found, destroying this one.");
+            this.node.destroy();
+            return;
+        }
         GameDatabase.instance = this;
+        director.addPersistRootNode(this.node);
     }
 
     start() {
@@ -74,6 +81,7 @@ export class GameDatabase extends Component {
         this.enemyBullets = [];
         this.behaviors = [];
         this.drops = [];
+        this.sounds = []; // Clear old sounds
         this.enemies = []; // Clear runtime list
 
         if (this.bulletCsv) this.parseBulletCSV(this.bulletCsv.text);
@@ -182,6 +190,16 @@ export class GameDatabase extends Component {
             d.priority = row.Priority || 0;
             return d;
         });
+
+        console.log(`[GameDatabase] Loaded ${this.sounds.length} sound entries.`);
+        if (this.sounds.length > 0) {
+            console.log(`[GameDatabase] Sample Sound[0]: ID=${this.sounds[0].id}, Path=${this.sounds[0].path}`);
+        }
+
+        // プリロード開始
+        if (SoundManager.instance) {
+            SoundManager.instance.preloadSounds(this.sounds);
+        }
     }
 
     // --- Getters ---
@@ -233,6 +251,18 @@ export class GameDatabase extends Component {
      * サウンド設定を取得（パスまたはIDで検索）
      */
     public getSoundData(query: string): SoundData | null {
-        return this.sounds.find(d => d.id === query || d.path === query) || null;
+        if (!this.sounds) {
+            console.warn("[GameDatabase] sounds list is null. Initializing to empty.");
+            this.sounds = [];
+            return null;
+        }
+        const result = this.sounds.find(d => d.id === query || d.path === query) || null;
+        if (!result) {
+            // Log warning only if query looks like an ID (no slashes)
+            if (query && !query.includes("/")) {
+                console.warn(`[GameDatabase] Sound data NOT found for query: '${query}'. IDs available: ${this.sounds.map(s => s.id).join(", ")}`);
+            }
+        }
+        return result;
     }
 }

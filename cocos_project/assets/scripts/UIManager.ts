@@ -42,20 +42,55 @@ export class UIManager extends Component {
     public sideBarUI: SideBarUI = null;
 
     onLoad() {
+        if (UIManager.instance && UIManager.instance !== this) {
+            this.node.destroy();
+            return;
+        }
         UIManager.instance = this;
+        // director.addPersistRootNode(this.node); // Removed for Single Scene Architecture
+
+        this.resolveReferences();
+
+        // Force settings application (Resolution etc)
+        SettingsManager.instance.applySettings();
+
+        // Refresh Sidebar stats (Credit, Dist etc)
+        if (this.sideBarUI) {
+            this.sideBarUI.updateShipInfo();
+        }
+    }
+
+    /**
+     * 新しいシーンに合わせてパネルなどの参照を再取得する
+     */
+    public resolveReferences() {
+        const sceneName = director.getScene().name;
+        console.log(`[UIManager] Resolving references for scene: ${sceneName}`);
+
+        const canvas = director.getScene().getChildByName("Canvas");
+        if (!canvas) return;
+
+        // パネル類の再取得
+        if (!this.gameOverPanel || !this.gameOverPanel.isValid) {
+            this.gameOverPanel = canvas.getChildByName("GameOverPanel") || canvas.getChildByPath("UILayer/GameOverPanel");
+        }
+        if (!this.resultPanel || !this.resultPanel.isValid) {
+            this.resultPanel = canvas.getChildByName("ResultPanel") || canvas.getChildByPath("UILayer/ResultPanel");
+        }
+        if (!this.notificationLayer || !this.notificationLayer.isValid) {
+            this.notificationLayer = canvas.getChildByName("NotificationLayer") || canvas.getChildByPath("UILayer/NotificationLayer") || canvas;
+        }
+
         if (this.gameOverPanel) this.gameOverPanel.active = false;
         if (this.resultPanel) this.resultPanel.active = false;
 
         // Auto-create SideBarUI if not assigned
         if (!this.sideBarUI) {
-            console.log("[UIManager] SideBarUI not assigned. Creating programmatically.");
+            console.log(`[UIManager] SideBarUI not assigned. Creating child of UIManager.`);
             const node = new Node("SideBarUI");
-            this.node.addChild(node); // Add to UIManager's node (Canvas)
+            this.node.addChild(node);
             this.sideBarUI = node.addComponent(SideBarUI);
         }
-
-        // Force settings application (Resolution etc)
-        SettingsManager.instance.applySettings();
     }
 
     public updateHP(currentHp: number, maxHp: number) {

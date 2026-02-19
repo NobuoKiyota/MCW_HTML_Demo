@@ -37,12 +37,7 @@ export class OptionsUI extends Component {
     public closeDuration: number = 0.2;
 
     onLoad() {
-        if (OptionsUI._instance && OptionsUI._instance !== this) {
-            log("[OptionsUI] Duplicate instance found, destroying.");
-            this.node.active = false;
-            this.node.destroy();
-            return;
-        }
+        // OptionsUI is often part of a scene prefab. Use the latest one.
         OptionsUI._instance = this;
 
         log(`[OptionsUI] onLoad: parent=${this.node.parent ? this.node.parent.name : "null"}`);
@@ -155,12 +150,13 @@ export class OptionsUI extends Component {
     public onVoiceVolumeChanged(slider: Slider) { SoundManager.instance.voiceVolume = slider.progress; }
 
     // --- Resolution Callbacks ---
-    public setRes1280x720() { SettingsManager.instance.applyResolution(1280, 720); }
-    public setRes800x600() { SettingsManager.instance.applyResolution(800, 600); }
-    public setRes720x360() { SettingsManager.instance.applyResolution(720, 360); }
+    public setRes1280x720() { SoundManager.instance.playSE("click"); SettingsManager.instance.applyResolution(1280, 720); }
+    public setRes800x600() { SoundManager.instance.playSE("click"); SettingsManager.instance.applyResolution(800, 600); }
+    public setRes720x360() { SoundManager.instance.playSE("click"); SettingsManager.instance.applyResolution(720, 360); }
 
     // --- Language Callbacks ---
     public setLanguage(lang: string) {
+        SoundManager.instance.playSE("click");
         SettingsManager.instance.setLanguage(lang);
         this.updateLangVisuals(lang);
     }

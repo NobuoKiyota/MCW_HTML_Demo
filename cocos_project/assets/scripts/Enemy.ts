@@ -203,7 +203,7 @@ export class Enemy extends Component {
         }
 
         // Play Hit SE (3D)
-        SoundManager.instance.play3dSE("sounds/SE/hit", this.node.worldPosition, "Enemy");
+        SoundManager.instance.play3dSE("shoothit01", this.node.worldPosition, "Enemy");
 
         if (isKill) {
             this.scheduleOnce(() => {
@@ -281,7 +281,7 @@ export class Enemy extends Component {
 
             // Play Explosion SE (3D)
             gm.spawnExplosion(this.node.worldPosition.x, this.node.worldPosition.y);
-            SoundManager.instance.play3dSE("sounds/SE/explosion", this.node.worldPosition, "Enemy");
+            SoundManager.instance.play3dSE("exploson01", this.node.worldPosition, "Enemy");
         }
         this.node.destroy();
     }

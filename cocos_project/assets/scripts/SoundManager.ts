@@ -20,7 +20,7 @@ export class SoundManager extends Component {
             console.warn("[SoundManager] Instance not initialized. Creating dummy node.");
             const node = new Node("SoundManager");
             this._instance = node.addComponent(SoundManager);
-            director.addPersistRootNode(node);
+            // director.addPersistRootNode(node); // Removed for Single Scene
         }
         return this._instance;
     }
@@ -35,6 +35,9 @@ export class SoundManager extends Component {
     private activeSEs: Map<string, AudioSource[]> = new Map(); // GroupID -> Active Sources
     private activeSoundSEs: Map<string, AudioSource[]> = new Map(); // Path/ID -> Active Sources
     private lastPlayTimes: Map<string, number> = new Map(); // Path/ID -> Last play time (ms)
+    private clipCache: Map<string, AudioClip> = new Map(); // Path/ID -> Loaded Clip
+    private pendingSounds: { type: 'BGM' | 'SE' | '3DSE', path: string, extra?: any }[] = [];
+    private isDatabaseProcessing: boolean = false;
 
     private isMuted: boolean = false;
     private _bgmVolume: number = 0.8;
@@ -56,13 +59,14 @@ export class SoundManager extends Component {
             return;
         }
         SoundManager._instance = this;
-        director.addPersistRootNode(this.node);
+        // director.addPersistRootNode(this.node); // Removed for Single Scene
 
         // Setup BGM Sources
         for (let i = 0; i < 2; i++) {
             const bgmNode = new Node(`BGM_Source_${i}`);
             bgmNode.parent = this.node;
             const source = bgmNode.addComponent(AudioSource);
+            source.playOnAwake = false;
             source.loop = true;
             source.volume = 0;
             this.bgmSources.push(source);
@@ -78,6 +82,27 @@ export class SoundManager extends Component {
 
         // Load and Apply Initial Settings
         SettingsManager.instance.load();
+
+        this.schedule(this.checkDatabaseReady, 0.1);
+    }
+
+    private checkDatabaseReady() {
+        if (GameDatabase.instance && GameDatabase.instance.isReady) {
+            this.processPendingSounds();
+            this.unschedule(this.checkDatabaseReady);
+        }
+    }
+
+    private processPendingSounds() {
+        if (this.pendingSounds.length === 0) return;
+        console.log(`[SoundManager] Processing ${this.pendingSounds.length} pending sounds...`);
+        const list = [...this.pendingSounds];
+        this.pendingSounds = [];
+        for (const item of list) {
+            if (item.type === 'BGM') this.playBGM(item.path, item.extra);
+            else if (item.type === 'SE') this.playSE(item.path, item.extra);
+            else if (item.type === '3DSE') this.play3dSE(item.path, item.extra.pos, item.extra.groupId);
+        }
     }
 
     onDestroy() {
@@ -99,11 +124,39 @@ export class SoundManager extends Component {
      * @param fadeTime Fade time in seconds
      */
     public playBGM(path: string, fadeTime: number = 1.0) {
-        resources.load(path, AudioClip, (err, clip) => {
+        // 0. Wait for Database if needed
+        if (!GameDatabase.instance || !GameDatabase.instance.isReady) {
+            console.log(`[SoundManager] Database not ready. Queuing BGM: ${path}`);
+            this.pendingSounds.push({ type: 'BGM', path, extra: fadeTime });
+            return;
+        }
+
+        // 1. Resolve Path if it's an ID
+        let actualPath = path;
+        let idKey = path;
+        const soundData = GameDatabase.instance ? GameDatabase.instance.getSoundData(path) : null;
+        if (soundData) {
+            actualPath = soundData.path;
+            idKey = soundData.id;
+        } else {
+            // console.log(`[SoundManager] No soundData for BGM: ${path}`);
+        }
+
+        // 2. Check cache (Check by ID first, then Path)
+        const cached = this.clipCache.get(idKey) || this.clipCache.get(actualPath);
+        if (cached) {
+            this.crossfadeBGM(cached, fadeTime);
+            return;
+        }
+
+        // 3. Fallback to direct load
+        resources.load(actualPath, AudioClip, (err, clip) => {
             if (err) {
-                console.error(`[SoundManager] Failed to load BGM: ${path}`, err);
+                console.error(`[SoundManager] Failed to load BGM: ${actualPath} (Source: ${path})`, err);
                 return;
             }
+            this.clipCache.set(idKey, clip);
+            this.clipCache.set(actualPath, clip);
             this.crossfadeBGM(clip, fadeTime);
         });
     }
@@ -198,8 +251,18 @@ export class SoundManager extends Component {
      * @param groupId Group ID for polyphony control
      */
     public playSE(path: string, groupId: string = "System") {
+        // 0. Wait for Database if needed
+        if (!GameDatabase.instance || !GameDatabase.instance.isReady) {
+            console.log(`[SoundManager] Database not ready. Queuing SE: ${path}`);
+            this.pendingSounds.push({ type: 'SE', path, extra: groupId });
+            return;
+        }
+
         // 1. Check CSV Settings & Cooldown
         const soundData = GameDatabase.instance ? GameDatabase.instance.getSoundData(path) : null;
+        if (!soundData && !path.includes("/")) {
+            // console.warn(`[SoundManager] playSE: No sound data for ID '${path}'. Check Sounds.csv.`);
+        }
         const cooldown = soundData ? soundData.cooldown : 0.05;
         const volMult = soundData ? soundData.volume : 1.0;
         const actualPath = soundData ? soundData.path : path;
@@ -233,14 +296,9 @@ export class SoundManager extends Component {
 
         this.lastPlayTimes.set(path, now);
 
-        // Continue to load and play
-        resources.load(actualPath, AudioClip, (err, clip) => {
-            if (err) {
-                console.error(`[SoundManager] Failed to load SE: ${actualPath}`, err);
-                return;
-            }
+        // 3. Execution logic
+        const onClipLoaded = (clip: AudioClip) => {
             const source = this.executePlaySE(clip, groupId, volMult);
-
             // Track for individual limit
             if (soundData && soundData.limit > 0 && source) {
                 const activeList = this.activeSoundSEs.get(actualPath);
@@ -252,7 +310,30 @@ export class SoundManager extends Component {
                     }, clip.getDuration());
                 }
             }
-        });
+        };
+
+        // Check cache (Check by ID first, then Path)
+        const cached = this.clipCache.get(path) || this.clipCache.get(actualPath);
+        if (cached) {
+            onClipLoaded(cached);
+        } else {
+            // Safety: If GameDatabase is not ready, 'actualPath' might be 'click' (the ID).
+            // resources.load will fail for IDs.
+            if (actualPath === path && !actualPath.includes("/")) {
+                console.warn(`[SoundManager] Attempted to load SE ID '${path}' as path, but GameDatabase is not ready or ID missing.`);
+                return;
+            }
+
+            resources.load(actualPath, AudioClip, (err, clip) => {
+                if (err) {
+                    console.error(`[SoundManager] Failed to load SE: ${actualPath} (Source: ${path})`, err);
+                    return;
+                }
+                this.clipCache.set(path, clip); // Cache by input key
+                this.clipCache.set(actualPath, clip); // Also by path
+                onClipLoaded(clip);
+            });
+        }
     }
     /**
      * Play 3D Sound Effect (Stereo Pan & Volume Attenuation)
@@ -262,6 +343,13 @@ export class SoundManager extends Component {
      */
     public play3dSE(path: string, worldPos: Vec3, groupId: string = "System") {
         if (this.isMuted) return;
+
+        // 0. Wait for Database if needed
+        if (!GameDatabase.instance || !GameDatabase.instance.isReady) {
+            console.log(`[SoundManager] Database not ready. Queuing 3D SE: ${path}`);
+            this.pendingSounds.push({ type: '3DSE', path, extra: { pos: worldPos.clone(), groupId } });
+            return;
+        }
 
         // 1. Check CSV Settings & Cooldown
         const soundData = GameDatabase.instance ? GameDatabase.instance.getSoundData(path) : null;
@@ -291,7 +379,6 @@ export class SoundManager extends Component {
 
         // 3. Calculate Volume based on Player Position (Distance Attenuation)
         let volScale = 1.0 * volMult;
-        // ... (rest of logic remains similar, but uses volScale starting from volMult)
 
         const listenerInfo = this.getListenerInfo();
         if (listenerInfo) {
@@ -300,16 +387,13 @@ export class SoundManager extends Component {
             const dist = Math.sqrt(dx * dx + dy * dy);
 
             // Volume: 1.0 (Near) to 0.0 (Far)
-            volScale = 1.0 - math.clamp01(dist / listenerInfo.volDropoff);
+            volScale = volMult * (1.0 - math.clamp01(dist / listenerInfo.volDropoff));
         }
 
         if (volScale <= 0.01) return; // Too far to hear
 
-        resources.load(actualPath, AudioClip, (err, clip) => {
-            if (err) {
-                console.error(`[SoundManager] Failed to load SE: ${actualPath}`, err);
-                return;
-            }
+        // 4. Load & Play
+        const onClipLoaded = (clip: AudioClip) => {
             const source = this.executePlaySE(clip, groupId, volScale, worldPos);
 
             // Track for individual limit
@@ -323,7 +407,29 @@ export class SoundManager extends Component {
                     }, clip.getDuration());
                 }
             }
-        });
+        };
+
+        // Check cache (Check by ID first, then Path)
+        const cached = this.clipCache.get(path) || this.clipCache.get(actualPath);
+        if (cached) {
+            onClipLoaded(cached);
+        } else {
+            // Safety: ID load prevention
+            if (actualPath === path && !actualPath.includes("/")) {
+                console.warn(`[SoundManager] play3dSE: ID lookup failed for '${path}'. check Sounds.csv.`);
+                return;
+            }
+
+            resources.load(actualPath, AudioClip, (err, clip) => {
+                if (err) {
+                    console.error(`[SoundManager] Failed to load 3D SE: ${actualPath} (Source: ${path})`, err);
+                    return;
+                }
+                this.clipCache.set(path, clip);
+                this.clipCache.set(actualPath, clip);
+                onClipLoaded(clip);
+            });
+        }
     }
 
     // Helper to get listener info (Player) safely
@@ -411,6 +517,7 @@ export class SoundManager extends Component {
         const seNode = new Node(`SE_Source_${this.seSources.length}`);
         seNode.parent = this.node;
         const source = seNode.addComponent(AudioSource);
+        source.playOnAwake = false;
         this.seSources.push(source);
         return source;
     }
@@ -466,14 +573,58 @@ export class SoundManager extends Component {
     public playVoice(path: string) {
         if (this.isMuted) return;
 
+        const cached = this.clipCache.get(path);
+        if (cached) {
+            const source = this.getAvailableSESource();
+            source.clip = cached;
+            source.volume = this._voiceVolume;
+            source.loop = false;
+            source.play();
+            return;
+        }
+
         resources.load(path, AudioClip, (err, clip) => {
             if (err) return;
+            this.clipCache.set(path, clip);
             const source = this.getAvailableSESource(); // Use SE pool for Voices too
             source.clip = clip;
             source.volume = this._voiceVolume;
             source.loop = false;
             source.play();
         });
+    }
+
+    /**
+     * CSVに基づいたサウンドのプリロード
+     */
+    public preloadSounds(soundList: any[]) {
+        console.log(`[SoundManager] Preloading ${soundList.length} sounds...`);
+        let loadedCount = 0;
+        for (const data of soundList) {
+            const path = data.path;
+            const id = data.id;
+            if (!path) {
+                loadedCount++;
+                continue;
+            }
+
+            // Check if already cached
+            if (this.clipCache.has(id) || this.clipCache.has(path)) {
+                loadedCount++;
+                continue;
+            }
+
+            resources.load(path, AudioClip, (err, clip) => {
+                loadedCount++;
+                if (!err) {
+                    this.clipCache.set(id, clip);
+                    this.clipCache.set(path, clip);
+                }
+                if (loadedCount === soundList.length) {
+                    console.log("[SoundManager] All sounds preloaded and cached.");
+                }
+            });
+        }
     }
 
     private updateBgmVolumes() {

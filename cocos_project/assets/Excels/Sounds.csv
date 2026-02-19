@@ -1,21 +1,17 @@
-# --- サウンド設定管理テーブル ---
-# ID: プログラムから呼び出す際の識別子、またはファイル名
-# Path: assets/resources/ からの相対パス
-# Volume: 音量倍率 (0.0: 無音 ～ 1.0: 最大)
-# Cooldown: 重複再生を無視する期間 (秒)。0.1なら0.1秒以内の連続再生は1回にまとめられます
-# Limit: 同時に鳴らす最大数。5なら6つ目以降は Priority に従って処理されます (0は無制限)
-# Priority: 上限に達した時の挙動 (0: 古い音を止めて新しいのを鳴らす / 1: 新しいのを無視して鳴らさない)
-
 ID,Path,Volume,Cooldown,Limit,Priority
-
-# -- バフアイテム取得 --
-powerup01,sounds/SE/powerup01,0.6,1.0,1,0
-
-# -- 通常アイテム取得 --
-itemget01,sounds/SE/itemget01,0.8,1.0,1,0
-
-# -- 爆発系 --
-expl01,sounds/SE/Explosion01,1.0,0.1,3,0
-
-# -- 射撃系 --
-fire01,sounds/SE/Fire01,0.7,0.05,4,0
+# -- BGM --
+bgm_outgame01,"sounds/BGM/Shooter_OutgameA",0.5,1,1,1
+bgm_ingame01,"sounds/BGM/Shooter_IngameA",0.5,1,1,1
+bgm_ingame02,"sounds/BGM/Shooter_IngameB",0.5,1,1,1
+# -- SE --
+buy,"sounds/SE/buy",1,0.1,5,0
+click,"sounds/SE/click",1,0.05,3,0
+collect,"sounds/SE/collect",1,0.05,5,0
+error,"sounds/SE/error",1,0.1,2,0
+exploson01,"sounds/SE/explosion",1,0.1,8,0
+shoothit01,"sounds/SE/hit",1,0.02,15,0
+itemget01,"sounds/SE/itemget01",1,0.05,5,0
+missile01,"sounds/SE/missile",1,0.1,5,0
+powerup01,"sounds/SE/powerup01",1,0.1,2,0
+shoot01,"sounds/SE/shoot",1,0.02,20,0
+upgrade,"sounds/SE/upgrade",1,0.1,2,0
