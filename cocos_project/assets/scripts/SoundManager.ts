@@ -20,7 +20,14 @@ export class SoundManager extends Component {
             console.warn("[SoundManager] Instance not initialized. Creating dummy node.");
             const node = new Node("SoundManager");
             this._instance = node.addComponent(SoundManager);
-            // director.addPersistRootNode(node); // Removed for Single Scene
+
+            // Add to current scene to ensure lifecycle events run
+            const scene = director.getScene();
+            if (scene) {
+                scene.addChild(node);
+            } else {
+                game.addPersistRootNode(node);
+            }
         }
         return this._instance;
     }
@@ -124,6 +131,10 @@ export class SoundManager extends Component {
      * @param fadeTime Fade time in seconds
      */
     public playBGM(path: string, fadeTime: number = 1.0) {
+        // Defensive initialization - ensure maps are ready
+        if (!this.clipCache) this.clipCache = new Map();
+        if (!this.bgmSources) this.bgmSources = [];
+
         // 0. Wait for Database if needed
         if (!GameDatabase.instance || !GameDatabase.instance.isReady) {
             console.log(`[SoundManager] Database not ready. Queuing BGM: ${path}`);
@@ -140,6 +151,17 @@ export class SoundManager extends Component {
             idKey = soundData.id;
         } else {
             // console.log(`[SoundManager] No soundData for BGM: ${path}`);
+        }
+
+        // Check if same BGM is already playing
+        const currentSource = this.bgmSources[this.activeBgmIndex];
+        if (currentSource.playing && currentSource.clip) {
+            if (currentSource.clip.name === actualPath.split('/').pop() || currentSource.clip.name === idKey) {
+                console.log(`[SoundManager] BGM ${actualPath} is already playing. Skipping.`);
+                // Ensure volume is restored if it was fading out (optional)
+                currentSource.volume = this.isMuted ? 0 : this._bgmVolume;
+                return;
+            }
         }
 
         // 2. Check cache (Check by ID first, then Path)
@@ -251,6 +273,13 @@ export class SoundManager extends Component {
      * @param groupId Group ID for polyphony control
      */
     public playSE(path: string, groupId: string = "System") {
+        // Defensive initialization - ensure maps are ready
+        if (!this.lastPlayTimes) this.lastPlayTimes = new Map();
+        if (!this.activeSoundSEs) this.activeSoundSEs = new Map();
+        if (!this.clipCache) this.clipCache = new Map();
+        if (!this.seGroups) this.seGroups = new Map();
+        if (!this.activeSEs) this.activeSEs = new Map();
+
         // 0. Wait for Database if needed
         if (!GameDatabase.instance || !GameDatabase.instance.isReady) {
             console.log(`[SoundManager] Database not ready. Queuing SE: ${path}`);
@@ -259,13 +288,27 @@ export class SoundManager extends Component {
         }
 
         // 1. Check CSV Settings & Cooldown
-        const soundData = GameDatabase.instance ? GameDatabase.instance.getSoundData(path) : null;
-        if (!soundData && !path.includes("/")) {
-            // console.warn(`[SoundManager] playSE: No sound data for ID '${path}'. Check Sounds.csv.`);
+        let soundData = null;
+        try {
+            soundData = GameDatabase.instance.getSoundData(path);
+        } catch (e) {
+            console.warn(`[SoundManager] Error getting sound data for ${path}:`, e);
         }
-        const cooldown = soundData ? soundData.cooldown : 0.05;
-        const volMult = soundData ? soundData.volume : 1.0;
-        const actualPath = soundData ? soundData.path : path;
+
+        // Variable declarations
+        let cooldown = 0.05;
+        let volMult = 1.0;
+        let actualPath = path;
+
+        if (soundData) {
+            cooldown = soundData.cooldown;
+            volMult = soundData.volume;
+            actualPath = soundData.path;
+        } else if (!path.includes("/")) {
+            // Fallback: Try to load from default SE directory
+            // console.warn(`[SoundManager] playSE: No sound data for ID '${path}'. Check Sounds.csv.`);
+            actualPath = "sounds/" + path; // Assume it's in resources/sounds/
+        }
 
         const now = game.totalTime; // In milliseconds
         const last = this.lastPlayTimes.get(path) || 0;
@@ -313,19 +356,27 @@ export class SoundManager extends Component {
         };
 
         // Check cache (Check by ID first, then Path)
+        // Defensive: ensure clipCache is initialized
+        if (!this.clipCache) this.clipCache = new Map();
+
         const cached = this.clipCache.get(path) || this.clipCache.get(actualPath);
         if (cached) {
             onClipLoaded(cached);
         } else {
             // Safety: If GameDatabase is not ready, 'actualPath' might be 'click' (the ID).
-            // resources.load will fail for IDs.
+            // resources.load will fail for IDs without path.
             if (actualPath === path && !actualPath.includes("/")) {
-                console.warn(`[SoundManager] Attempted to load SE ID '${path}' as path, but GameDatabase is not ready or ID missing.`);
-                return;
+                // Fallback again just in case previous logic didn't catch it
+                actualPath = "sounds/" + path;
             }
 
             resources.load(actualPath, AudioClip, (err, clip) => {
                 if (err) {
+                    // Start of fallback retry if not found in sounds/
+                    if (actualPath.startsWith("sounds/")) {
+                        // Maybe it's directly in resources or another folder? 
+                        // For now, just log error.
+                    }
                     console.error(`[SoundManager] Failed to load SE: ${actualPath} (Source: ${path})`, err);
                     return;
                 }
@@ -342,6 +393,12 @@ export class SoundManager extends Component {
      * @param groupId Group ID for polyphony control
      */
     public play3dSE(path: string, worldPos: Vec3, groupId: string = "System") {
+        // Defensive initialization - ensure maps are ready
+        if (!this.lastPlayTimes) this.lastPlayTimes = new Map();
+        if (!this.activeSoundSEs) this.activeSoundSEs = new Map();
+        if (!this.seGroups) this.seGroups = new Map();
+        if (!this.activeSEs) this.activeSEs = new Map();
+
         if (this.isMuted) return;
 
         // 0. Wait for Database if needed
@@ -460,6 +517,11 @@ export class SoundManager extends Component {
     }
 
     private executePlaySE(clip: AudioClip, groupId: string, volScale: number = 1.0, worldPos: Vec3 = null): AudioSource {
+        // Defensive initialization - ensure maps are ready
+        if (!this.seGroups) this.seGroups = new Map();
+        if (!this.activeSEs) this.activeSEs = new Map();
+        if (!this.seSources) this.seSources = [];
+
         const group = this.seGroups.get(groupId);
         if (!group) return;
 
@@ -571,6 +633,9 @@ export class SoundManager extends Component {
      * Play Voice Clip (English narration prepared by user)
      */
     public playVoice(path: string) {
+        // Defensive initialization - ensure maps are ready
+        if (!this.clipCache) this.clipCache = new Map();
+
         if (this.isMuted) return;
 
         const cached = this.clipCache.get(path);
@@ -598,6 +663,9 @@ export class SoundManager extends Component {
      * CSVに基づいたサウンドのプリロード
      */
     public preloadSounds(soundList: any[]) {
+        // Defensive initialization - ensure maps are ready
+        if (!this.clipCache) this.clipCache = new Map();
+
         console.log(`[SoundManager] Preloading ${soundList.length} sounds...`);
         let loadedCount = 0;
         for (const data of soundList) {

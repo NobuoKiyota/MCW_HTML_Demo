@@ -1,177 +1,166 @@
-import { _decorator, Component, Node, Prefab, instantiate, Vec3, Label, director, math, Rect, Color, ParticleSystem2D, UIOpacity, Vec2 } from 'cc';
-import { GAME_SETTINGS, GameState, IGameManager } from './Constants';
-import { DataManager } from './DataManager';
-// import { PlayerController } from './PlayerController'; // Circular dependency
-// import { Enemy } from './Enemy'; // Circular dependency
-// import { Bullet } from './Bullet'; // Circular dependency
+import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3, Color, game } from 'cc';
 import { UIManager } from './UIManager';
+import { GameState, GAME_SETTINGS, IGameManager } from './Constants'; // Removed Constants
+import { SoundManager } from './SoundManager';
 import { GameSpeedManager } from './GameSpeedManager';
 import { GameDatabase } from './GameDatabase';
-import { EnemyData } from './GameDataTypes';
-import { SoundManager } from './SoundManager';
+import { ResultUI } from './ResultUI'; // Import Added Here
+import { DataManager } from './DataManager';
 
 const { ccclass, property } = _decorator;
 
 @ccclass('GameManager')
 export class GameManager extends Component implements IGameManager {
 
-    public static instance: GameManager;
+    public static instance: GameManager = null;
 
-    @property(Node)
-    public playerNode: Node = null;
-
-    @property(Node)
-    public bulletLayer: Node = null;
-
-    @property(Node)
-    public enemyLayer: Node = null;
-
-    @property(Node)
-    public itemLayer: Node = null;
+    @property(Label)
+    public debugLabel: Label = null;
 
     @property(Prefab)
-    public enemyPrefab: Prefab = null;
+    public titlePrefab: Prefab = null;
+
+    @property(Prefab)
+    public homePrefab: Prefab = null;
+
+    @property(Prefab)
+    public ingamePrefab: Prefab = null;
 
     @property(Prefab)
     public bulletPrefab: Prefab = null;
 
-    @property(Prefab)
-    public itemPrefab: Prefab = null;
-
-    // UI Refs
-    @property(Label)
-    public debugLabel: Label = null; // New Debug Label
-
-    @property({ tooltip: "Debug Mode" })
-    public isDebug: boolean = true;
-
-    @property({ tooltip: "Initial Mission Distance" })
-    public missionDistance: number = 3000;
-
-    @property({ tooltip: "Scroll Speed Scale (Relative to Player Speed)" })
-    public scrollSpeedScale: number = 1.0;
-
-    // State
-    public state: GameState = GameState.TITLE;
-    public currentMission: any = { distance: 3000, stars: 1 }; // Placeholder
-    public playState: any = {
-        distance: 3000,
-        enemies: [], // References to EnemyComponents
-        items: []
-    };
-
-    public isPaused: boolean = false;
-
-    private spawnTimer: number = 0;
-    private frameCount: number = 0;
-
-    // Global Physics
-    @property({ type: GameSpeedManager, tooltip: "Reference to Game Speed Manager" })
-    public speedManager: GameSpeedManager = null;
-
-    @property({ type: GameDatabase, tooltip: "Game Database (ScriptableObject-like)" })
+    @property(GameDatabase)
     public gameDatabase: GameDatabase = null;
 
-    // --- Prefab Architecture ---
-    @property({ type: Node, tooltip: "Root node to place game/home content" })
-    public contentRoot: Node = null;
+    public state: GameState = GameState.TITLE;
+    public score: number = 0;
+    public isPaused: boolean = false;
+    public isDebug: boolean = false;
 
-    @property({ type: Prefab, tooltip: "Prefab for Home Screen" })
-    public homePrefab: Prefab = null;
+    // References to current scene objects
+    public playerNode: Node = null;
+    public bulletLayer: Node = null;
+    public enemyLayer: Node = null;
+    public itemLayer: Node = null; // Add ItemLayer ref
 
-    @property({ type: Prefab, tooltip: "Prefab for InGame World" })
-    public ingamePrefab: Prefab = null;
+    // Managers
+    public speedManager: GameSpeedManager = new GameSpeedManager();
 
+    // Spawn Logic
+    private spawnTimer: number = 0;
+    private frameCount: number = 0; // For performance check or periodic log
+
+    // InGame State (Distance, etc)
+    public playState: any = {
+        distance: 3000,
+        enemies: [],
+        items: [],
+        killedEnemies: 0,
+        collectedItemsCount: 0
+    };
+
+    public currentMission: any = null;
+    public missionDistance: number = 3000;
+
+    // Current Active Content Node (Title or Ingame)
     private currentContentNode: Node = null;
 
     onLoad() {
-        if (GameManager.instance && GameManager.instance !== this) {
+        if (GameManager.instance === null) {
+            GameManager.instance = this;
+            director.addPersistRootNode(this.node);
+
+            // Force this persistent node to (0,0,0) to avoid world-space offsets for its children
+            this.node.setPosition(0, 0, 0);
+        } else {
             this.node.destroy();
             return;
         }
-        GameManager.instance = this;
-        // director.addPersistRootNode(this.node); // No longer needed if in Main Scene
 
-        // Auto-resolve SpeedManager
-        if (!this.speedManager) {
-            this.speedManager = this.getComponent(GameSpeedManager);
-        }
-        if (!this.speedManager) {
-            console.warn("[GameManager] GameSpeedManager not assigned. Adding default.");
-            this.speedManager = this.addComponent(GameSpeedManager);
-        }
+        console.log("[GameManager] onLoad. Persist Root set.");
+        this.speedManager.reset();
 
-        // Auto-resolve GameDatabase
-        if (!this.gameDatabase) {
-            this.gameDatabase = this.getComponent(GameDatabase);
-        }
-
-        // Ensure state objects exist
-        if (!this.currentMission) this.currentMission = { distance: 3000, stars: 1 };
-        if (!this.playState) this.playState = { distance: 3000, enemies: [], items: [] };
-
-        // Listen to UI events
-        director.on("GAME_RETRY", this.retryGame, this);
-        director.on("GAME_TITLE", this.goToTitle, this);
-    }
-
-    onDestroy() {
-        director.off("GAME_RETRY", this.retryGame, this);
-        director.off("GAME_TITLE", this.goToTitle, this);
+        // Initial State
+        this.state = GameState.TITLE;
+        // Don't auto-spawn content here, wait for start() or manual trigger
     }
 
     start() {
-        // Initial visibility
-        if (this.debugLabel) {
-            this.debugLabel.node.active = this.isDebug;
-        }
+        // Show Title on start
+        console.log("[GameManager] start. Showing Title.");
+        this.switchContent(this.titlePrefab);
 
-        // Start with Home if nothing loaded? Or check state?
-        // For now, let's assume we start at Home if in Main Scene
-        if (this.state === GameState.TITLE) {
-            // Already handled by Title Scene? 
-            // If we are in Main Scene directly (dev), maybe load Home.
+        // BGM handled in goToTitle essentially
+        if (SoundManager.instance) {
+            SoundManager.instance.playBGM("bgm_outgame01", 1.0);
         }
     }
 
-    // --- Content Switching Logic ---
-
-    private switchContent(prefab: Prefab) {
-        if (!this.contentRoot) {
-            console.error("[GameManager] ContentRoot not assigned!");
+    /**
+     * Switch content (Prefab) under Canvas
+     * Returns the instantiated node
+     */
+    private switchContent(prefab: Prefab): Node {
+        if (!prefab) {
+            console.error("[GameManager] switchContent failed: Prefab is null.");
             return null;
         }
 
-        // Clear existing
+        // 1. Find Canvas
+        // Since this node is PersistRoot, it is NOT under Canvas usually.
+        // We need to find the Canvas in the scene.
+        const scene = director.getScene();
+        const canvas = scene.getChildByName("Canvas");
+        if (!canvas) {
+            console.error("[GameManager] Canvas not found in scene!");
+            return null;
+        }
+
+        // Reset to (0, 0)
+        canvas.setPosition(0, 0, 0);
+
+        // 2. Clear previous content
+        // We assume we tag the content node or keep track of it
         if (this.currentContentNode && this.currentContentNode.isValid) {
             this.currentContentNode.destroy();
+            this.currentContentNode = null;
         }
-        this.currentContentNode = null;
 
-        // Instantiate new
-        if (prefab) {
-            this.currentContentNode = instantiate(prefab);
-            this.contentRoot.addChild(this.currentContentNode);
-            return this.currentContentNode;
+        // Also cleanup old references
+        this.playerNode = null;
+        this.bulletLayer = null;
+        this.enemyLayer = null;
+        this.itemLayer = null;
+
+        // 3. Instantiate new
+        const node = instantiate(prefab);
+        canvas.addChild(node);
+        // Force to (0, 0) in Canvas local
+        node.setPosition(0, 0, 0);
+        node.setSiblingIndex(0); // Put at bottom (behind UI)
+        this.currentContentNode = node;
+
+        console.log(`[GameManager] Switched content to ${prefab.data.name}`);
+
+        // If switching to Title, ensure SideBar is visible/updated if needed
+        if (this.state === GameState.TITLE) {
+            // Show SideBar on Home
+            if (UIManager.instance && UIManager.instance.sideBarUI) {
+                UIManager.instance.sideBarUI.node.active = true;
+                // Update info immediately
+                UIManager.instance.sideBarUI.updateShipInfo();
+            }
         }
-        return null;
+
+        return node;
     }
 
-    public goToHome() {
-        console.log("[GameManager] Switch to Home via Prefab");
-        this.state = GameState.MENU;
-        this.switchContent(this.homePrefab);
-        SoundManager.instance.playBGM("bgm_outgame01", 1.0);
-
-        // If UIManager is present, ensure sideBar logic if needed
-        if (UIManager.instance) {
-            // Force resolve if UIManager is persistent
-            UIManager.instance.resolveReferences();
-        }
-    }
-
-    public startInGame() {
+    public startInGame(mission: any = null) {
         console.log("[GameManager] Starting InGame via Prefab...");
+
+        if (mission) {
+            this.currentMission = mission;
+        }
 
         const node = this.switchContent(this.ingamePrefab);
         if (!node) {
@@ -183,14 +172,18 @@ export class GameManager extends Component implements IGameManager {
         this.resolveInGameReferences(node);
 
         // Safety check for distance objects
-        if (!this.currentMission) this.currentMission = { distance: 3000, stars: 1 };
-        if (!this.playState) this.playState = { distance: 3000, enemies: [], items: [] };
+        if (!this.currentMission) this.currentMission = { distance: 3000, stars: 1, reward: 0 };
+        if (!this.playState) this.playState = { distance: 3000, enemies: [], items: [], killedEnemies: 0, collectedItemsCount: 0 };
 
-        if (this.missionDistance > 0) {
-            this.currentMission.distance = this.missionDistance;
+        if (this.currentMission.distance > 0) {
+            this.missionDistance = this.currentMission.distance;
         }
+
         this.playState.distance = this.currentMission.distance;
+        this.playState.killedEnemies = 0;
+        this.playState.collectedItemsCount = 0;
         this.playState.items = []; // Reset items
+
         this.state = GameState.INGAME;
 
         // Inject GM to Player
@@ -216,8 +209,25 @@ export class GameManager extends Component implements IGameManager {
     }
 
     public goToTitle() {
-        console.log("[GameManager] Going to Title Scene...");
-        director.loadScene("scene-Title"); // Title is still a separate scene
+        console.log("[GameManager] Switch to Title via Prefab");
+        this.state = GameState.TITLE;
+        this.switchContent(this.titlePrefab);
+
+        if (SoundManager.instance) {
+            // Title BGM same as Outgame? Or different?
+            // Usually same for now.
+            SoundManager.instance.playBGM("bgm_outgame01", 1.0);
+        }
+    }
+
+    public goToHome() {
+        console.log("[GameManager] Switch to Home via Prefab");
+        this.state = GameState.HOME;
+        this.switchContent(this.homePrefab);
+
+        if (SoundManager.instance) {
+            SoundManager.instance.playBGM("bgm_outgame01", 1.0);
+        }
     }
 
     /**
@@ -226,15 +236,35 @@ export class GameManager extends Component implements IGameManager {
     private resolveInGameReferences(rootNode: Node) {
         if (!rootNode) return;
 
-        // Prefab root might be "IngameRoot" or similar.
-        // We look for children inside it.
+        // Recursive search helper
+        const findNode = (node: Node, name: string): Node => {
+            if (node.name === name) return node;
+            for (let i = 0; i < node.children.length; ++i) {
+                const res = findNode(node.children[i], name);
+                if (res) return res;
+            }
+            return null;
+        };
 
-        this.playerNode = rootNode.getChildByName("Player") || rootNode.getChildByPath("GameLayer/Player");
-        this.bulletLayer = rootNode.getChildByName("BulletLayer") || rootNode.getChildByPath("GameLayer/BulletLayer");
-        this.enemyLayer = rootNode.getChildByName("EnemyLayer") || rootNode.getChildByPath("GameLayer/EnemyLayer");
-        this.itemLayer = rootNode.getChildByName("ItemLayer") || rootNode.getChildByPath("GameLayer/ItemLayer");
+        this.playerNode = findNode(rootNode, "Player");
+        this.bulletLayer = findNode(rootNode, "BulletLayer");
+        this.enemyLayer = findNode(rootNode, "EnemyLayer");
+        this.itemLayer = findNode(rootNode, "ItemLayer");
 
-        console.log(`[GameManager] References resolved from Prefab: Player=${!!this.playerNode}, EnemyLayer=${!!this.enemyLayer}`);
+        if (!this.playerNode) console.error("[GameManager] Player Node NOT FOUND in Prefab!");
+        if (!this.enemyLayer) console.error("[GameManager] EnemyLayer Node NOT FOUND in Prefab!");
+
+        console.log(`[GameManager] References resolved: Player=${this.playerNode?.name}, EnemyLayer=${this.enemyLayer?.name}`);
+
+        // Ensure PlayerController setup
+        if (this.playerNode) {
+            const pCtrl = this.playerNode.getComponent("PlayerController") as any;
+            if (pCtrl && pCtrl.setup) {
+                pCtrl.setup(this);
+            } else {
+                console.error("[GameManager] PlayerController component NOT FOUND on Player Node!");
+            }
+        }
     }
 
     public setPaused(paused: boolean) {
@@ -347,6 +377,8 @@ export class GameManager extends Component implements IGameManager {
     }
 
     public onMissionComplete() {
+        if (this.state === GameState.RESULT) return;
+
         this.state = GameState.RESULT;
         console.log("Mission Complete!");
 
@@ -354,8 +386,30 @@ export class GameManager extends Component implements IGameManager {
         DataManager.instance.save();
 
         if (UIManager.instance) {
-            UIManager.instance.showResult();
+            // UIManager.instance.showResult(); // Deprecated
         }
+
+        // Apply ResultUI dynamically
+        console.log("[GameManager] Showing ResultUI...");
+        const node = new Node("ResultUI");
+
+        // Canvasを探して親にする
+        const sceneRoot = director.getScene();
+        const canvasNode = sceneRoot.getChildByName("Canvas");
+        if (canvasNode) {
+            canvasNode.addChild(node);
+        } else {
+            this.node.addChild(node);
+        }
+
+        const resUI = node.addComponent(ResultUI);
+
+        // Get stats from playState
+        const enemies = this.playState.killedEnemies || 0;
+        const items = this.playState.collectedItemsCount || 0;
+        const score = 0; // Score logic if implemented
+
+        resUI.setup(enemies, items, score);
 
         // Stop BGM with fade out
         SoundManager.instance.stopBGM(2.0);
@@ -363,9 +417,21 @@ export class GameManager extends Component implements IGameManager {
 
     // Bullet Factory
     public spawnBullet(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean): any {
-        if (!this.bulletPrefab) return null;
+        if (!this.bulletPrefab) {
+            console.error("[GameManager] bulletPrefab is NULL! Cannot spawn bullet.");
+            return null;
+        }
+
+        // Check if bulletLayer is assigned, if not, fallback to self or scene root
+        let parent = this.bulletLayer;
+        if (!parent) {
+            console.warn("[GameManager] bulletLayer is NULL! Using GameManager node as parent.");
+            parent = this.node;
+        }
+
         const node = instantiate(this.bulletPrefab);
-        node.parent = this.bulletLayer;
+        node.parent = parent;
+        node.setPosition(x, y, 0);
 
         // Init Bullet Component
         const bulletComp = node.getComponent("Bullet") as any;
@@ -373,15 +439,18 @@ export class GameManager extends Component implements IGameManager {
             bulletComp.init(x, y, angle, speed, damage, isEnemy, this);
             return bulletComp;
         } else {
-            console.warn("[GameManager] Bullet component missing on prefab!");
-            // Fallback if component missing or named differently
-            node.setPosition(x, y, 0);
+            console.error("[GameManager] 'Bullet' component missing on instantiated prefab!");
             return null;
         }
     }
 
     // Item Factory
     public onItemCollected(id: string, amount: number, pos?: Vec3) {
+
+        // Count it
+        if (!this.playState.collectedItemsCount) this.playState.collectedItemsCount = 0;
+        this.playState.collectedItemsCount++;
+
         // UI Notification
         const def = GAME_SETTINGS.ECONOMY.ITEMS[id];
         const name = def ? def.name : id;
@@ -400,227 +469,80 @@ export class GameManager extends Component implements IGameManager {
         if (id === "ItemPowerUp") {
             if (UIManager.instance) {
                 UIManager.instance.showBuffNotification("POWER UP!", new Color(255, 50, 50), pos);
+                UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
             }
-            SoundManager.instance.playSE("powerup01", "System");
-            const val = def ? (def.value || 0.3) : 0.3;
-            const dur = def ? (def.duration || 10) : 10;
-            if (pCtrl && pCtrl.applyBuff) pCtrl.applyBuff("Power", dur, val);
+            SoundManager.instance.playSE("itemget02", "System");
+            if (pCtrl && pCtrl.applyBuff) pCtrl.applyBuff("Power", def ? def.duration : 10, def ? def.value : 0.5);
             return;
         }
 
         if (id === "ItemRapidFire") {
             if (UIManager.instance) {
-                UIManager.instance.showBuffNotification("SPEED UP!", new Color(0, 200, 255), pos);
+                UIManager.instance.showBuffNotification("RAPID FIRE!", new Color(0, 150, 255), pos);
+                UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
             }
-            SoundManager.instance.playSE("powerup01", "System");
-            const val = def ? (def.value || 0.8) : 0.8;
-            const dur = def ? (def.duration || 10) : 10;
-            if (pCtrl && pCtrl.applyBuff) pCtrl.applyBuff("Rapid", dur, val);
+            SoundManager.instance.playSE("itemget02", "System");
+            if (pCtrl && pCtrl.applyBuff) pCtrl.applyBuff("Rapid", def ? def.duration : 10, def ? def.value : 0.5);
             return;
         }
 
-        // Standard Item Log (for materials, etc.)
-        if (UIManager.instance) {
-            UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
-        }
-        SoundManager.instance.playSE("itemget01", "System");
-
-        // 2. Storage for Result
-        // Check if exists
-        const existing = this.playState.items.find((i: any) => i.id === id);
-        if (existing) {
-            existing.amount += amount;
+        // 2. Resource Items (Credits, Exp)
+        if (id === "Credit") {
+            // Save to persistent data via DataManager
+            DataManager.instance.addResource("credits", amount);
+            SoundManager.instance.playSE("coin01", "System");
+            if (UIManager.instance) UIManager.instance.showItemLog(`Credits +${amount}`, 1, pos);
+        } else if (id === "Exp") {
+            DataManager.instance.addResource("exp", amount);
+            SoundManager.instance.playSE("coin01", "System");
+            if (UIManager.instance) UIManager.instance.showItemLog(`EXP +${amount}`, 1, pos);
         } else {
-            this.playState.items.push({ id: id, amount: amount });
+            // General Item
+            if (UIManager.instance) UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
+            SoundManager.instance.playSE("itemget01", "System");
         }
     }
 
     public spawnItem(x: number, y: number, id: string, amount: number) {
-        if (!this.itemPrefab) return;
-        const node = instantiate(this.itemPrefab);
-        node.parent = this.itemLayer;
-        node.setPosition(x, y, 0);
-
-        const itemComp = node.getComponent("Item") as any;
-        if (itemComp) {
-            itemComp.init(id, amount, this);
-        }
+        // ... (Item spawning logic if needed, or from Enemy drop)
+        // If we have item prefabs in DB
     }
 
     public spawnItemFromPrefab(prefab: Prefab, x: number, y: number) {
-        if (!prefab) return;
+        if (!prefab || !this.itemLayer) return;
+
         const node = instantiate(prefab);
-        node.parent = this.itemLayer || this.node;
+        node.parent = this.itemLayer;
         node.setPosition(x, y, 0);
 
-        // Ensure Item component is initialized if it exists and needs it?
-        // Usually Prefab has Item component pre-configured.
-        // If it needs GM reference, we might need to get it.
+        // Init Item
         const itemComp = node.getComponent("Item") as any;
-        if (itemComp && itemComp.init) {
-            // For Prefab-based items, ID might be internal or not needed in the same way.
-            // Or we pass a dummy ID/Amount if strictly required.
-            // Let's assume Prefab is self-contained OR we set GM.
-            itemComp.gm = this;
+        // ...
+    }
+
+    public spawnDamageText(x: number, y: number, amount: number, isKill: boolean) {
+        if (UIManager.instance) {
+            UIManager.instance.spawnDamageText(x, y, amount, isKill);
+        }
+    }
+
+    public spawnExplosion(x: number, y: number, isKill: boolean = false) {
+        // Effect
+        if (isKill) {
+            if (!this.playState.killedEnemies) this.playState.killedEnemies = 0;
+            this.playState.killedEnemies++;
         }
     }
 
     public onGameOver() {
         if (this.state === GameState.FAILURE) return;
         this.state = GameState.FAILURE;
-        console.log("Game Over Triggered");
-
-        this.processResult(false);
+        console.log("Game Over!");
 
         if (UIManager.instance) {
             UIManager.instance.showGameOver();
         }
 
-        // Stop BGM with fade out
-        SoundManager.instance.stopBGM(2.0);
-    }
-
-    // Damage Text
-    @property(Prefab)
-    public damageLabelPrefab: Prefab = null;
-
-    public spawnDamageText(x: number, y: number, amount: number, isKill: boolean) {
-        let node: Node = null;
-
-        if (this.damageLabelPrefab) {
-            node = instantiate(this.damageLabelPrefab);
-        } else {
-            // Fallback: Create Programmatically
-            node = new Node("DamageText");
-            const label = node.addComponent(Label);
-            label.fontSize = 20;
-            label.lineHeight = 22;
-        }
-
-        node.parent = this.node.parent || this.node; // Attach to global UI or World? Canvas relative better.
-        node.setPosition(x, y, 0);
-
-        // Add Logic Component if missing (e.g. fresh node)
-        let popup = node.getComponent("DamagePopup") as any;
-        if (!popup) {
-            popup = node.addComponent("DamagePopup");
-        }
-
-        // Color Logic
-        // Kill = Red (#AA0000), Hit = White (#FFFFFF)
-        const color = isKill ? new Color(170, 0, 0, 255) : new Color(255, 255, 255, 255);
-
-        if (popup && popup.init) {
-            popup.init(amount, color);
-        }
-    }
-
-    @property(Prefab)
-    public explosionPrefab: Prefab = null;
-
-    public spawnExplosion(x: number, y: number) {
-        // console.log(`[GameManager] spawnExplosion called`);
-        // Priority 1: Use Prefab (Editor Configured)
-        if (this.explosionPrefab) {
-            // console.log("[GameManager] Spawning Explosion Prefab");
-            const node = instantiate(this.explosionPrefab);
-            node.parent = this.node.parent || this.node;
-            node.setWorldPosition(x, y, 0);
-
-            // Ensure it destroys itself or we schedule it
-            // If the prefab has AutoRemoveOnFinish (Cocos2d-x style) or custom script, good.
-            // If not, we safe-guard destroy it after 1-2 sec.
-            this.scheduleOnce(() => {
-                if (node.isValid) node.destroy();
-            }, 2.0);
-            return;
-        }
-
-        // console.log("[GameManager] Spawning Fallback Explosion (Programmatic)");
-        // Priority 2: Fallback Programmatic Explosion
-        const node = new Node("Explosion");
-        node.layer = this.node.layer;
-        node.parent = this.node.parent || this.node;
-        node.setWorldPosition(x, y, 0);
-
-        const ps = node.addComponent(ParticleSystem2D);
-
-        // Configuration
-        ps.duration = 0.5;
-        ps.life = 0.5;
-        ps.lifeVar = 0.2;
-
-        // Emission
-        ps.totalParticles = 50;
-        ps.emissionRate = 999; // Burst
-        ps.angle = 90;
-        ps.angleVar = 360;
-        ps.speed = 200;
-        ps.speedVar = 50;
-
-        // Gravity
-        ps.gravity = new Vec2(0, 0);
-
-        // Color: White -> Red -> Transparent
-        ps.startColor = new Color(255, 255, 200, 255);
-        ps.startColorVar = new Color(0, 0, 0, 0);
-        ps.endColor = new Color(255, 50, 0, 0);
-        ps.endColorVar = new Color(0, 0, 0, 0);
-
-        // Size
-        ps.startSize = 30;
-        ps.startSizeVar = 10;
-        ps.endSize = 60;
-        ps.endSizeVar = 20;
-
-        // Blend: Additive
-        (ps as any).srcBlendFactor = 770; // SRC_ALPHA
-        (ps as any).dstBlendFactor = 1;   // ONE
-
-        ps.resetSystem();
-
-        this.scheduleOnce(() => {
-            if (node.isValid) node.destroy();
-        }, 1.0);
-    }
-
-    private processResult(isSuccess: boolean) {
-        // Save Logic
-        const dm = DataManager.instance;
-        const data = dm.data;
-
-        // 1. Distance Stats
-        const traveled = this.currentMission.distance - this.playState.distance;
-        data.careerStats.totalDistance += Math.floor(traveled);
-        data.careerStats.started++;
-
-        // 2. Process Items (Money & Materials)
-        let sessionMoney = 0;
-
-        for (const item of this.playState.items) {
-            // Check Definition
-            const def = GAME_SETTINGS.ECONOMY.ITEMS[item.id];
-            if (!def) {
-                // Default fallback if ID is not in constants
-                if (item.id === "ItemMoney" || item.id === "ItemA") { // ItemA is placeholder for now
-                    sessionMoney += 100 * item.amount;
-                }
-                continue;
-            }
-
-            if (def.type === "money") {
-                sessionMoney += def.value * item.amount;
-            } else if (def.type === "material") {
-                // Add to persistent inventory
-                if (!data.inventory[item.id]) data.inventory[item.id] = 0;
-                data.inventory[item.id] += item.amount;
-            }
-        }
-
-        // Apply Money
-        data.money += sessionMoney;
-        console.log(`[GameManager] Result Processed. Money Earned: ${sessionMoney}. Total: ${data.money}`);
-
-        dm.save();
+        SoundManager.instance.stopBGM(1.0);
     }
 }

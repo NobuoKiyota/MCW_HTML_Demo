@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Tween, tween, v3, UIOpacity, director, LabelOutline, Color, UITransform, Vec3 } from 'cc';
+import { _decorator, Component, Node, Label, Tween, tween, v3, UIOpacity, director, LabelOutline, Color, UITransform, Vec3, Widget, Camera } from 'cc';
 import { SideBarUI } from './SideBarUI';
 import { SettingsManager } from './SettingsManager';
 
@@ -49,6 +49,9 @@ export class UIManager extends Component {
         UIManager.instance = this;
         // director.addPersistRootNode(this.node); // Removed for Single Scene Architecture
 
+        // Reset to (0, 0) to align with Cocos Creator 3.x standards
+        this.node.setPosition(0, 0, 0);
+
         this.resolveReferences();
 
         // Force settings application (Resolution etc)
@@ -70,6 +73,15 @@ export class UIManager extends Component {
         const canvas = director.getScene().getChildByName("Canvas");
         if (!canvas) return;
 
+        // Apply (0, 0) to Canvas and Camera
+        canvas.setPosition(0, 0, 0);
+
+        // Find camera and set to (0, 0)
+        const camera = director.getScene().getComponentInChildren(Camera);
+        if (camera) {
+            camera.node.setPosition(0, 0, camera.node.position.z);
+        }
+
         // パネル類の再取得
         if (!this.gameOverPanel || !this.gameOverPanel.isValid) {
             this.gameOverPanel = canvas.getChildByName("GameOverPanel") || canvas.getChildByPath("UILayer/GameOverPanel");
@@ -84,14 +96,46 @@ export class UIManager extends Component {
         if (this.gameOverPanel) this.gameOverPanel.active = false;
         if (this.resultPanel) this.resultPanel.active = false;
 
+        // Reset ContentRoot in scene if it exists (e.g. scene-Main)
+        const contentRoot = canvas.getChildByName("ContentRoot");
+        if (contentRoot) {
+            contentRoot.setPosition(0, 0, 0);
+        }
+
         // Auto-create SideBarUI if not assigned
         if (!this.sideBarUI) {
             console.log(`[UIManager] SideBarUI not assigned. Creating child of UIManager.`);
             const node = new Node("SideBarUI");
             this.node.addChild(node);
+
+            // Add Widget to stretch to parent (Canvas or Managers root)
+            // This ensures children widgets (Left/Right panels) have correct reference size
+            const trans = node.addComponent(UITransform);
+            const widget = node.addComponent(Widget);
+            widget.isAlignTop = widget.isAlignBottom = widget.isAlignLeft = widget.isAlignRight = true;
+            widget.top = widget.bottom = widget.left = widget.right = 0;
+
             this.sideBarUI = node.addComponent(SideBarUI);
         }
+
+        // Ensure SideBarUI is on top of Canvas content
+        if (this.sideBarUI && canvas) {
+            // Reparent to Canvas if not already (or if created under Managers)
+            if (this.sideBarUI.node.parent !== canvas) {
+                this.sideBarUI.node.parent = canvas;
+            }
+            // Bring to front
+            const lastIndex = canvas.children.length - 1;
+            this.sideBarUI.node.setSiblingIndex(lastIndex);
+
+            // Adjust Widget to new parent
+            const widget = this.sideBarUI.getComponent(Widget);
+            if (widget) {
+                widget.updateAlignment();
+            }
+        }
     }
+
 
     public updateHP(currentHp: number, maxHp: number) {
         if (this.sideBarUI) {
@@ -101,12 +145,16 @@ export class UIManager extends Component {
 
     public showGameOver() {
         if (this.gameOverPanel) {
+            // Apply coordinates in case it's not set
+            this.gameOverPanel.setPosition(640, 360, 0);
             this.gameOverPanel.active = true;
         }
     }
 
     public showResult() {
         if (this.resultPanel) {
+            // Apply coordinates in case it's not set
+            this.resultPanel.setPosition(640, 360, 0);
             this.resultPanel.active = true;
         }
     }
@@ -179,7 +227,7 @@ export class UIManager extends Component {
         labelNode.parent = node;
 
         // --- 3. Position Calculation ---
-        let startPos = v3(0, 0, 0);
+        let startPos = v3(0, 0, 0); // Center relative to Canvas (0,0)
         if (pos) {
             const uiTransform = this.notificationLayer.getComponent(UITransform);
             startPos = uiTransform.convertToNodeSpaceAR(pos);
@@ -220,5 +268,10 @@ export class UIManager extends Component {
 
     public onTitleClicked() {
         director.emit("GAME_TITLE");
+    }
+
+    public spawnDamageText(x: number, y: number, amount: number, isKill: boolean) {
+        // TODO: Implement Damage Text
+        // console.log(`Damage Text: ${amount} at (${x}, ${y}) Kill:${isKill}`);
     }
 }

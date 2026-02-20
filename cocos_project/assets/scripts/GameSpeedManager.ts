@@ -71,4 +71,14 @@ export class GameSpeedManager extends Component {
     public getDebugInfo(): string {
         return `Base: ${this._baseSpeed.toFixed(2)}, Mult: ${this._speedMultiplier.toFixed(2)}, Paused: ${this._isPaused}, Final: ${this.getCurrentSpeed().toFixed(2)}`;
     }
+
+    /**
+     * 状態をリセット
+     */
+    public reset() {
+        this._baseSpeed = 0;
+        this._speedMultiplier = 1.0;
+        this._isPaused = false;
+        this._forcedSpeed = -1;
+    }
 }

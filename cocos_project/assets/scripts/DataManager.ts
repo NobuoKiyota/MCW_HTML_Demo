@@ -92,6 +92,26 @@ export class DataManager {
         console.log("[DataManager] Saved.");
     }
 
+    public addResource(type: string, amount: number) {
+        if (type === "credits" || type === "money") {
+            this.data.money += amount;
+            // console.log(`[DataManager] Added ${amount} credits. Total: ${this.data.money}`);
+        } else if (type === "exp") {
+            // Exp logic (Add to player level, etc. For now just log or add to stats)
+            // Maybe add to careerStats or a new field
+            // this.data.careerStats.totalExp += amount; 
+            console.log(`[DataManager] Added ${amount} EXP (Not fully implemented)`);
+        } else {
+            // Add to inventory
+            if (!this.data.inventory[type]) {
+                this.data.inventory[type] = 0;
+            }
+            this.data.inventory[type] += amount;
+            console.log(`[DataManager] Added ${amount} to ${type}. Total: ${this.data.inventory[type]}`);
+        }
+        this.save();
+    }
+
     public reset() {
         sys.localStorage.removeItem(SAVE_KEY);
         this.data = this.getInitialData();

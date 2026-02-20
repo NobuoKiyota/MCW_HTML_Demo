@@ -142,10 +142,18 @@ export const GAME_SETTINGS = {
 
 // ステート定義
 export enum GameState {
-    TITLE, MENU, UPGRADE, MISSION_SELECT, INGAME, RESULT, FAILURE, GRID_MODIFY
+    TITLE, HOME, MENU, UPGRADE, MISSION_SELECT, INGAME, RESULT, FAILURE, GRID_MODIFY
 }
 
 export const SAVE_KEY = 'SHOOTER_COCOS_V1';
+
+export interface IMissionData {
+    id: number;
+    stars: number;
+    distance: number;
+    enemyPattern: string[];
+    reward: number;
+}
 
 // IGameManager Interface for breaking circular dependencies
 export interface IGameManager {
@@ -154,6 +162,7 @@ export interface IGameManager {
     enemyLayer: any; // Add enemyLayer for PlayerController access
     playerNode: any;
     playState: any;
+    currentMission: IMissionData; // Update type
     // currentScrollSpeed: number; // Global Physics -> Moved to GameSpeedManager
     speedManager: any; // GameSpeedManager type (any to avoid circular import here if needed, or import type)
     spawnBullet(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean): any;
@@ -164,4 +173,5 @@ export interface IGameManager {
     onMissionComplete(): void;
     spawnDamageText(x: number, y: number, amount: number, isKill: boolean): void;
     spawnExplosion(x: number, y: number): void;
+    goToHome(): void;
 }

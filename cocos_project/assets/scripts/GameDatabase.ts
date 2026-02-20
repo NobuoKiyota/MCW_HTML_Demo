@@ -56,6 +56,13 @@ export class GameDatabase extends Component {
         }
         GameDatabase.instance = this;
         director.addPersistRootNode(this.node);
+
+        // Fail-safe initialization
+        if (!this.enemies) this.enemies = [];
+        if (!this.enemyBullets) this.enemyBullets = [];
+        if (!this.behaviors) this.behaviors = [];
+        if (!this.drops) this.drops = [];
+        if (!this.sounds) this.sounds = [];
     }
 
     start() {
