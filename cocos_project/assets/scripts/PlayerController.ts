@@ -349,7 +349,11 @@ export class PlayerController extends Component {
         if (UIManager.instance) UIManager.instance.updateHP(this.hp, this.maxHp);
         if (this.hp <= 0) {
             if (this._gm) this._gm.onGameOver();
-            this.node.active = false;
+            this.scheduleOnce(() => {
+                if (this.node && this.node.isValid) {
+                    this.node.active = false;
+                }
+            }, 0);
         }
     }
 }

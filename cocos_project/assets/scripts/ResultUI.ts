@@ -114,9 +114,9 @@ export class ResultUI extends Component {
     }
 
     private onHomeClicked() {
-        // Return to Title via GameManager
+        // Return to Home via GameManager
         if (GameManager.instance) {
-            GameManager.instance.goToTitle();
+            GameManager.instance.goToHome();
         }
         this.node.destroy();
     }

@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Vec3, math, Sprite, Color, director, find } from 'cc';
 // import { GameManager } from './GameManager'; // Circular Dependency
-import { GAME_SETTINGS, IGameManager } from './Constants';
+import { GAME_SETTINGS, IGameManager, GameState } from './Constants';
 import { SoundManager } from './SoundManager';
 const { ccclass, property } = _decorator;
 
@@ -81,7 +81,7 @@ export class Enemy extends Component {
 
     update(dt: number) {
         const gm = this._gm;
-        if (!gm || gm.state !== 4 || gm.isPaused) return; // 4 = INGAME
+        if (!gm || gm.state !== GameState.INGAME || gm.isPaused) return;
 
         // Time processing
         this.cooldown -= dt; // Seconds
@@ -246,19 +246,31 @@ export class Enemy extends Component {
 
 
     die() {
-        console.log(`[Enemy] die called: ${this.node.uuid}`);
+        console.log(`[Enemy] die called: ${this.node.uuid} Data: ${this.data ? this.data.id : 'null'}`);
         const gm = this._gm;
         if (gm) {
             let dropped = false;
 
             // 1. Modular Drop System (CSV Linked)
             if (this.data && this.data._drops && this.data._drops.length > 0) {
+                console.log(`[Enemy] checking ${this.data._drops.length} drops from CSV...`);
                 for (const drop of this.data._drops) {
-                    // Check Rate
-                    if (Math.random() <= drop.rate) {
+                    const rnd = Math.random();
+                    if (rnd <= drop.rate) {
+                        console.log(`[Enemy] DROP SUCCESS: ${drop.itemId} (Roll:${rnd.toFixed(2)} <= Rate:${drop.rate})`);
                         gm.spawnItem(this.node.position.x, this.node.position.y, drop.itemId, drop.min);
                         dropped = true;
+                    } else {
+                        console.log(`[Enemy] DROP FAIL: ${drop.itemId} (Roll:${rnd.toFixed(2)} > Rate:${drop.rate})`);
                     }
+                }
+
+                // Temporary Verification Pity: If nothing dropped but we have drop data, force first item.
+                if (!dropped && this.data._drops.length > 0) {
+                    const firstDrop = this.data._drops[0];
+                    console.log(`[Enemy] PITY DROP: Forcing ${firstDrop.itemId} since all rolls failed.`);
+                    gm.spawnItem(this.node.position.x, this.node.position.y, firstDrop.itemId, firstDrop.min);
+                    dropped = true;
                 }
             }
             // 2. Inspector Loot Table (Prefab based)
@@ -279,8 +291,8 @@ export class Enemy extends Component {
                 // For now, clean up legacy hardcoded drops.
             }
 
-            // Play Explosion SE (3D)
-            gm.spawnExplosion(this.node.worldPosition.x, this.node.worldPosition.y);
+            // Play Explosion (Programmatic spawn)
+            gm.spawnExplosion(this.node.worldPosition.x, this.node.worldPosition.y, true);
             SoundManager.instance.play3dSE("exploson01", this.node.worldPosition, "Enemy");
         }
         this.node.destroy();

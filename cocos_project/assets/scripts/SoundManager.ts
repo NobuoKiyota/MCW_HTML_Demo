@@ -16,13 +16,23 @@ export interface SEGroup {
 export class SoundManager extends Component {
     private static _instance: SoundManager = null;
     public static get instance(): SoundManager {
-        if (!this._instance) {
-            console.warn("[SoundManager] Instance not initialized. Creating dummy node.");
-            const node = new Node("SoundManager");
+        if (!this._instance || !this._instance.isValid) {
+            // Priority 1: Search the current scene
+            const scene = director.getScene();
+            if (scene) {
+                const existing = scene.getComponentInChildren(SoundManager);
+                if (existing) {
+                    this._instance = existing;
+                    console.log("[SoundManager] Found existing instance in scene.");
+                    return this._instance;
+                }
+            }
+
+            // Priority 2: Create dummy node as fallback
+            console.warn("[SoundManager] Instance not initialized and not found in scene. Creating dummy node.");
+            const node = new Node("SoundManager_Dummy");
             this._instance = node.addComponent(SoundManager);
 
-            // Add to current scene to ensure lifecycle events run
-            const scene = director.getScene();
             if (scene) {
                 scene.addChild(node);
             } else {
@@ -61,11 +71,23 @@ export class SoundManager extends Component {
     public set voiceVolume(v: number) { this._voiceVolume = v; }
 
     onLoad() {
-        if (SoundManager._instance && SoundManager._instance !== this) {
-            this.node.destroy();
-            return;
+        console.log("[SoundManager] onLoad triggered.");
+        if (!SoundManager._instance || !SoundManager._instance.isValid) {
+            SoundManager._instance = this;
+            console.log("[SoundManager] Singleton initialized.");
+        } else if (SoundManager._instance !== this) {
+            // Check for dummy hijacking
+            if (SoundManager._instance.node.name.includes("Dummy")) {
+                console.log("[SoundManager] Hijacking singleton from Dummy node.");
+                const oldNode = SoundManager._instance.node;
+                SoundManager._instance = this;
+                oldNode.destroy();
+            } else {
+                console.warn("[SoundManager] Duplicate valid instance found, destroying this component.");
+                this.destroy();
+                return;
+            }
         }
-        SoundManager._instance = this;
         // director.addPersistRootNode(this.node); // Removed for Single Scene
 
         // Setup BGM Sources
@@ -113,6 +135,9 @@ export class SoundManager extends Component {
     }
 
     onDestroy() {
+        if (SoundManager._instance === this) {
+            SoundManager._instance = null;
+        }
         input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
     }
 

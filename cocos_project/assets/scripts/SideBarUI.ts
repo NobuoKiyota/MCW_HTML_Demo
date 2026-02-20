@@ -1,5 +1,7 @@
 import { _decorator, Component, Node, Label, Color, Sprite, UITransform, Size, Widget, Graphics, LabelOutline, resources, SpriteFrame } from 'cc';
 import { DataManager } from './DataManager';
+import { GameManager } from './GameManager';
+import { GameState } from './Constants';
 
 const { ccclass, property } = _decorator;
 
@@ -258,8 +260,8 @@ export class SideBarUI extends Component {
         node.setPosition(posX, y);
 
         const outline = node.addComponent(LabelOutline);
-        outline.color = new Color(0, 0, 0, 255);
-        outline.width = 2;
+        label.outlineColor = new Color(0, 0, 0, 255);
+        label.outlineWidth = 2;
 
         return label;
     }
@@ -310,6 +312,12 @@ export class SideBarUI extends Component {
 
     start() {
         this.updateShipInfo();
+        // 初期HPを一旦減った状態にする (ユーザーの要望)
+        this.updateHP(40, 100);
+
+        // 初期状態のミッション・速度表示
+        this.updateMissionInfo(-1);
+        this.updateSpeed(0);
     }
 
     public updateHP(current: number, max: number) {
@@ -371,13 +379,23 @@ export class SideBarUI extends Component {
     }
 
     public updateMissionInfo(dist: number) {
-        if (this.missionLabel) {
+        if (!this.missionLabel) return;
+
+        const isIngame = GameManager.instance && GameManager.instance.state === GameState.INGAME;
+        if (!isIngame || dist < 0) {
+            this.missionLabel.string = "DESTINATION\n--- km";
+        } else {
             this.missionLabel.string = `DESTINATION\n${dist.toFixed(0)} km`;
         }
     }
 
     public updateSpeed(speed: number) {
-        if (this.speedLabel) {
+        if (!this.speedLabel) return;
+
+        const isIngame = GameManager.instance && GameManager.instance.state === GameState.INGAME;
+        if (!isIngame || speed <= 0) {
+            this.speedLabel.string = "SPD: 0 km/h";
+        } else {
             const displaySpeed = Math.floor(speed * 100);
             this.speedLabel.string = `SPD: ${displaySpeed} km/h`;
         }

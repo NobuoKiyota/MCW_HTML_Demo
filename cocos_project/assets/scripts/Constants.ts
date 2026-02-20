@@ -172,6 +172,6 @@ export interface IGameManager {
     onGameOver(): void;
     onMissionComplete(): void;
     spawnDamageText(x: number, y: number, amount: number, isKill: boolean): void;
-    spawnExplosion(x: number, y: number): void;
+    spawnExplosion(x: number, y: number, isKill?: boolean): void;
     goToHome(): void;
 }

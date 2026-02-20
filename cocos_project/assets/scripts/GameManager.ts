@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3, Color, game } from 'cc';
+import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3, Color, game, resources, UITransform, Sprite, BoxCollider2D } from 'cc';
 import { UIManager } from './UIManager';
 import { GameState, GAME_SETTINGS, IGameManager } from './Constants'; // Removed Constants
 import { SoundManager } from './SoundManager';
@@ -28,6 +28,9 @@ export class GameManager extends Component implements IGameManager {
 
     @property(Prefab)
     public bulletPrefab: Prefab = null;
+
+    @property(Prefab)
+    public itemPrefab: Prefab = null;
 
     @property(GameDatabase)
     public gameDatabase: GameDatabase = null;
@@ -66,23 +69,52 @@ export class GameManager extends Component implements IGameManager {
     private currentContentNode: Node = null;
 
     onLoad() {
-        if (GameManager.instance === null) {
+        console.log("[GameManager] onLoad triggered.");
+        if (!GameManager.instance || !GameManager.instance.isValid) {
             GameManager.instance = this;
-            director.addPersistRootNode(this.node);
-
-            // Force this persistent node to (0,0,0) to avoid world-space offsets for its children
-            this.node.setPosition(0, 0, 0);
-        } else {
-            this.node.destroy();
-            return;
+            console.log("[GameManager] Singleton initialized.");
+        } else if (GameManager.instance !== this) {
+            // Check for dummy hijacking
+            if (GameManager.instance.node.name.includes("Dummy")) {
+                console.log("[GameManager] Hijacking singleton from Dummy node.");
+                const oldNode = GameManager.instance.node;
+                GameManager.instance = this;
+                oldNode.destroy();
+            } else {
+                console.warn("[GameManager] Duplicate valid instance found, destroying this component.");
+                this.destroy(); // Destroy component only, not node
+                return;
+            }
         }
 
-        console.log("[GameManager] onLoad. Persist Root set.");
+        // Force this node to (0,0,0) to avoid world-space offsets
+        this.node.setPosition(0, 0, 0);
+
+        console.log("[GameManager] onLoad completed. Ready for start.");
         this.speedManager.reset();
 
-        // Initial State
-        this.state = GameState.TITLE;
-        // Don't auto-spawn content here, wait for start() or manual trigger
+        // Fallback for Item Prefab if not assigned in Inspector
+        if (!this.itemPrefab) {
+            console.log("[GameManager] itemPrefab not assigned. Attempting to load from resources/Prefabs/Item...");
+            resources.load("Prefabs/Item", Prefab, (err, prefab) => {
+                if (!err && prefab) {
+                    this.itemPrefab = prefab;
+                    console.log("[GameManager] itemPrefab loaded successfully from resources.");
+                } else {
+                    console.warn("[GameManager] Failed to load itemPrefab from resources. Please ensure it exists in assets/resources/Prefabs/Item.");
+                }
+            });
+        }
+
+        // Scene Transition Listeners
+        director.on("GAME_RETRY", this.retryGame, this);
+        director.on("GAME_TITLE", this.goToTitle, this);
+    }
+
+    onDestroy() {
+        if (GameManager.instance === this) {
+            GameManager.instance = null;
+        }
     }
 
     start() {
@@ -100,11 +132,13 @@ export class GameManager extends Component implements IGameManager {
      * Switch content (Prefab) under Canvas
      * Returns the instantiated node
      */
-    private switchContent(prefab: Prefab): Node {
+    public switchContent(prefab: Prefab) {
         if (!prefab) {
             console.error("[GameManager] switchContent failed: Prefab is null.");
             return null;
         }
+
+        console.log(`[GameManager] switchContent: switching to ${prefab.name}`);
 
         // 1. Find Canvas
         // Since this node is PersistRoot, it is NOT under Canvas usually.
@@ -116,8 +150,8 @@ export class GameManager extends Component implements IGameManager {
             return null;
         }
 
-        // Reset to (0, 0)
-        canvas.setPosition(0, 0, 0);
+        // Reset to (640, 360)
+        canvas.setPosition(640, 360, 0);
 
         // 2. Clear previous content
         // We assume we tag the content node or keep track of it
@@ -142,12 +176,12 @@ export class GameManager extends Component implements IGameManager {
 
         console.log(`[GameManager] Switched content to ${prefab.data.name}`);
 
-        // If switching to Title, ensure SideBar is visible/updated if needed
-        if (this.state === GameState.TITLE) {
-            // Show SideBar on Home
-            if (UIManager.instance && UIManager.instance.sideBarUI) {
-                UIManager.instance.sideBarUI.node.active = true;
-                // Update info immediately
+        // SideBarUI Visibility: Active except on Title
+        if (UIManager.instance && UIManager.instance.sideBarUI) {
+            const shouldBeActive = this.state !== GameState.TITLE;
+            UIManager.instance.sideBarUI.node.active = shouldBeActive;
+
+            if (shouldBeActive) {
                 UIManager.instance.sideBarUI.updateShipInfo();
             }
         }
@@ -161,6 +195,8 @@ export class GameManager extends Component implements IGameManager {
         if (mission) {
             this.currentMission = mission;
         }
+
+        this.state = GameState.INGAME;
 
         const node = this.switchContent(this.ingamePrefab);
         if (!node) {
@@ -183,8 +219,6 @@ export class GameManager extends Component implements IGameManager {
         this.playState.killedEnemies = 0;
         this.playState.collectedItemsCount = 0;
         this.playState.items = []; // Reset items
-
-        this.state = GameState.INGAME;
 
         // Inject GM to Player
         if (this.playerNode) {
@@ -254,10 +288,31 @@ export class GameManager extends Component implements IGameManager {
         if (!this.playerNode) console.error("[GameManager] Player Node NOT FOUND in Prefab!");
         if (!this.enemyLayer) console.error("[GameManager] EnemyLayer Node NOT FOUND in Prefab!");
 
+        // Force zero positions to ensure coordinate sync between layers
+        // This fixes the issue where layers in the prefab had (640, 360) offsets
+        if (this.bulletLayer) this.bulletLayer.setPosition(0, 0, 0);
+        if (this.enemyLayer) this.enemyLayer.setPosition(0, 0, 0);
+        if (this.itemLayer) this.itemLayer.setPosition(0, 0, 0);
+
+        // Notify UIManager to resolve its references (GameOverPanel etc) from the new prefab
+        if (UIManager.instance) {
+            UIManager.instance.resolveReferences();
+        }
+
+        // Background and StarField might also need reset if they were offset
+        const bgLayer = findNode(rootNode, "BackgroundLayer");
+        if (bgLayer) bgLayer.setPosition(0, 0, 0);
+        const starField = findNode(rootNode, "StarField");
+        if (starField) starField.setPosition(0, 0, 0);
+
         console.log(`[GameManager] References resolved: Player=${this.playerNode?.name}, EnemyLayer=${this.enemyLayer?.name}`);
 
         // Ensure PlayerController setup
         if (this.playerNode) {
+            // Player should also be at (0, 0) or offset by code, but we want its parent to be (0,0)
+            // Wait, Player is sibling to layers. If layers are (0,0), Player should be near (0,0) or (0, -200)
+            // Let's not force Player position here as Bullet spawn uses this.node.position relative to BulletLayer
+
             const pCtrl = this.playerNode.getComponent("PlayerController") as any;
             if (pCtrl && pCtrl.setup) {
                 pCtrl.setup(this);
@@ -346,12 +401,24 @@ export class GameManager extends Component implements IGameManager {
     }
 
     spawnEnemy() {
-        if (!this.gameDatabase || !this.gameDatabase.isReady) return;
-        if (!this.enemyLayer) return;
+        // Fallback to singleton if inspector reference is null (common after hijacking)
+        const db = this.gameDatabase || GameDatabase.instance;
+
+        if (!db || !db.isReady) {
+            if (this.frameCount % 60 === 0) { // Log occasionally
+                console.warn("[GameManager] spawnEnemy skipped: GameDatabase is NOT READY or null.");
+            }
+            return;
+        }
+
+        if (!this.enemyLayer) {
+            console.error("[GameManager] spawnEnemy failed: enemyLayer is null.");
+            return;
+        }
 
         // Method 1: Use GameDatabase (New System)
-        if (this.gameDatabase && this.gameDatabase.enemies.length > 0) {
-            const enemyData = this.gameDatabase.getRandomEnemy();
+        if (db.enemies.length > 0) {
+            const enemyData = db.getRandomEnemy();
             if (enemyData && enemyData.prefab) {
                 const node = instantiate(enemyData.prefab);
                 node.parent = this.enemyLayer; // Prefab base ref
@@ -365,6 +432,7 @@ export class GameManager extends Component implements IGameManager {
                 if (enemyComp) {
                     enemyComp.init(enemyData, this);
                 }
+                console.log(`[GameManager] Spawned enemy: ${enemyData.id} at (${x.toFixed(1)}, ${y.toFixed(1)})`);
                 return;
             } else {
                 // Debug: Why failed?
@@ -372,7 +440,9 @@ export class GameManager extends Component implements IGameManager {
                 else if (!enemyData.prefab) console.warn(`[GameManager] EnemyData '${enemyData.id}' has no Prefab!`);
             }
         } else {
-            console.warn("[GameManager] No enemies found in GameDatabase!");
+            if (this.frameCount % 60 === 0) {
+                console.warn("[GameManager] No enemies found in GameDatabase runtime list!");
+            }
         }
     }
 
@@ -382,7 +452,13 @@ export class GameManager extends Component implements IGameManager {
         this.state = GameState.RESULT;
         console.log("Mission Complete!");
 
-        // Save Data?
+        // Add Mission Reward
+        if (this.currentMission && this.currentMission.reward > 0) {
+            console.log(`[GameManager] Granting Mission Reward: ${this.currentMission.reward}`);
+            DataManager.instance.addResource("credits", this.currentMission.reward);
+        }
+
+        // Save Data
         DataManager.instance.save();
 
         if (UIManager.instance) {
@@ -446,6 +522,7 @@ export class GameManager extends Component implements IGameManager {
 
     // Item Factory
     public onItemCollected(id: string, amount: number, pos?: Vec3) {
+        console.log(`[GameManager] onItemCollected called: ${id} x${amount} at ${pos}`);
 
         // Count it
         if (!this.playState.collectedItemsCount) this.playState.collectedItemsCount = 0;
@@ -471,7 +548,7 @@ export class GameManager extends Component implements IGameManager {
                 UIManager.instance.showBuffNotification("POWER UP!", new Color(255, 50, 50), pos);
                 UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
             }
-            SoundManager.instance.playSE("itemget02", "System");
+            SoundManager.instance.playSE("powerup01", "System");
             if (pCtrl && pCtrl.applyBuff) pCtrl.applyBuff("Power", def ? def.duration : 10, def ? def.value : 0.5);
             return;
         }
@@ -481,7 +558,7 @@ export class GameManager extends Component implements IGameManager {
                 UIManager.instance.showBuffNotification("RAPID FIRE!", new Color(0, 150, 255), pos);
                 UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
             }
-            SoundManager.instance.playSE("itemget02", "System");
+            SoundManager.instance.playSE("powerup01", "System");
             if (pCtrl && pCtrl.applyBuff) pCtrl.applyBuff("Rapid", def ? def.duration : 10, def ? def.value : 0.5);
             return;
         }
@@ -504,8 +581,45 @@ export class GameManager extends Component implements IGameManager {
     }
 
     public spawnItem(x: number, y: number, id: string, amount: number) {
-        // ... (Item spawning logic if needed, or from Enemy drop)
-        // If we have item prefabs in DB
+        if (!this.itemLayer) {
+            console.warn(`[GameManager] spawnItem aborted: itemLayer is missing!`);
+            return;
+        }
+
+        let node: Node = null;
+        if (this.itemPrefab) {
+            node = instantiate(this.itemPrefab);
+        } else {
+            console.log(`[GameManager] itemPrefab is null. Creating item programmatically for ${id}...`);
+            node = new Node("Item_" + id);
+
+            // Add Visual (Sprite)
+            const transform = node.addComponent(UITransform);
+            transform.setContentSize(40, 40);
+
+            const sprite = node.addComponent(Sprite);
+            // Color will be set in Item.init() based on type
+
+            // Add Physics (Collider)
+            const collider = node.addComponent(BoxCollider2D);
+            collider.size.width = 40;
+            collider.size.height = 40;
+            collider.sensor = true; // Non-blocking
+
+            // Add Script
+            node.addComponent("Item");
+        }
+
+        node.parent = this.itemLayer;
+        node.setPosition(x, y, 0);
+
+        const itemComp = node.getComponent("Item") || node.addComponent("Item") as any;
+        if (itemComp) {
+            itemComp.init(id, amount, this);
+            console.log(`[GameManager] Registered Item: ${id} at (${x.toFixed(1)}, ${y.toFixed(1)})`);
+        } else {
+            console.warn(`[GameManager] Item component could not be added/found for ${id}`);
+        }
     }
 
     public spawnItemFromPrefab(prefab: Prefab, x: number, y: number) {
@@ -527,17 +641,41 @@ export class GameManager extends Component implements IGameManager {
     }
 
     public spawnExplosion(x: number, y: number, isKill: boolean = false) {
-        // Effect
+        // Increment kill count if applicable
         if (isKill) {
             if (!this.playState.killedEnemies) this.playState.killedEnemies = 0;
             this.playState.killedEnemies++;
         }
+
+        // Dynamic Load Explosion effect
+        resources.load("Prefabs/Particle/ExplosionA", Prefab, (err, prefab) => {
+            if (err) {
+                console.warn("[GameManager] Failed to load ExplosionA:", err);
+                return;
+            }
+            if (!this.node || !this.node.isValid) return;
+
+            const node = instantiate(prefab);
+            // Spawn in content layer or bullet layer? Let's use bulletLayer as a "VFX" layer fallback
+            node.parent = this.enemyLayer || this.node.parent;
+
+            // USE World Position to avoid (640, 360) offset issues from Canvas/Layers
+            node.setWorldPosition(new Vec3(x, y, 0));
+
+            // Auto-destruct after 1.5s (Typical for Cocos particle FX if not set to auto-remove)
+            this.scheduleOnce(() => {
+                if (node.isValid) node.destroy();
+            }, 2.0);
+        });
     }
 
     public onGameOver() {
         if (this.state === GameState.FAILURE) return;
         this.state = GameState.FAILURE;
         console.log("Game Over!");
+
+        // Save progress (collected items etc)
+        DataManager.instance.save();
 
         if (UIManager.instance) {
             UIManager.instance.showGameOver();

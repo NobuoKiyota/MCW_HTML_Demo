@@ -116,4 +116,10 @@ export class DataManager {
         sys.localStorage.removeItem(SAVE_KEY);
         this.data = this.getInitialData();
     }
+
+    public customReset(money: number, totalDist: number) {
+        this.data.money = money;
+        this.data.careerStats.totalDistance = totalDist;
+        this.save();
+    }
 }

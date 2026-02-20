@@ -33,11 +33,14 @@ export class SettingsManager {
     }
 
     public save() {
+        log("[SettingsManager] Saving settings...");
         // Sync from SoundManager before saving
         const sm = SoundManager.instance;
-        this.settings.bgmVolume = sm.bgmVolume;
-        this.settings.seVolume = sm.seVolume;
-        this.settings.voiceVolume = sm.voiceVolume;
+        if (sm) {
+            this.settings.bgmVolume = sm.bgmVolume;
+            this.settings.seVolume = sm.seVolume;
+            this.settings.voiceVolume = sm.voiceVolume;
+        }
 
         localStorage.setItem(SettingsManager.STORAGE_KEY, JSON.stringify(this.settings));
         log("[SettingsManager] Settings Saved.");
@@ -57,11 +60,17 @@ export class SettingsManager {
     }
 
     public applySettings() {
+        log("[SettingsManager] Applying settings...");
         // Apply Audio
         const sm = SoundManager.instance;
-        sm.bgmVolume = this.settings.bgmVolume;
-        sm.seVolume = this.settings.seVolume;
-        sm.voiceVolume = this.settings.voiceVolume;
+        if (sm) {
+            sm.bgmVolume = this.settings.bgmVolume;
+            sm.seVolume = this.settings.seVolume;
+            sm.voiceVolume = this.settings.voiceVolume;
+            log("[SettingsManager] Audio settings applied.");
+        } else {
+            console.warn("[SettingsManager] SoundManager instance not found during applySettings.");
+        }
 
         // Apply Resolution
         this.applyResolution(this.settings.resolution.width, this.settings.resolution.height);

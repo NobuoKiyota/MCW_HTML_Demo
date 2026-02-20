@@ -49,13 +49,25 @@ export class GameDatabase extends Component {
     public isReady: boolean = false;
 
     onLoad() {
-        if (GameDatabase.instance && GameDatabase.instance.isValid && GameDatabase.instance !== this) {
-            console.log("[GameDatabase] Duplicate valid instance found, destroying this one.");
-            this.node.destroy();
-            return;
+        console.log("[GameDatabase] onLoad triggered.");
+        if (!GameDatabase.instance || !GameDatabase.instance.isValid) {
+            GameDatabase.instance = this;
+            console.log("[GameDatabase] Singleton initialized.");
+        } else if (GameDatabase.instance !== this) {
+            // Check for dummy hijacking
+            if (GameDatabase.instance.node.name.includes("Dummy")) {
+                console.log("[GameDatabase] Hijacking singleton from Dummy node.");
+                const oldNode = GameDatabase.instance.node;
+                GameDatabase.instance = this;
+                oldNode.destroy();
+            } else {
+                console.warn("[GameDatabase] Duplicate valid instance found, destroying this component.");
+                this.destroy(); // Component only
+                return;
+            }
         }
-        GameDatabase.instance = this;
-        director.addPersistRootNode(this.node);
+
+        // director.addPersistRootNode(this.node); // Removed for Single Scene
 
         // Fail-safe initialization
         if (!this.enemies) this.enemies = [];
@@ -63,6 +75,14 @@ export class GameDatabase extends Component {
         if (!this.behaviors) this.behaviors = [];
         if (!this.drops) this.drops = [];
         if (!this.sounds) this.sounds = [];
+
+        this.loadAllCSV();
+    }
+
+    onDestroy() {
+        if (GameDatabase.instance === this) {
+            GameDatabase.instance = null;
+        }
     }
 
     start() {
@@ -246,7 +266,10 @@ export class GameDatabase extends Component {
         const validEnemies = this.enemies.filter(e => e.prefab !== null);
 
         if (validEnemies.length === 0) {
-            console.warn("[GameDatabase] No enemies with valid Prefabs found!");
+            console.warn(`[GameDatabase] No enemies with valid Prefabs found! Total enemies in list: ${this.enemies.length}`);
+            if (this.enemies.length > 0) {
+                console.warn(`[GameDatabase] First enemy sample: ID=${this.enemies[0].id}, Prefab=${this.enemies[0].prefab ? "OK" : "NULL"}`);
+            }
             return null;
         }
 

@@ -1,7 +1,7 @@
 import { _decorator, Component, Node, Vec3, Sprite, Color, BoxCollider2D, Collider2D, Contact2DType, IPhysics2DContact, find } from 'cc';
 // import { GameManager } from './GameManager';
-// import { PlayerController } from './PlayerController';
-import { GAME_SETTINGS, IGameManager } from './Constants';
+// import { PlayerController } './PlayerController';
+import { GAME_SETTINGS, IGameManager, GameState } from './Constants';
 
 const { ccclass, property } = _decorator;
 
@@ -29,6 +29,9 @@ export class Item extends Component {
             collider.on(Contact2DType.BEGIN_CONTACT, this.onBeginContact, this);
             // Ensure sensor
             collider.sensor = true;
+            console.log(`[Item] Registered BEGIN_CONTACT for ${this.id}. Sensor: ${collider.sensor}`);
+        } else {
+            console.warn(`[Item] No BoxCollider2D found on node ${this.node.name}`);
         }
     }
 
@@ -38,8 +41,9 @@ export class Item extends Component {
         this.amount = amount;
         this.isMagnet = false;
 
-        // Visual setup
-        const sprite = this.getComponent(Sprite);
+        // Visual setup (Check children for Sprite)
+        let sprite = this.getComponent(Sprite) || this.getComponentInChildren(Sprite);
+
         if (sprite) {
             const def = GAME_SETTINGS.ECONOMY.ITEMS[id];
             if (def) {
@@ -50,12 +54,15 @@ export class Item extends Component {
                 if (id.includes("Item")) sprite.color = Color.YELLOW;
                 else sprite.color = Color.CYAN;
             }
+            console.log(`[Item] Applied color to ${sprite.node.name} for ${id}: ${sprite.color.toHEX()}`);
+        } else {
+            console.warn(`[Item] No Sprite component found for ${id} in ${this.node.name} hierarchy`);
         }
     }
 
     update(dt: number) {
         const gm = this._gm;
-        if (!gm || gm.state !== 4 || gm.isPaused) return;
+        if (!gm || gm.state !== GameState.INGAME || gm.isPaused) return;
 
         this.node.getPosition(this._tempPos);
         const playerPos = gm.playerNode.position;
@@ -83,6 +90,13 @@ export class Item extends Component {
 
         this.node.setPosition(this._tempPos);
 
+        // Fallback Collection: If remarkably close to player (likely collision missed due to fast magnet or missing collider)
+        if (dist < 30) {
+            console.log(`[Item] Distance-based collection triggered for ${this.id}`);
+            this.collect();
+            return;
+        }
+
         // Bounds
         if (this._tempPos.y < -GAME_SETTINGS.CANVAS_HEIGHT / 2 - 50) {
             this.node.destroy();
@@ -90,12 +104,19 @@ export class Item extends Component {
     }
 
     onBeginContact(selfCollider: Collider2D, otherCollider: Collider2D, contact: IPhysics2DContact | null) {
-        let player = otherCollider.getComponent("PlayerController") as any;
-        if (!player && otherCollider.node.parent) {
-            player = otherCollider.node.parent.getComponent("PlayerController") as any;
+        // Detailed logging to identify what we are hitting
+        console.log(`[Item] Contact detected: ${this.id} <-> ${otherCollider.node.name}`);
+
+        let player = null;
+        let currNode = otherCollider.node;
+        while (currNode) {
+            player = currNode.getComponent("PlayerController");
+            if (player) break;
+            currNode = currNode.parent;
         }
 
         if (player) {
+            console.log(`[Item] Player detected via collision on node ${currNode.name}! Collecting ${this.id}`);
             this.collect();
         }
     }

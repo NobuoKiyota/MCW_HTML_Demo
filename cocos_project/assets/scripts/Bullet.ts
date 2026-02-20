@@ -153,14 +153,22 @@ export class Bullet extends Component {
 
             if (player) {
                 player.takeDamage(this.damage);
-                this.node.destroy();
+                this.scheduleOnce(() => {
+                    if (this.node && this.node.isValid) {
+                        this.node.destroy();
+                    }
+                }, 0);
             }
         } else {
             // Check Hit Enemy
             const enemy = otherCollider.getComponent("Enemy") as any;
             if (enemy) {
                 enemy.takeDamage(this.damage);
-                this.node.destroy();
+                this.scheduleOnce(() => {
+                    if (this.node && this.node.isValid) {
+                        this.node.destroy();
+                    }
+                }, 0);
             }
         }
     }
