@@ -502,9 +502,11 @@
     "buffRapidLabel": null,
     "missionLabel": null,
     "speedLabel": null,
+    "timerLabel": null,
     "shipNameLabel": null,
     "shipStatsLabel": null,
     "cargoLabel": null,
+    "moneyTitleLabel": null,
     "_id": "90ayqK3VZGTpp7EKmUoxt3"
   },
   {
