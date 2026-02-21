@@ -54,12 +54,14 @@ export class GameManager extends Component implements IGameManager {
     private frameCount: number = 0; // For performance check or periodic log
 
     // InGame State (Distance, etc)
+    private missionStartHp: number = 100;
     public playState: any = {
         distance: 3000,
         enemies: [],
         items: [],
         killedEnemies: 0,
-        collectedItemsCount: 0
+        collectedItemsCount: 0,
+        elapsedTime: 0 // New
     };
 
     public currentMission: any = null;
@@ -109,6 +111,7 @@ export class GameManager extends Component implements IGameManager {
         // Scene Transition Listeners
         director.on("GAME_RETRY", this.retryGame, this);
         director.on("GAME_TITLE", this.goToTitle, this);
+        director.on("GAME_HOME", this.goToHome, this);
     }
 
     onDestroy() {
@@ -150,8 +153,9 @@ export class GameManager extends Component implements IGameManager {
             return null;
         }
 
-        // Reset to (640, 360)
+        // Reset to (640, 360) and ensure active
         canvas.setPosition(640, 360, 0);
+        canvas.active = true;
 
         // 2. Clear previous content
         // We assume we tag the content node or keep track of it
@@ -174,16 +178,15 @@ export class GameManager extends Component implements IGameManager {
         node.setSiblingIndex(0); // Put at bottom (behind UI)
         this.currentContentNode = node;
 
-        console.log(`[GameManager] Switched content to ${prefab.data.name}`);
+        // 4. Force UI to resolve references for the new content (GameOver, HUD etc)
+        if (UIManager.instance) {
+            UIManager.instance.resolveReferences();
+        }
 
-        // SideBarUI Visibility: Active except on Title
-        if (UIManager.instance && UIManager.instance.sideBarUI) {
+        // 5. SideBarUI Visibility: Managed via UIManager
+        if (UIManager.instance) {
             const shouldBeActive = this.state !== GameState.TITLE;
-            UIManager.instance.sideBarUI.node.active = shouldBeActive;
-
-            if (shouldBeActive) {
-                UIManager.instance.sideBarUI.updateShipInfo();
-            }
+            UIManager.instance.setSideBarActive(shouldBeActive);
         }
 
         return node;
@@ -197,6 +200,19 @@ export class GameManager extends Component implements IGameManager {
         }
 
         this.state = GameState.INGAME;
+
+        // Reset HP for the session
+        if (DataManager.instance) {
+            // If mission is non-null, it's a new embarkation from Home -> Save CURRENT HP
+            if (mission) {
+                this.missionStartHp = DataManager.instance.data.hp;
+                console.log(`[GameManager] New mission start. HP recorded: ${this.missionStartHp}`);
+            }
+
+            // Restore HP to whatever it was at the start of THIS mission (Retry uses this too)
+            DataManager.instance.setHp(this.missionStartHp);
+            console.log(`[GameManager] HP restored to mission start value: ${this.missionStartHp}`);
+        }
 
         const node = this.switchContent(this.ingamePrefab);
         if (!node) {
@@ -219,17 +235,30 @@ export class GameManager extends Component implements IGameManager {
         this.playState.killedEnemies = 0;
         this.playState.collectedItemsCount = 0;
         this.playState.items = []; // Reset items
+        this.playState.elapsedTime = 0; // Reset Timer
 
         // Inject GM to Player
         if (this.playerNode) {
             const pCtrl = this.playerNode.getComponent("PlayerController") as any;
             if (pCtrl && pCtrl.setup) {
                 pCtrl.setup(this);
+
+                // --- Cargo Penalty ---
+                const data = DataManager.instance.data;
+                const weight = this.currentMission ? (this.currentMission.cargoWeight || 0) : 0;
+                const capacity = data.capacity || 50;
+                if (weight > capacity) {
+                    console.log(`[GameManager] Cargo penalty applied: ${weight} > ${capacity}`);
+                    pCtrl.cargoDamagePenalty = 1.0; // Subtract 1.0 from multiplier
+                } else {
+                    pCtrl.cargoDamagePenalty = 0;
+                }
             }
         }
 
         if (UIManager.instance) {
             UIManager.instance.updateDist(this.playState.distance);
+            UIManager.instance.resetBuffs(); // Ensure clean UI state
         }
 
         // Start BGM
@@ -261,6 +290,10 @@ export class GameManager extends Component implements IGameManager {
 
         if (SoundManager.instance) {
             SoundManager.instance.playBGM("bgm_outgame01", 1.0);
+        }
+
+        if (UIManager.instance) {
+            UIManager.instance.resetBuffs();
         }
     }
 
@@ -338,6 +371,7 @@ export class GameManager extends Component implements IGameManager {
         if (this.state !== GameState.INGAME || this.isPaused) return;
 
         this.frameCount++;
+        this.playState.elapsedTime += deltaTime;
 
         // Timer Logic
         this.spawnTimer += deltaTime;
@@ -373,6 +407,7 @@ export class GameManager extends Component implements IGameManager {
         if (UIManager.instance) {
             UIManager.instance.updateDist(this.playState.distance);
             UIManager.instance.updateSpeed(currentSpeed);
+            UIManager.instance.updateTimer(this.playState.elapsedTime);
         }
 
         // Debug Label Update
@@ -452,11 +487,30 @@ export class GameManager extends Component implements IGameManager {
         this.state = GameState.RESULT;
         console.log("Mission Complete!");
 
-        // Add Mission Reward
+        // Reset Buffs
+        const pCtrl = this.playerNode?.getComponent("PlayerController") as any;
+        if (pCtrl && pCtrl.resetBuffs) pCtrl.resetBuffs();
+
+        // Add Mission Reward with Time Bonus/Penalty
         if (this.currentMission && this.currentMission.reward > 0) {
-            console.log(`[GameManager] Granting Mission Reward: ${this.currentMission.reward}`);
-            DataManager.instance.addResource("credits", this.currentMission.reward);
+            let actualReward = this.currentMission.reward;
+            const targetTime = this.currentMission.targetTime || 60;
+            const timeBonus = 0.1; // ±10%
+
+            if (this.playState.elapsedTime <= targetTime) {
+                actualReward = Math.floor(actualReward * (1 + timeBonus));
+                console.log(`[GameManager] Target Time met! Bonus applied: ${actualReward}`);
+            } else {
+                actualReward = Math.floor(actualReward * (1 - timeBonus));
+                console.log(`[GameManager] Target Time exceeded! Penalty applied: ${actualReward}`);
+            }
+
+            DataManager.instance.addResource("credits", actualReward);
         }
+
+        // Track Cleared Stage
+        const difficulty = this.currentMission ? (this.currentMission.stars || 1) : 1;
+        DataManager.instance.incrementClearedStages(difficulty);
 
         // Save Data
         DataManager.instance.save();
@@ -673,6 +727,10 @@ export class GameManager extends Component implements IGameManager {
         if (this.state === GameState.FAILURE) return;
         this.state = GameState.FAILURE;
         console.log("Game Over!");
+
+        // Reset Buffs
+        const pCtrl = this.playerNode?.getComponent("PlayerController") as any;
+        if (pCtrl && pCtrl.resetBuffs) pCtrl.resetBuffs();
 
         // Save progress (collected items etc)
         DataManager.instance.save();

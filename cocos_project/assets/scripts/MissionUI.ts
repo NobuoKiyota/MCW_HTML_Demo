@@ -1,15 +1,16 @@
-import { _decorator, Component, Node, Label, Color, Sprite, UITransform, Size, Widget, Graphics, LabelOutline, Button, EventHandler, BlockInputEvents, instantiate, Vec3, director } from 'cc';
+import { _decorator, Component, Node, Label, Color, Sprite, UITransform, Size, Widget, Graphics, LabelOutline, Button, EventHandler, BlockInputEvents, instantiate, Vec3, director, RichText } from 'cc';
 import { GameManager } from './GameManager';
 import { SoundManager } from './SoundManager';
+import { DataManager } from './DataManager';
 import { IMissionData } from './Constants';
 
 const { ccclass, property } = _decorator;
 
 // 定義されたミッションリスト
 const MISSION_LIST: IMissionData[] = [
-    { id: 1, stars: 1, distance: 300, enemyPattern: ["ENE001", "ENE002"], reward: 600 },
-    { id: 2, stars: 1, distance: 700, enemyPattern: ["ENE001", "ENE004"], reward: 900 },
-    { id: 3, stars: 2, distance: 1200, enemyPattern: ["ENE001", "ENE002", "ENE003", "ENE004", "ENE005"], reward: 1400 }
+    { id: 1, stars: 1, distance: 300, enemyPattern: ["ENE001", "ENE002"], reward: 600, cargoWeight: 30, targetTime: 60 },
+    { id: 2, stars: 1, distance: 700, enemyPattern: ["ENE001", "ENE004"], reward: 900, cargoWeight: 50, targetTime: 120 },
+    { id: 3, stars: 2, distance: 1200, enemyPattern: ["ENE001", "ENE002", "ENE003", "ENE004", "ENE005"], reward: 1400, cargoWeight: 70, targetTime: 180 }
 ];
 
 @ccclass('MissionUI')
@@ -112,7 +113,7 @@ export class MissionUI extends Component {
         const labelNode = new Node("Label");
         btnNode.addChild(labelNode);
         const label = labelNode.addComponent(Label);
-        label.fontSize = 24;
+        label.fontSize = 20; // Slightly smaller to fit info
         label.color = Color.WHITE;
 
         // 敵リストを表示しない
@@ -120,7 +121,7 @@ export class MissionUI extends Component {
         //     `${mission.enemyPattern.slice(0, 2).join(", ")}...` : 
         //     mission.enemyPattern.join(", ");
 
-        label.string = `★${mission.stars}  DIST: ${mission.distance}km  REWARD: ${mission.reward}`;
+        label.string = `★${mission.stars}  DIST: ${mission.distance}km  TIME: ${mission.targetTime}s  CARGO: ${mission.cargoWeight}`;
         label.lineHeight = 40; // 1行表示のため調整
     }
 
@@ -188,7 +189,7 @@ export class MissionUI extends Component {
         this.dialogNode.addChild(winNode);
         const gr = winNode.addComponent(Graphics);
         gr.fillColor = new Color(50, 50, 50, 255);
-        gr.roundRect(-200, -150, 400, 300, 10);
+        gr.roundRect(-300, -200, 600, 400, 10); // Enlarged to 600x400
         gr.fill();
         gr.strokeColor = Color.CYAN;
         gr.lineWidth = 3;
@@ -197,23 +198,51 @@ export class MissionUI extends Component {
         // テキスト
         const txtNode = new Node("Text");
         winNode.addChild(txtNode);
-        txtNode.setPosition(0, 50);
-        const lbl = txtNode.addComponent(Label);
-        lbl.string = `Start Mission?\n\nDistance: ${mission.distance}km\nReward: ${mission.reward}`;
-        lbl.horizontalAlign = Label.HorizontalAlign.CENTER;
+        txtNode.setPosition(0, 80);
+        const richText = txtNode.addComponent(RichText);
+        richText.fontSize = 24;
+        richText.maxWidth = 500;
+        richText.horizontalAlign = RichText.HorizontalAlign.CENTER;
 
-        // YES Button
-        this.createDialogButton(winNode, "YES", -100, -80, Color.GREEN, () => {
-            SoundManager.instance.playSE("click");
-            this.startGame(mission);
-        });
+        // Check for HP0
+        const currentHp = DataManager.instance ? DataManager.instance.data.hp : 100;
+        const isHpZero = currentHp <= 0;
 
-        // NO Button
-        this.createDialogButton(winNode, "NO", 100, -80, Color.RED, () => {
-            SoundManager.instance.playSE("click");
-            this.dialogNode.destroy();
-            this.dialogNode = null;
-        });
+        if (isHpZero) {
+            richText.string = `<outline color=#000000 width=3><color=#ff4444>HP is 0!</color>\nRepair is required before departure.\nPlease return and restore HP.</outline>`;
+
+            // BACK Button only
+            this.createDialogButton(winNode, "BACK", 0, -120, Color.GRAY, () => {
+                SoundManager.instance.playSE("click");
+                if (this.dialogNode) {
+                    this.dialogNode.destroy();
+                    this.dialogNode = null;
+                }
+            });
+        } else {
+            // Check for overload
+            const capacity = (DataManager.instance as any).data.capacity || 50;
+            const isOverloaded = (mission.cargoWeight || 0) > capacity;
+            const warning = isOverloaded ?
+                `<color=#ff4444>\nWARNING: Cargo exceeds capacity!\nFirepower will be REDUCED.</color>` : "";
+
+            richText.string = `<outline color=#000000 width=3>Start Mission?\nDistance: ${mission.distance}km\nCargo: ${mission.cargoWeight} / Cap: ${capacity}${warning}\nProceed?</outline>`;
+
+            // YES Button
+            this.createDialogButton(winNode, "YES", -120, -120, Color.GREEN, () => {
+                SoundManager.instance.playSE("click");
+                this.startGame(mission);
+            });
+
+            // NO Button
+            this.createDialogButton(winNode, "NO", 120, -120, Color.RED, () => {
+                SoundManager.instance.playSE("click");
+                if (this.dialogNode) {
+                    this.dialogNode.destroy();
+                    this.dialogNode = null;
+                }
+            });
+        }
     }
 
     private createDialogButton(parent: Node, text: string, x: number, y: number, color: Color, onClick: () => void) {

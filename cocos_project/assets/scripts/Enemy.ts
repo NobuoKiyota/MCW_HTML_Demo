@@ -2,6 +2,7 @@ import { _decorator, Component, Node, Vec3, math, Sprite, Color, director, find 
 // import { GameManager } from './GameManager'; // Circular Dependency
 import { GAME_SETTINGS, IGameManager, GameState } from './Constants';
 import { SoundManager } from './SoundManager';
+import { DataManager } from './DataManager';
 const { ccclass, property } = _decorator;
 
 @ccclass('Enemy')
@@ -200,6 +201,11 @@ export class Enemy extends Component {
         // Spawn Damage Text
         if (this._gm) {
             this._gm.spawnDamageText(this.node.position.x, this.node.position.y, finalDamage, isKill);
+
+            // Track total damage dealt by player
+            if (DataManager.instance) {
+                DataManager.instance.addDamageDealt(finalDamage);
+            }
         }
 
         // Play Hit SE (3D)

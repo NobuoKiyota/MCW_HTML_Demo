@@ -1,7 +1,8 @@
 import { _decorator, Component, Node, Label, Color, Sprite, UITransform, Size, Widget, Graphics, LabelOutline, resources, SpriteFrame } from 'cc';
 import { DataManager } from './DataManager';
 import { GameManager } from './GameManager';
-import { GameState } from './Constants';
+import { GameState, GAME_SETTINGS } from './Constants';
+import { UIManager } from './UIManager';
 
 const { ccclass, property } = _decorator;
 
@@ -14,6 +15,7 @@ const SIDEBAR_CONFIG = {
     // 'Mission', 'Speed', 'HP', 'BuffPower', 'BuffRapid' のいずれかを指定
     ORDER: [
         'Mission',
+        'Timer',
         'Speed',
         'HP',
         'BuffPower',
@@ -32,13 +34,15 @@ const SIDEBAR_CONFIG = {
         'Speed': 35,
         'HP': 35, // Label + Bar
         'BuffPower': 35, // Label + Bar
-        'BuffRapid': 35  // Label + Bar
+        'BuffRapid': 35, // Label + Bar
+        'Timer': 35      // New
     },
 
     // セクションごとの追加パディング（必要に応じて調整）
     PADDING: {
         'Mission': 0,
-        'Speed': 0,
+        'Speed': 10,
+        'Timer': 0,
         'HP': 10, // HPバーの下に少し余白
         'BuffPower': 10,
         'BuffRapid': 0
@@ -75,6 +79,9 @@ export class SideBarUI extends Component {
     @property(Label)
     public speedLabel: Label = null; // SPD: XXXX km/h
 
+    @property(Label)
+    public timerLabel: Label = null; // TIME: 00:00
+
     // --- Right Panel Elements (Ship Info) ---
     @property(Label)
     public shipNameLabel: Label = null;
@@ -85,14 +92,31 @@ export class SideBarUI extends Component {
     @property(Label)
     public cargoLabel: Label = null; // Cargo Weight / Capacity
 
+    @property(Label)
+    public moneyTitleLabel: Label = null; // New: Display current credits in Right Panel
+
     // State for Dynamic Layout
     private _isPowerActive: boolean = false;
     private _isRapidActive: boolean = false;
 
     onLoad() {
+        this.node.active = true;
+
+        // ★Editor設定完全尊重（一切変更しない）
+        if (SideBarUI.instance && SideBarUI.instance.isValid && SideBarUI.instance !== this) {
+            SideBarUI.instance.node.destroy();
+        }
         SideBarUI.instance = this;
+
+        if (UIManager.instance) {
+            UIManager.instance.sideBarUI = this;
+        }
+
+        // ★即時実行（scheduleOnce削除）
+        console.log("[SideBarUI] onLoad pos:", this.node.getWorldPosition());
         this.setupNodes();
         this.updateLayout();
+        this.updateShipInfo();
     }
 
     /**
@@ -100,20 +124,21 @@ export class SideBarUI extends Component {
      */
     private setupNodes() {
         const sideWidth = 240;
-        const innerWidth = 180; // 内部要素の最大幅（200から180に縮小して余裕を持たせる）
+        const innerWidth = 180;
 
-        // --- Left Panel ---
+        // LeftPanel（1回のみ）
         if (!this.leftPanel) {
             this.leftPanel = this.createPanel("LeftPanel", sideWidth, true, new Color(0, 20, 50, 200));
             this.node.addChild(this.leftPanel);
             this.createPlate(this.leftPanel, 0, 160, 220, 180, new Color(0, 0, 0, 150));
         }
 
-        // 手動でアサインされていない場合のみ生成
+        // ラベル作成（LeftPanel内）
         if (!this.missionLabel) this.missionLabel = this.createLabel(this.leftPanel, "DESTINATION\n3000 km", 0, 0, 24, Color.WHITE, true);
-        if (!this.speedLabel) this.speedLabel = this.createLabel(this.leftPanel, "SPD: 0 km/h", 0, 0, 24, Color.WHITE, true);
-        if (!this.hpLabel) this.hpLabel = this.createLabel(this.leftPanel, "HP: 100/100", 0, 0, 24, Color.GREEN, true);
-        if (!this.hpBarNode) this.hpBarNode = this.createBar(this.leftPanel, 0, 0, innerWidth, 15, Color.GREEN);
+        if (!this.timerLabel) this.timerLabel = this.createLabel(this.leftPanel, "TIME: 00:00", 0, 0, 20, Color.WHITE, true);
+        if (!this.speedLabel) this.speedLabel = this.createLabel(this.leftPanel, "SPD: 0 km/h", 0, 0, 20, Color.YELLOW, true);
+        if (!this.hpLabel) this.hpLabel = this.createLabel(this.leftPanel, "VEHICLE INTEGRITY", 0, 0, 20, Color.WHITE, true);
+        if (!this.hpBarNode) this.hpBarNode = this.createBar(this.leftPanel, 0, 0, innerWidth, 12, Color.GREEN);
 
         if (!this.buffPowerLabel) this.buffPowerLabel = this.createLabel(this.leftPanel, "POWER: READY", 0, 0, 20, Color.GRAY, true);
         if (!this.buffPowerBarNode) this.buffPowerBarNode = this.createBar(this.leftPanel, 0, 0, innerWidth, 10, Color.RED);
@@ -121,24 +146,29 @@ export class SideBarUI extends Component {
         if (!this.buffRapidLabel) this.buffRapidLabel = this.createLabel(this.leftPanel, "RAPID: READY", 0, 0, 20, Color.GRAY, true);
         if (!this.buffRapidBarNode) this.buffRapidBarNode = this.createBar(this.leftPanel, 0, 0, innerWidth, 10, Color.CYAN);
 
-        // --- Right Panel ---
+        // RightPanel（1回のみ）
         if (!this.rightPanel) {
             this.rightPanel = this.createPanel("RightPanel", sideWidth, false, new Color(0, 20, 50, 200));
             this.node.addChild(this.rightPanel);
         }
 
-        if (!this.shipNameLabel) this.shipNameLabel = this.createLabel(this.rightPanel, "SS-ALPHA-01", 0, 300, 28, Color.CYAN, false);
-        if (!this.shipStatsLabel) this.shipStatsLabel = this.createLabel(this.rightPanel, "CREDITS: 0\nTOTAL DIST: 0 km", 0, 100, 20, Color.WHITE, false);
-        if (!this.cargoLabel) this.cargoLabel = this.createLabel(this.rightPanel, "CARGO: EMPTY", 0, -100, 20, Color.YELLOW, false);
+        // RightPanelラベル
+        if (!this.shipNameLabel) this.shipNameLabel = this.createLabel(this.rightPanel, "VEHICLE STATUS", 0, 310, 20, Color.YELLOW, false);
+        if (!this.moneyTitleLabel) this.moneyTitleLabel = this.createLabel(this.rightPanel, "CREDITS: 0", 0, 280, 24, Color.WHITE, false);
+        if (!this.shipStatsLabel) this.shipStatsLabel = this.createLabel(this.rightPanel, "MAX HP: 100\nACCEL: 100\n...", 0, 80, 20, Color.WHITE, false);
+        if (!this.cargoLabel) this.cargoLabel = this.createLabel(this.rightPanel, "CARGO: -- / --", 0, -120, 20, Color.YELLOW, false);
+
+        console.log("[SideBarUI] setupNodes completed. Nodes created.");
     }
 
     /**
      * 現在の状態（Active/Inactive）に基づいてレイアウトを再計算
      */
-    private updateLayout() {
+    public updateLayout() {
+        console.log("[SideBarUI] updateLayout: SideBarUI worldPos=", this.node.getWorldPosition());
         if (!this.leftPanel) return;
 
-        let currentY = SIDEBAR_CONFIG.START_Y;
+        let currentY = SIDEBAR_CONFIG.START_Y; // 元に戻す
         const panelWidth = 240;
         const margin = 20;
         // 左パネルのラベル開始位置：パネルの左端(-120) + 余白(20) = -100
@@ -158,6 +188,9 @@ export class SideBarUI extends Component {
                 switch (type) {
                     case 'Mission':
                         this.setNodeVisible(this.missionLabel?.node, true, labelX, currentY);
+                        break;
+                    case 'Timer':
+                        this.setNodeVisible(this.timerLabel?.node, true, labelX, currentY);
                         break;
                     case 'Speed':
                         this.setNodeVisible(this.speedLabel?.node, true, labelX, currentY);
@@ -205,26 +238,15 @@ export class SideBarUI extends Component {
         const trans = node.addComponent(UITransform);
         trans.setContentSize(new Size(w, 720));
 
-        const widget = node.addComponent(Widget);
-        widget.isAlignTop = true;
-        widget.isAlignBottom = true;
-        widget.top = 0;
-        widget.bottom = 0;
-
-        if (isLeft) {
-            widget.isAlignLeft = true;
-            widget.left = 0;
-        } else {
-            widget.isAlignRight = true;
-            widget.right = 0;
-        }
+        // ★Widget完全削除！手動位置指定のみ
+        // 親SideBarUIからの相対位置を手動設定
 
         const sprite = node.addComponent(Sprite);
         const path = isLeft ? "png/LeftSide" : "png/RightSide";
 
         resources.load(path + "/spriteFrame", SpriteFrame, (err, spriteFrame) => {
             if (err) {
-                console.warn(`[SideBarUI] Failed to load spriteFrame: ${path}`, err);
+                console.warn(`Failed to load: ${path}`);
                 const bgNode = new Node("FallbackBG");
                 node.addChild(bgNode);
                 const gr = bgNode.addComponent(Graphics);
@@ -236,6 +258,9 @@ export class SideBarUI extends Component {
             }
         });
 
+        // ★手動位置設定（SideBarUI基準）
+        node.setPosition(isLeft ? -520 : 520, 0); // Left:-130, Right:+130
+        console.log(`[SideBarUI] ${name} positioned at:`, node.position);
         return node;
     }
 
@@ -254,14 +279,15 @@ export class SideBarUI extends Component {
         trans.setAnchorPoint(isLeft ? 0 : 1, 0.5);
         label.horizontalAlign = isLeft ? Label.HorizontalAlign.LEFT : Label.HorizontalAlign.RIGHT;
 
-        const margin = 20;
+        // Reduced margin for Right Panel (10 instead of 20)
+        const margin = isLeft ? 20 : 10;
         const panelWidth = 240;
         const posX = isLeft ? (-panelWidth / 2 + margin) : (panelWidth / 2 - margin);
         node.setPosition(posX, y);
 
         const outline = node.addComponent(LabelOutline);
-        label.outlineColor = new Color(0, 0, 0, 255);
-        label.outlineWidth = 2;
+        outline.color = new Color(0, 0, 0, 255);
+        outline.width = 2;
 
         return label;
     }
@@ -311,9 +337,16 @@ export class SideBarUI extends Component {
     }
 
     start() {
+        console.log("[SideBarUI] start() called, DataManager:", !!DataManager.instance);
+
+        // ★HP初期化を強制（DataManager依存を排除）
+        const data = DataManager.instance?.data;
+        const hp = data?.hp ?? 100;
+        const maxHp = data?.maxHp ?? 100;
+        console.log("[SideBarUI] Initial HP:", hp, "/", maxHp);
+
+        this.updateHP(hp, maxHp);
         this.updateShipInfo();
-        // 初期HPを一旦減った状態にする (ユーザーの要望)
-        this.updateHP(40, 100);
 
         // 初期状態のミッション・速度表示
         this.updateMissionInfo(-1);
@@ -321,17 +354,28 @@ export class SideBarUI extends Component {
     }
 
     public updateHP(current: number, max: number) {
-        if (this.hpLabel) this.hpLabel.string = `HP: ${Math.floor(current)}/${max}`;
-        if (this.hpBarNode) {
+        if (!this.node || !this.node.isValid) return;
+        console.log("[SideBarUI] updateHP called:", current, "/", max);
+
+        if (this.hpLabel && this.hpLabel.isValid) {
+            this.hpLabel.string = `HP: ${Math.floor(current)}/${Math.floor(max)}`;
+            this.hpLabel.color = current <= max * 0.3 ? Color.RED : Color.GREEN;
+        }
+
+        // ★Bar更新を確実化
+        if (this.hpBarNode && this.hpBarNode.isValid) {
             const fill = this.hpBarNode.getChildByName("BarFill");
-            if (fill) {
-                const ratio = max > 0 ? (current / max) : 0;
+            if (fill && fill.isValid) {
+                const ratio = Math.max(0, Math.min(1, (current || 0) / (max || 1)));
                 fill.setScale(ratio, 1, 1);
+                console.log("[SideBarUI] HP bar ratio:", ratio);
             }
         }
     }
 
     public updateBuffs(powerTime: number, rapidTime: number) {
+        if (!this.node || !this.node.isValid) return;
+
         const maxDur = 10.0;
         let layoutChanged = false;
 
@@ -342,14 +386,19 @@ export class SideBarUI extends Component {
             layoutChanged = true;
         }
 
-        if (this.buffPowerLabel && isPowerActive) {
-            this.buffPowerLabel.string = `POWER: ${powerTime.toFixed(1)}s`;
-            this.buffPowerLabel.color = Color.RED;
+        if (this.buffPowerLabel && this.buffPowerLabel.isValid) {
+            if (isPowerActive) {
+                this.buffPowerLabel.string = `POWER: ${powerTime.toFixed(1)}s`;
+                this.buffPowerLabel.color = Color.RED;
+            } else {
+                this.buffPowerLabel.string = "POWER: READY";
+                this.buffPowerLabel.color = Color.GRAY;
+            }
         }
-        if (this.buffPowerBarNode && isPowerActive) {
+        if (this.buffPowerBarNode && this.buffPowerBarNode.isValid) {
             const fill = this.buffPowerBarNode.getChildByName("BarFill");
-            if (fill) {
-                const ratio = (powerTime / maxDur);
+            if (fill && fill.isValid) {
+                const ratio = isPowerActive ? (powerTime / maxDur) : 0;
                 fill.setScale(Math.min(ratio, 1), 1, 1);
             }
         }
@@ -361,14 +410,19 @@ export class SideBarUI extends Component {
             layoutChanged = true;
         }
 
-        if (this.buffRapidLabel && isRapidActive) {
-            this.buffRapidLabel.string = `RAPID: ${rapidTime.toFixed(1)}s`;
-            this.buffRapidLabel.color = Color.CYAN;
+        if (this.buffRapidLabel && this.buffRapidLabel.isValid) {
+            if (isRapidActive) {
+                this.buffRapidLabel.string = `RAPID: ${rapidTime.toFixed(1)}s`;
+                this.buffRapidLabel.color = Color.CYAN;
+            } else {
+                this.buffRapidLabel.string = "RAPID: READY";
+                this.buffRapidLabel.color = Color.GRAY;
+            }
         }
-        if (this.buffRapidBarNode && isRapidActive) {
+        if (this.buffRapidBarNode && this.buffRapidBarNode.isValid) {
             const fill = this.buffRapidBarNode.getChildByName("BarFill");
-            if (fill) {
-                const ratio = (rapidTime / maxDur);
+            if (fill && fill.isValid) {
+                const ratio = isRapidActive ? (rapidTime / maxDur) : 0;
                 fill.setScale(Math.min(ratio, 1), 1, 1);
             }
         }
@@ -379,7 +433,8 @@ export class SideBarUI extends Component {
     }
 
     public updateMissionInfo(dist: number) {
-        if (!this.missionLabel) return;
+        if (!this.node || !this.node.isValid) return;
+        if (!this.missionLabel || !this.missionLabel.isValid) return;
 
         const isIngame = GameManager.instance && GameManager.instance.state === GameState.INGAME;
         if (!isIngame || dist < 0) {
@@ -406,13 +461,47 @@ export class SideBarUI extends Component {
         if (!data) return;
 
         if (this.shipNameLabel) {
-            this.shipNameLabel.string = "SS-ALPHA-01";
+            this.shipNameLabel.string = "VEHICLE STATUS";
+            this.shipNameLabel.color = Color.YELLOW;
+        }
+
+        const isIngame = GameManager.instance && GameManager.instance.state === GameState.INGAME;
+
+        if (this.moneyTitleLabel) {
+            this.moneyTitleLabel.string = `CREDITS: ${data.money || 0}`;
         }
 
         if (this.shipStatsLabel) {
-            const money = data.money || 0;
-            const totalDist = data.careerStats ? data.careerStats.totalDistance : 0;
-            this.shipStatsLabel.string = `CREDITS: ${money}\nTOTAL DIST: ${totalDist} km\n`;
+            const maxHp = data.maxHp || 100;
+            const ship = GAME_SETTINGS.PLAYER as any;
+            this.shipStatsLabel.string = `MAX HP: ${maxHp}\nACCEL: ${ship.ACCEL || 100}\nSPEED: ${ship.SPEED || 550}\nFRICTION: 0.98\nLERP: 0.1\nCAPACITY: ${data.capacity || 50}`;
         }
+
+        if (this.cargoLabel) {
+            if (!isIngame) {
+                this.cargoLabel.string = "CARGO: -- / --";
+            } else {
+                const gm = GameManager.instance;
+                const currentCargo = gm && gm.currentMission ? gm.currentMission.cargoWeight : 0;
+                this.cargoLabel.string = `CARGO: ${currentCargo} / ${data.capacity || 50}`;
+            }
+        }
+
+        if (!isIngame) {
+            this.updateTimer(-1); // Resets to --:-- or 00:00
+        }
+    }
+
+    public updateTimer(time: number) {
+        if (!this.timerLabel) return;
+        if (time < 0) {
+            this.timerLabel.string = "TIME: 00:00";
+            return;
+        }
+        const min = Math.floor(time / 60);
+        const sec = Math.floor(time % 60);
+        const minStr = min < 10 ? "0" + min : "" + min;
+        const secStr = sec < 10 ? "0" + sec : "" + sec;
+        this.timerLabel.string = `TIME: ${minStr}:${secStr}`;
     }
 }

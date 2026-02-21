@@ -1,6 +1,8 @@
 import { _decorator, Component, Node, Label, Tween, tween, v3, UIOpacity, director, LabelOutline, Color, UITransform, Vec3, Widget, Camera, Button, BlockInputEvents } from 'cc';
 import { SideBarUI } from './SideBarUI';
 import { SettingsManager } from './SettingsManager';
+import { GameManager } from './GameManager';
+import { GameState } from './Constants';
 
 const { ccclass, property } = _decorator;
 
@@ -115,6 +117,11 @@ export class UIManager extends Component {
             this.notificationLayer = findNodeRecursive(canvas, "NotificationLayer") || canvas;
         }
 
+        // --- SideBarUI Visibility Check ---
+        if (this.sideBarUI && !this.sideBarUI.isValid) {
+            this.sideBarUI = null;
+        }
+
         const ensurePanelReady = (panel: Node) => {
             if (!panel) return;
             // Ensure on top
@@ -127,27 +134,30 @@ export class UIManager extends Component {
 
         const bindButton = (panel: Node, name: string, callback: Function) => {
             const btnNode = findNodeRecursive(panel, name);
-            if (btnNode) {
-                console.log(`[UIManager] Binding ${name} in ${panel.name}`);
-                // Use Button component if exists, otherwise TOUCH_END fallback
-                const btn = btnNode.getComponent(Button);
-                if (btn) {
-                    btnNode.on(Button.EventType.CLICK, callback, this);
-                } else {
-                    btnNode.on(Node.EventType.TOUCH_END, callback, this);
-                }
-            } else {
+            if (!btnNode) {
                 console.warn(`[UIManager] ${name} NOT FOUND in ${panel.name}`);
+                return;
             }
+
+            // Ensure Button component exists (resolves "cc:Node" issue)
+            let btn = btnNode.getComponent(Button);
+            if (!btn) {
+                btn = btnNode.addComponent(Button);
+                console.log(`[UIManager] Added Button to ${name}`);
+            }
+
+            // Bind CLICK event without destructive off() calls
+            btn.node.on(Button.EventType.CLICK, callback, this);
+            console.log(`[UIManager] CLICK bound to ${name}`);
         };
 
         if (this.gameOverPanel) {
-            console.log("[UIManager] GameOverPanel found.");
+            console.log("[UIManager] GameOverPanel ready.");
             this.gameOverPanel.active = false;
             ensurePanelReady(this.gameOverPanel);
 
-            bindButton(this.gameOverPanel, "RetryButton", this.onRetryClicked);
-            bindButton(this.gameOverPanel, "TitleButton", this.onTitleClicked);
+            bindButton(this.gameOverPanel, "Button(RETRY)", this.onRetryClicked);
+            bindButton(this.gameOverPanel, "Button(TITLE)", this.onTitleClicked);
         } else {
             console.warn("[UIManager] GameOverPanel NOT FOUND even with recursive search!");
             this.dumpCanvasChildren(canvas);
@@ -172,32 +182,50 @@ export class UIManager extends Component {
             contentRoot.setPosition(0, 0, 0);
         }
 
-        // Auto-create SideBarUI if not assigned
+        // Auto-create or find existing SideBarUI
         if (!this.sideBarUI) {
-            console.log(`[UIManager] SideBarUI not assigned. Creating child of UIManager.`);
-            const node = new Node("SideBarUI");
-            this.node.addChild(node);
+            // First, check if it already exists in the hierarchy (e.g. child of Canvas)
+            const existingSideBarNode = findNodeRecursive(canvas, "SideBarUI");
+            if (existingSideBarNode) {
+                console.log("[UIManager] Found existing SideBarUI in hierarchy.");
+                this.sideBarUI = existingSideBarNode.getComponent(SideBarUI);
+            }
 
-            const trans = node.addComponent(UITransform);
-            const widget = node.addComponent(Widget);
-            widget.isAlignTop = widget.isAlignBottom = widget.isAlignLeft = widget.isAlignRight = true;
-            widget.top = widget.bottom = widget.left = widget.right = 0;
+            // If still not found, create it
+            if (!this.sideBarUI) {
+                console.log(`[UIManager] SideBarUI not found. Creating child of UIManager.`);
+                const node = new Node("SideBarUI");
+                node.layer = 1; // DEFAULT
+                this.node.addChild(node);
 
-            this.sideBarUI = node.addComponent(SideBarUI);
+                const trans = node.addComponent(UITransform);
+                // Standard UI Node creation - Position/Widget handled in Editor
+                this.sideBarUI = node.addComponent(SideBarUI);
+            }
         }
 
-        // Ensure SideBarUI is on top of Canvas content
-        if (this.sideBarUI && canvas) {
+        // Ensure SideBarUI is on top of Canvas content and active
+        if (this.sideBarUI && this.sideBarUI.isValid && canvas) {
             if (this.sideBarUI.node.parent !== canvas) {
+                console.log(`[UIManager] Reparenting SideBarUI to Canvas.`);
                 this.sideBarUI.node.parent = canvas;
             }
+
+            const gm = GameManager.instance;
+            this.setSideBarActive(gm ? (gm.state !== GameState.TITLE) : true);
+
             const lastIndex = canvas.children.length - 1;
             this.sideBarUI.node.setSiblingIndex(lastIndex);
 
-            const widget = this.sideBarUI.getComponent(Widget);
-            if (widget) {
-                widget.updateAlignment();
-            }
+            // SideBarUI自体の座標強制は廃止 (Editor/Widgetに任せる)
+            // ただしUIManager自体の位置がズレているとの報告があるため、UIManager(this.node)を(0,0)に固定
+            this.node.setPosition(0, 0, 0);
+
+            const w = this.sideBarUI.getComponent(Widget);
+            if (w) w.updateAlignment();
+            console.log(`[UIManager] SideBarUI status checked. Parent(UIManager) reset to (0,0).`);
+        } else {
+            console.warn(`[UIManager] SideBarUI NOT READY. instance=${!!this.sideBarUI}, valid=${this.sideBarUI?.isValid}, canvas=${!!canvas}`);
         }
     }
 
@@ -214,44 +242,95 @@ export class UIManager extends Component {
         console.log("---------------------------------------");
     }
 
-    public updateHP(currentHp: number, maxHp: number) {
-        if (this.sideBarUI) {
-            this.sideBarUI.updateHP(currentHp, maxHp);
-        }
-    }
-
     public showGameOver() {
-        if (this.gameOverPanel) {
-            // Apply coordinates in case it's not set
-            this.gameOverPanel.setPosition(0, 0, 0);
-            this.gameOverPanel.active = true;
+        if (this.gameOverPanel && this.gameOverPanel.isValid) {
+            this.scheduleOnce(() => {
+                if (!this.gameOverPanel || !this.gameOverPanel.isValid) return;
+                this.setNodeAndParentsActive(this.gameOverPanel, true);
+                this.gameOverPanel.setPosition(0, 0, 0);
+                console.log("[UIManager] showGameOver triggered (deferred).");
+            }, 0);
+        } else {
+            console.error("[UIManager] showGameOver: gameOverPanel is null or invalid!");
         }
     }
 
     public showResult() {
         if (this.resultPanel) {
+            this.setNodeAndParentsActive(this.resultPanel, true);
+
             // Apply coordinates in case it's not set
             this.resultPanel.setPosition(0, 0, 0);
-            this.resultPanel.active = true;
+            console.log("[UIManager] showResult triggered.");
+        } else {
+            console.error("[UIManager] showResult: resultPanel is null!");
+        }
+    }
+
+    public setSideBarActive(active: boolean) {
+        if (this.sideBarUI && this.sideBarUI.isValid) {
+            console.log(`[UIManager] setSideBarActive: ${active} (Node was ${this.sideBarUI.node.active})`);
+            this.setNodeAndParentsActive(this.sideBarUI.node, active);
+            if (active) {
+                this.sideBarUI.updateLayout();
+                this.sideBarUI.updateShipInfo();
+            }
+        }
+    }
+
+    /**
+     * バフUIを強制リセット（サイドバーが表示されていない状態でも安全に呼び出し可能）
+     */
+    public resetBuffs() {
+        if (this.sideBarUI && this.sideBarUI.isValid) {
+            this.sideBarUI.updateBuffs(0, 0);
+        }
+    }
+
+    private setNodeAndParentsActive(node: Node, active: boolean) {
+        if (!node) return;
+        node.active = active;
+        if (active) {
+            const canvas = node.scene.getChildByName("Canvas");
+            let p = node.parent;
+            while (p && p !== canvas && p !== node.scene as any) {
+                if (!p.active) {
+                    console.log(`[UIManager] Activating parent layer: ${p.name}`);
+                    p.active = true;
+                }
+                p = p.parent;
+            }
         }
     }
 
     public updateDist(distance: number) {
-        if (this.sideBarUI) {
+        if (this.sideBarUI && this.sideBarUI.isValid) {
             this.sideBarUI.updateMissionInfo(distance);
         }
     }
 
+    public updateHP(currentHp: number, maxHp: number) {
+        if (this.sideBarUI && this.sideBarUI.isValid) {
+            this.sideBarUI.updateHP(currentHp, maxHp);
+        }
+    }
+
     public updateSpeed(speed: number) {
-        if (this.sideBarUI) {
+        if (this.sideBarUI && this.sideBarUI.isValid) {
             this.sideBarUI.updateSpeed(speed);
         }
     }
 
     public updateBuffs(powerTime: number, rapidTime: number) {
         // SideBar UI
-        if (this.sideBarUI) {
+        if (this.sideBarUI && this.sideBarUI.isValid) {
             this.sideBarUI.updateBuffs(powerTime, rapidTime);
+        }
+    }
+
+    public updateTimer(time: number) {
+        if (this.sideBarUI && this.sideBarUI.isValid) {
+            this.sideBarUI.updateTimer(time);
         }
     }
 
@@ -340,11 +419,13 @@ export class UIManager extends Component {
     }
 
     public onRetryClicked() {
+        console.log("[UIManager] onRetryClicked");
         director.emit("GAME_RETRY");
     }
 
     public onTitleClicked() {
-        director.emit("GAME_TITLE");
+        console.log("[UIManager] onTitleClicked (Returning to HOME)");
+        director.emit("GAME_HOME"); // Emit HOME instead of TITLE for better flow
     }
 
     public spawnDamageText(x: number, y: number, amount: number, isKill: boolean) {

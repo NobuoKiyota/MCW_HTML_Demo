@@ -153,6 +153,8 @@ export interface IMissionData {
     distance: number;
     enemyPattern: string[];
     reward: number;
+    cargoWeight: number; // New: 30/50/70
+    targetTime: number;  // New: in seconds
 }
 
 // IGameManager Interface for breaking circular dependencies

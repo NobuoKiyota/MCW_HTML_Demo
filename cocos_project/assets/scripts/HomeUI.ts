@@ -6,6 +6,8 @@ import { SoundManager } from './SoundManager';
 import { MissionUI } from './MissionUI';
 import { UIManager } from './UIManager';
 import { GameState } from './Constants';
+import { PropertyUI } from './PropertyUI';
+import { HistoryUI } from './HistoryUI';
 
 const { ccclass, property } = _decorator;
 
@@ -45,8 +47,19 @@ export class HomeUI extends Component {
             }
         }
 
-        // Hook up new buttons
-        const restBtnNode = buttonsRoot?.getChildByName("Button-Rest") || this.node.getChildByName("Button-Rest");
+        const propertyBtnNode = buttonsRoot?.getChildByName("BtnProperty") || this.node.getChildByName("BtnProperty");
+        if (propertyBtnNode) {
+            const btn = propertyBtnNode.getComponent(Button);
+            if (btn) btn.node.on(Button.EventType.CLICK, this.onPropertyClicked, this);
+        }
+
+        const historyBtnNode = buttonsRoot?.getChildByName("BtnHistory") || this.node.getChildByName("BtnHistory");
+        if (historyBtnNode) {
+            const btn = historyBtnNode.getComponent(Button);
+            if (btn) btn.node.on(Button.EventType.CLICK, this.onHistoryClicked, this);
+        }
+
+        const restBtnNode = buttonsRoot?.getChildByName("Button-Rest") || buttonsRoot?.getChildByName("BtnReset") || this.node.getChildByName("BtnReset");
         if (restBtnNode) {
             const btn = restBtnNode.getComponent(Button);
             if (btn) btn.node.on(Button.EventType.CLICK, this.onResetClicked, this);
@@ -156,14 +169,88 @@ export class HomeUI extends Component {
      */
     public onResetClicked() {
         SoundManager.instance.playSE("click");
-        if (DataManager.instance) {
-            DataManager.instance.customReset(1000, 0);
-            this.refreshUI();
-            if (UIManager.instance && UIManager.instance.sideBarUI) {
-                UIManager.instance.sideBarUI.updateShipInfo();
+        this.showResetConfirmDialog();
+    }
+
+    private showResetConfirmDialog() {
+        const dialogNode = new Node("ResetDialog");
+        const sceneRoot = director.getScene();
+        const canvasNode = sceneRoot?.getChildByName("Canvas");
+        (canvasNode || this.node).addChild(dialogNode);
+
+        // Background
+        const gr = dialogNode.addComponent(Graphics);
+        gr.fillColor = new Color(0, 0, 0, 180);
+        gr.rect(-2000, -2000, 4000, 4000);
+        gr.fill();
+        dialogNode.addComponent(BlockInputEvents);
+
+        // Window
+        const winNode = new Node("Window");
+        dialogNode.addChild(winNode);
+        const winGr = winNode.addComponent(Graphics);
+        winGr.fillColor = new Color(60, 20, 20, 255);
+        winGr.roundRect(-200, -100, 400, 200, 10);
+        winGr.fill();
+        winGr.strokeColor = Color.RED;
+        winGr.lineWidth = 3;
+        winGr.stroke();
+
+        // Text
+        const txtNode = new Node("Text");
+        winNode.addChild(txtNode);
+        txtNode.setPosition(0, 30);
+        const lbl = txtNode.addComponent(Label);
+        lbl.string = "RESET ALL DATA?\n\nProgress will be lost.";
+        lbl.fontSize = 24;
+        lbl.horizontalAlign = Label.HorizontalAlign.CENTER;
+
+        // YES Button
+        this.createDialogButton(winNode, "YES", -80, -50, Color.RED, () => {
+            if (DataManager.instance) {
+                DataManager.instance.reset(); // Full Reset instead of custom
+                SoundManager.instance.playSE("click"); // YESでclick音
+                this.refreshUI();
+                if (UIManager.instance && UIManager.instance.sideBarUI) {
+                    UIManager.instance.sideBarUI.updateHP(100, 100);
+                    UIManager.instance.sideBarUI.updateShipInfo();
+                }
+                console.log("[HomeUI] Data Reset Complete");
+                dialogNode.destroy();
             }
-            console.log("[HomeUI] Data Reset: Credits=1000, Dist=0");
-        }
+        });
+
+        // NO Button
+        this.createDialogButton(winNode, "NO", 80, -50, Color.GRAY, () => {
+            SoundManager.instance.playSE("cansel", "System"); // NOでcancel音
+            dialogNode.destroy();
+        });
+    }
+
+    /**
+     * Propertyボタン
+     */
+    public onPropertyClicked() {
+        SoundManager.instance.playSE("click");
+        console.log("[HomeUI] Opening PropertyUI...");
+        const node = new Node("PropertyUI");
+        const sceneRoot = director.getScene();
+        const canvasNode = sceneRoot?.getChildByName("Canvas");
+        (canvasNode || this.node).addChild(node);
+        node.addComponent(PropertyUI);
+    }
+
+    /**
+     * Historyボタン
+     */
+    public onHistoryClicked() {
+        SoundManager.instance.playSE("click");
+        console.log("[HomeUI] Opening HistoryUI...");
+        const node = new Node("HistoryUI");
+        const sceneRoot = director.getScene();
+        const canvasNode = sceneRoot?.getChildByName("Canvas");
+        (canvasNode || this.node).addChild(node);
+        node.addComponent(HistoryUI);
     }
 
     /**
@@ -172,9 +259,9 @@ export class HomeUI extends Component {
     public onVehicleRepairClicked() {
         SoundManager.instance.playSE("click");
 
-        // 仮のHP計算 (本来はセーブデータから取るべき)
-        const currentHp = 40;
-        const maxHp = 100;
+        const data = DataManager.instance.data;
+        const currentHp = data.hp;
+        const maxHp = data.maxHp;
         const missingHp = maxHp - currentHp;
 
         if (missingHp <= 0) {
@@ -182,7 +269,11 @@ export class HomeUI extends Component {
             return;
         }
 
-        const cost = missingHp * 10;
+        // Cost is 10 credits per 1 HP? Or variable based on requirement?
+        // Todo said "残HPに応じて変動するように変更"
+        // Current implementation already does missingHp * 10.
+        // I will keep it but ensure it's using the actual data.
+        const cost = Math.ceil(missingHp * 10);
         this.showRepairConfirmDialog(cost, missingHp);
     }
 
@@ -226,8 +317,9 @@ export class HomeUI extends Component {
                 DataManager.instance.addResource("money", -cost);
                 SoundManager.instance.playSE("upgrade", "System");
                 // Heal logic
+                DataManager.instance.setHp(data.maxHp);
                 if (UIManager.instance && UIManager.instance.sideBarUI) {
-                    UIManager.instance.sideBarUI.updateHP(100, 100);
+                    UIManager.instance.sideBarUI.updateHP(data.maxHp, data.maxHp);
                     UIManager.instance.sideBarUI.updateShipInfo();
                 }
                 this.refreshUI();

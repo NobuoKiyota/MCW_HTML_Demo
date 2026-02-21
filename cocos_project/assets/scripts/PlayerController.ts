@@ -79,6 +79,7 @@ export class PlayerController extends Component {
     // Buff State
     public damageMultiplier: number = 1.0;
     public fireRateMultiplier: number = 1.0;
+    public cargoDamagePenalty: number = 0;
     private buffPowerTimer: number = 0;
     private buffRapidTimer: number = 0;
 
@@ -100,6 +101,13 @@ export class PlayerController extends Component {
         this.targetPos.set(this.currentPos);
 
         this.loadStats();
+        this.resetBuffs(); // Ensure clean state on retry/start
+
+        // Load HP from DataManager
+        if (DataManager.instance) {
+            this.hp = DataManager.instance.data.hp;
+            this.maxHp = DataManager.instance.data.maxHp;
+        }
 
         // Init UI
         if (UIManager.instance) {
@@ -253,7 +261,7 @@ export class PlayerController extends Component {
         const gm = this._gm;
         if (gm) {
             const angle = Math.PI / 2;
-            const finalDamage = Math.floor(this.bulletDamage * this.damageMultiplier);
+            const finalDamage = Math.floor(this.bulletDamage * Math.max(0.1, this.damageMultiplier - this.cargoDamagePenalty));
 
             const bullet = gm.spawnBullet(this.node.position.x, this.node.position.y + 20, angle, this.bulletSpeed, finalDamage, false);
 
@@ -283,6 +291,22 @@ export class PlayerController extends Component {
             this.createBuffVisual("Rapid");
         }
         this.updateBuffVisuals();
+    }
+
+    public resetBuffs() {
+        this.buffPowerTimer = 0;
+        this.buffRapidTimer = 0;
+        this.damageMultiplier = 1.0;
+        this.fireRateMultiplier = 1.0;
+
+        if (this.powerEffectNode) {
+            this.powerEffectNode.destroy();
+            this.powerEffectNode = null;
+        }
+        if (this.rapidEffectNode) {
+            this.rapidEffectNode.destroy();
+            this.rapidEffectNode = null;
+        }
     }
 
     private createBuffVisual(type: string) {
@@ -340,16 +364,28 @@ export class PlayerController extends Component {
     public heal(amount: number) {
         this.hp += amount;
         if (this.hp > this.maxHp) this.hp = this.maxHp;
+
+        if (DataManager.instance) {
+            DataManager.instance.setHp(this.hp);
+        }
+
         if (UIManager.instance) UIManager.instance.updateHP(this.hp, this.maxHp);
     }
 
     public takeDamage(amount: number) {
+        if (!this.canControl()) return; // Guard for GameOver/Paused state
         this.hp -= amount;
         if (this.hp < 0) this.hp = 0;
+
+        if (DataManager.instance) {
+            DataManager.instance.addDamageReceived(amount);
+        }
+
         if (UIManager.instance) UIManager.instance.updateHP(this.hp, this.maxHp);
+
         if (this.hp <= 0) {
-            if (this._gm) this._gm.onGameOver();
             this.scheduleOnce(() => {
+                if (this._gm) this._gm.onGameOver();
                 if (this.node && this.node.isValid) {
                     this.node.active = false;
                 }

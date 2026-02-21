@@ -12,11 +12,8 @@ export class TitleUI extends Component {
      * Homeボタンクリック（ホーム画面へ遷移）
      */
     start() {
-        // Hide SideBar if present in Title Scene
-        const sideBar = this.node.scene.getComponentInChildren("SideBarUI");
-        if (sideBar) {
-            sideBar.node.active = false;
-        }
+        // SideBar visibility is now managed by UIManager.resolveReferences
+        // and GameManager.switchContent based on State.
 
         // Apply Layout to Buttons
         // Assuming structure: Canvas -> TitleUI -> Buttons or similar
