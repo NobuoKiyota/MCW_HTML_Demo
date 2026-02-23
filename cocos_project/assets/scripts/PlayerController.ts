@@ -65,6 +65,12 @@ export class PlayerController extends Component {
     @property({ tooltip: "Debug: Use Homing Missiles" })
     public useHoming: boolean = false;
 
+    @property(Node)
+    public model3D: Node = null;
+
+    @property({ tooltip: "Banking Angle (Max)" })
+    public maxBankingAngle: number = 30;
+
     public hp: number = 100;
 
     private targetPos: Vec3 = new Vec3();
@@ -196,6 +202,15 @@ export class PlayerController extends Component {
         const nextX = math.lerp(this.currentPos.x, this.targetPos.x, this.lerpFactor);
         const nextY = math.lerp(this.currentPos.y, this.targetPos.y, this.lerpFactor);
         this.node.setPosition(nextX, nextY, 0);
+
+        // Banking (3D Model Rotation)
+        if (this.model3D) {
+            const dx = nextX - this.currentPos.x;
+            const targetRotation = -dx * 15; // Adjustment multiplier
+            const currentRotation = this.model3D.eulerAngles.y;
+            const nextRotation = math.lerp(currentRotation, targetRotation, 0.1);
+            this.model3D.setRotationFromEuler(0, nextRotation, 0);
+        }
 
         // 2. Physics
         const halfH = GAME_SETTINGS.CANVAS_HEIGHT / 2;

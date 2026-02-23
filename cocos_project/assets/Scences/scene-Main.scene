@@ -30,6 +30,9 @@
       },
       {
         "__id__": 15
+      },
+      {
+        "__id__": 27
       }
     ],
     "_active": true,
@@ -134,9 +137,9 @@
     "_far": 2000,
     "_color": {
       "__type__": "cc.Color",
-      "r": 0,
-      "g": 0,
-      "b": 0,
+      "r": 30,
+      "g": 80,
+      "b": 180,
       "a": 255
     },
     "_depth": 1,
@@ -502,11 +505,9 @@
     "buffRapidLabel": null,
     "missionLabel": null,
     "speedLabel": null,
-    "timerLabel": null,
     "shipNameLabel": null,
     "shipStatsLabel": null,
     "cargoLabel": null,
-    "moneyTitleLabel": null,
     "_id": "90ayqK3VZGTpp7EKmUoxt3"
   },
   {
@@ -607,17 +608,17 @@
     "__type__": "cc.AmbientInfo",
     "_skyColorHDR": {
       "__type__": "cc.Vec4",
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "w": 0.520833125
+      "x": 1,
+      "y": 1,
+      "z": 1,
+      "w": 1
     },
     "_skyColor": {
       "__type__": "cc.Vec4",
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "w": 0.520833125
+      "x": 1,
+      "y": 1,
+      "z": 1,
+      "w": 1
     },
     "_skyIllumHDR": 20000,
     "_skyIllum": 20000,
@@ -749,5 +750,101 @@
   {
     "__type__": "cc.PostSettingsInfo",
     "_toneMappingType": 0
+  },
+  {
+    "__type__": "cc.Node",
+    "_name": "Main Light",
+    "_objFlags": 0,
+    "__editorExtras__": {},
+    "_parent": {
+      "__id__": 1
+    },
+    "_children": [],
+    "_active": true,
+    "_components": [
+      {
+        "__id__": 28
+      }
+    ],
+    "_prefab": null,
+    "_lpos": {
+      "__type__": "cc.Vec3",
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "_lrot": {
+      "__type__": "cc.Quat",
+      "x": -0.25,
+      "y": -0.25,
+      "z": 0.067,
+      "w": 0.933
+    },
+    "_lscale": {
+      "__type__": "cc.Vec3",
+      "x": 1,
+      "y": 1,
+      "z": 1
+    },
+    "_mobility": 0,
+    "_layer": 1073741824,
+    "_euler": {
+      "__type__": "cc.Vec3",
+      "x": -30,
+      "y": -30,
+      "z": 0
+    },
+    "_id": "92Gesbs31DKZYWP45B6iJ2"
+  },
+  {
+    "__type__": "cc.DirectionalLight",
+    "_name": "",
+    "_objFlags": 0,
+    "__editorExtras__": {},
+    "node": {
+      "__id__": 27
+    },
+    "_enabled": true,
+    "__prefab": null,
+    "_color": {
+      "__type__": "cc.Color",
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    },
+    "_useColorTemperature": false,
+    "_colorTemperature": 6500,
+    "_staticSettings": {
+      "__id__": 29
+    },
+    "_visibility": 1073741824,
+    "_illuminanceHDR": 65000,
+    "_illuminance": 65000,
+    "_illuminanceLDR": 1.6927083333333335,
+    "_shadowEnabled": false,
+    "_shadowPcf": 1,
+    "_shadowBias": 0,
+    "_shadowNormalBias": 0,
+    "_shadowSaturation": 0.75,
+    "_shadowDistance": 100,
+    "_shadowInvisibleOcclusionRange": 200,
+    "_csmLevel": 4,
+    "_csmLayerLambda": 0.75,
+    "_csmOptimizationMode": 2,
+    "_csmAdvancedOptions": false,
+    "_csmLayersTransition": false,
+    "_csmTransitionRange": 0.05,
+    "_shadowFixedArea": false,
+    "_shadowNear": 0.1,
+    "_shadowFar": 2000,
+    "_shadowOrthoSize": 640,
+    "_id": "8dkKSutCRBW5cpNIcLBiii"
+  },
+  {
+    "__type__": "cc.StaticLightSettings",
+    "_baked": false,
+    "_editorOnly": false,
+    "_castShadow": false
   }
 ]
