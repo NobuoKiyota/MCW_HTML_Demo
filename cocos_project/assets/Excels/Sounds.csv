@@ -15,3 +15,5 @@ missile01,"sounds/SE/missile",1,0.1,5,0
 powerup01,"sounds/SE/powerup01",1,0.1,2,0
 shoot01,"sounds/SE/shoot",1,0.02,20,0
 upgrade,"sounds/SE/upgrade",1,0.1,2,0
+result_listup,"sounds/SE/Result_listup",1,0.02,1,1
+result_count,"sounds/SE/Result_count",1,0.02,1,1

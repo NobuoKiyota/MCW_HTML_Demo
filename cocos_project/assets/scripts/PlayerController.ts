@@ -381,6 +381,10 @@ export class PlayerController extends Component {
             DataManager.instance.addDamageReceived(amount);
         }
 
+        if (this._gm && this._gm.playState) {
+            this._gm.playState.damageReceived += amount;
+        }
+
         if (UIManager.instance) UIManager.instance.updateHP(this.hp, this.maxHp);
 
         if (this.hp <= 0) {

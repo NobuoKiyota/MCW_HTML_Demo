@@ -45,6 +45,7 @@ export class SoundManager extends Component {
     // BGM Players (for crossfade)
     private bgmSources: AudioSource[] = [];
     private activeBgmIndex: number = 0;
+    private pausedSources: Set<AudioSource> = new Set();
 
     // SE Management
     private seSources: AudioSource[] = [];
@@ -90,8 +91,8 @@ export class SoundManager extends Component {
         }
         // director.addPersistRootNode(this.node); // Removed for Single Scene
 
-        // Setup BGM Sources
-        for (let i = 0; i < 2; i++) {
+        // Setup BGM Sources (Increase to 3 for Pause/Resume safety)
+        for (let i = 0; i < 3; i++) {
             const bgmNode = new Node(`BGM_Source_${i}`);
             bgmNode.parent = this.node;
             const source = bgmNode.addComponent(AudioSource);
@@ -209,10 +210,13 @@ export class SoundManager extends Component {
     }
 
     private crossfadeBGM(newClip: AudioClip, fadeTime: number) {
-        const nextIndex = (this.activeBgmIndex + 1) % 2;
+        const nextIndex = (this.activeBgmIndex + 1) % this.bgmSources.length;
         const currentSource = this.bgmSources[this.activeBgmIndex];
         const nextSource = this.bgmSources[nextIndex];
 
+        // If next source is paused, we might want to stop it or reuse it
+        // Actually, just overwrite it for simple crossfade
+        this.pausedSources.delete(nextSource);
         nextSource.clip = newClip;
         nextSource.play();
 
@@ -236,6 +240,7 @@ export class SoundManager extends Component {
 
             if (ratio >= 1.0) {
                 currentSource.stop();
+                this.pausedSources.delete(currentSource);
                 this.unschedule(timerCallback);
             }
         };
@@ -245,7 +250,7 @@ export class SoundManager extends Component {
 
     public stopBGM(fadeTime: number = 1.0) {
         const currentSource = this.bgmSources[this.activeBgmIndex];
-        if (!currentSource.playing) return;
+        if (!currentSource || !currentSource.playing) return;
 
         let elapsed = 0;
         const startVol = currentSource.volume;
@@ -256,10 +261,94 @@ export class SoundManager extends Component {
 
             if (ratio >= 1.0) {
                 currentSource.stop();
+                this.pausedSources.delete(currentSource);
                 this.unschedule(timerCallback);
             }
         };
         this.schedule(timerCallback, 0);
+    }
+
+    /**
+     * Stop ALL BGM sources (useful for clean transitions)
+     */
+    public stopAllBGM(fadeTime: number = 1.0) {
+        this.bgmSources.forEach(source => {
+            if (source.playing || source.volume > 0) {
+                let elapsed = 0;
+                const startVol = source.volume;
+                const timerCallback = (dt: number) => {
+                    elapsed += dt;
+                    const ratio = math.clamp01(elapsed / fadeTime);
+                    source.volume = math.lerp(startVol, 0, ratio);
+                    if (ratio >= 1.0) {
+                        source.stop();
+                        this.pausedSources.delete(source);
+                        this.unschedule(timerCallback);
+                    }
+                };
+                this.schedule(timerCallback, 0);
+            }
+        });
+    }
+
+    /**
+     * Pause the current active BGM
+     */
+    public pauseBGM(fadeTime: number = 1.0) {
+        const currentSource = this.bgmSources[this.activeBgmIndex];
+        if (!currentSource || !currentSource.playing) return;
+
+        let elapsed = 0;
+        const startVol = currentSource.volume;
+        const timerCallback = (dt: number) => {
+            elapsed += dt;
+            const ratio = math.clamp01(elapsed / fadeTime);
+            currentSource.volume = math.lerp(startVol, 0, ratio);
+            if (ratio >= 1.0) {
+                currentSource.pause();
+                this.pausedSources.add(currentSource);
+                this.unschedule(timerCallback);
+            }
+        };
+        this.schedule(timerCallback, 0);
+    }
+
+    /**
+     * Resume the currently paused BGM (searches all sources if current isn't paused)
+     * @returns true if a BGM was found and resumed
+     */
+    public resumeBGM(fadeTime: number = 1.0): boolean {
+        let sourceToResume = this.bgmSources[this.activeBgmIndex];
+
+        // If current isn't paused/ready, find one that is in pausedSources
+        if (!sourceToResume || sourceToResume.playing || !this.pausedSources.has(sourceToResume)) {
+            const found = this.bgmSources.find(s => !s.playing && this.pausedSources.has(s));
+            if (found) {
+                sourceToResume = found;
+                this.activeBgmIndex = this.bgmSources.indexOf(found);
+                console.log(`[SoundManager] Found explicitly paused BGM source at index ${this.activeBgmIndex}`);
+            }
+        }
+
+        if (sourceToResume && !sourceToResume.playing && this.pausedSources.has(sourceToResume)) {
+            sourceToResume.play();
+            this.pausedSources.delete(sourceToResume);
+            let elapsed = 0;
+            const targetVol = this.isMuted ? 0 : this._bgmVolume;
+            const timerCallback = (dt: number) => {
+                elapsed += dt;
+                const ratio = math.clamp01(elapsed / fadeTime);
+                sourceToResume.volume = math.lerp(0, targetVol, ratio);
+                if (ratio >= 1.0) {
+                    this.unschedule(timerCallback);
+                }
+            };
+            this.schedule(timerCallback, 0);
+            return true;
+        } else {
+            console.log("[SoundManager] No BGM found to resume.");
+            return false;
+        }
     }
 
     // --- SE Methods ---

@@ -2,22 +2,20 @@ import { _decorator, Component, Node, Label, Color, Sprite, UITransform, Size, W
 import { GameManager } from './GameManager';
 import { SoundManager } from './SoundManager';
 import { DataManager } from './DataManager';
+import { GameDatabase } from './GameDatabase';
 import { IMissionData } from './Constants';
 
 const { ccclass, property } = _decorator;
 
-// 定義されたミッションリスト
-const MISSION_LIST: IMissionData[] = [
-    { id: 1, stars: 1, distance: 300, enemyPattern: ["ENE001", "ENE002"], reward: 600, cargoWeight: 30, targetTime: 60 },
-    { id: 2, stars: 1, distance: 700, enemyPattern: ["ENE001", "ENE004"], reward: 900, cargoWeight: 50, targetTime: 120 },
-    { id: 3, stars: 2, distance: 1200, enemyPattern: ["ENE001", "ENE002", "ENE003", "ENE004", "ENE005"], reward: 1400, cargoWeight: 70, targetTime: 180 }
-];
+// MISSION_LIST is now loaded from GameDatabase (CSV)
 
 @ccclass('MissionUI')
 export class MissionUI extends Component {
 
     private contentNode: Node = null;
     private dialogNode: Node = null;
+
+    private displayedMissions: IMissionData[] = [];
 
     onLoad() {
         // Force to center (0,0) if added to Canvas
@@ -28,6 +26,36 @@ export class MissionUI extends Component {
         // 全画面を覆ってタッチイベントをブロック（モーダル化）
         this.setupModalBackground();
 
+        // データベースの準備を待ってから表示
+        this.schedule(this.checkDatabaseAndInit, 0.1);
+    }
+
+    private checkDatabaseAndInit() {
+        const db = GameDatabase.instance;
+        if (db && db.isReady) {
+            this.unschedule(this.checkDatabaseAndInit);
+            this.shuffleMissions();
+            this.initUI();
+        }
+    }
+
+    private shuffleMissions() {
+        const db = GameDatabase.instance;
+        if (!db || !db.missions || db.missions.length === 0) return;
+
+        // Clone and Shuffle
+        const all = [...db.missions];
+        for (let i = all.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [all[i], all[j]] = [all[j], all[i]];
+        }
+
+        // Pick top 3
+        this.displayedMissions = all.slice(0, 3);
+        console.log(`[MissionUI] Shuffled missions. Displaying: ${this.displayedMissions.map(m => m.id).join(", ")}`);
+    }
+
+    private initUI() {
         // コンテンツコンテナ
         this.setupContent();
 
@@ -36,6 +64,9 @@ export class MissionUI extends Component {
 
         // 閉じるボタン
         this.createCloseButton();
+
+        // 再抽選ボタン
+        this.createReselectButton();
     }
 
     private setupModalBackground() {
@@ -49,12 +80,15 @@ export class MissionUI extends Component {
 
         // 半透明黒背景
         const gr = this.node.addComponent(Graphics);
-        gr.fillColor = new Color(0, 0, 0, 200);
+        gr.fillColor = new Color(0, 0, 0, 220);
         gr.rect(-2000, -2000, 4000, 4000); // 簡易的に大きく
         gr.fill();
     }
 
     private setupContent() {
+        if (this.contentNode) {
+            this.contentNode.destroy();
+        }
         this.contentNode = new Node("Content");
         this.node.addChild(this.contentNode);
 
@@ -64,7 +98,7 @@ export class MissionUI extends Component {
 
     private createMissionButtons() {
         let y = 150;
-        const gap = 120;
+        const gap = 110;
 
         // タイトル
         const titleNode = new Node("Title");
@@ -76,10 +110,42 @@ export class MissionUI extends Component {
         const out = titleNode.addComponent(LabelOutline);
         out.width = 2;
 
-        MISSION_LIST.forEach((mission, index) => {
+        this.displayedMissions.forEach((mission, index) => {
             this.createButton(mission, 0, y);
             y -= gap;
         });
+    }
+
+    private createReselectButton() {
+        const btnNode = new Node("ReselectBtn");
+        this.contentNode.addChild(btnNode);
+        btnNode.setPosition(0, -240); // 画面下部
+
+        const w = 240;
+        const h = 60;
+        const gr = btnNode.addComponent(Graphics);
+        gr.fillColor = new Color(100, 100, 100);
+        gr.roundRect(-w / 2, -h / 2, w, h, 10);
+        gr.fill();
+        gr.strokeColor = Color.YELLOW;
+        gr.lineWidth = 3;
+        gr.stroke();
+
+        const lblNode = new Node("Label");
+        btnNode.addChild(lblNode);
+        const lbl = lblNode.addComponent(Label);
+        lbl.string = "RESELECT";
+        lbl.fontSize = 28;
+        lbl.color = Color.YELLOW;
+
+        const btn = btnNode.addComponent(Button);
+        btn.transition = Button.Transition.SCALE;
+
+        btnNode.on(Button.EventType.CLICK, () => {
+            SoundManager.instance.playSE("click");
+            this.shuffleMissions();
+            this.initUI();
+        }, this);
     }
 
     private createButton(mission: IMissionData, x: number, y: number) {

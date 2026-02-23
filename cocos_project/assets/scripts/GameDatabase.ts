@@ -2,6 +2,7 @@ import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab, resources
 import { EnemyData, EnemyBulletData, BehaviorData, DropData, SoundData } from './GameDataTypes';
 import { CSVHelper } from './CSVHelper';
 import { SoundManager } from './SoundManager';
+import { IMissionData } from './Constants'; // New
 const { ccclass, property } = _decorator;
 
 /**
@@ -27,6 +28,7 @@ export class GameDatabase extends Component {
     public behaviors: BehaviorData[] = [];
     public drops: DropData[] = [];
     public sounds: SoundData[] = [];
+    public missions: IMissionData[] = []; // New
 
     // --- CSV Assets ---
     @property({ type: TextAsset, tooltip: "CSV: Enemies" })
@@ -43,6 +45,9 @@ export class GameDatabase extends Component {
 
     @property({ type: TextAsset, tooltip: "CSV: Sounds" })
     public soundCsv: TextAsset = null;
+
+    @property({ type: TextAsset, tooltip: "CSV: Missions" })
+    public missionCsv: TextAsset = null;
 
     // Singleton access helper (Component based)
     public static instance: GameDatabase = null;
@@ -110,14 +115,31 @@ export class GameDatabase extends Component {
         this.drops = [];
         this.sounds = []; // Clear old sounds
         this.enemies = []; // Clear runtime list
+        this.missions = []; // Clear mission list
 
         if (this.bulletCsv) this.parseBulletCSV(this.bulletCsv.text);
         if (this.behaviorCsv) this.parseBehaviorCSV(this.behaviorCsv.text);
         if (this.dropCsv) this.parseDropCSV(this.dropCsv.text);
         if (this.soundCsv) this.parseSoundCSV(this.soundCsv.text);
-        if (this.enemyCsv) this.parseEnemyCSV(this.enemyCsv.text); // Consumes above data
+        if (this.enemyCsv) this.parseEnemyCSV(this.enemyCsv.text);
 
-        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.enemyBullets.length} Bullets, ${this.behaviors.length} Behaviors, ${this.drops.length} Drops`);
+        if (this.missionCsv) {
+            this.parseMissionCSV(this.missionCsv.text);
+        } else {
+            console.log("[GameDatabase] missionCsv property is null. Attempting fallback load from resources/Data/missions...");
+            resources.load("Data/missions", TextAsset, (err, asset) => {
+                if (!err && asset) {
+                    this.missionCsv = asset as TextAsset;
+                    this.parseMissionCSV(this.missionCsv.text);
+                    console.log("[GameDatabase] Fallback mission load successful.");
+                    // Check if MissionUI needs update (if already instantiated)
+                } else {
+                    console.warn("[GameDatabase] Fallback mission load failed. Please assign missionCsv in Inspector.");
+                }
+            });
+        }
+
+        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.enemyBullets.length} Bullets, ${this.behaviors.length} Behaviors, ${this.drops.length} Drops, ${this.missions.length} Missions`);
 
         this.isReady = true;
 
@@ -227,6 +249,23 @@ export class GameDatabase extends Component {
         if (SoundManager.instance) {
             SoundManager.instance.preloadSounds(this.sounds);
         }
+    }
+
+    private parseMissionCSV(text: string) {
+        const data = CSVHelper.parse(text);
+        this.missions = data.map(row => {
+            const patternStr = row.EnemyPattern || "Normal";
+            return {
+                id: row.ID,
+                stars: row.Stars || 1,
+                distance: row.Distance || 3000,
+                targetTime: row.TargetTime || 60,
+                reward: row.Reward || 100,
+                cargoWeight: row.CargoWeight || 30,
+                enemyPattern: patternStr.split(';')
+            } as IMissionData;
+        });
+        console.log(`[GameDatabase] Loaded ${this.missions.length} Missions.`);
     }
 
     // --- Getters ---

@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3, Color, game, resources, UITransform, Sprite, BoxCollider2D } from 'cc';
+import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3, Color, game, resources, UITransform, Sprite, BoxCollider2D, LabelOutline, tween, v3, UIOpacity, BlockInputEvents, Graphics, Size, CCInteger, CCFloat } from 'cc';
 import { UIManager } from './UIManager';
 import { GameState, GAME_SETTINGS, IGameManager } from './Constants'; // Removed Constants
 import { SoundManager } from './SoundManager';
@@ -61,7 +61,10 @@ export class GameManager extends Component implements IGameManager {
         items: [],
         killedEnemies: 0,
         collectedItemsCount: 0,
-        elapsedTime: 0 // New
+        elapsedTime: 0,
+        damageDealt: 0,    // New
+        damageReceived: 0, // New
+        itemsList: []      // New: {id, name, amount, rare}
     };
 
     public currentMission: any = null;
@@ -200,6 +203,7 @@ export class GameManager extends Component implements IGameManager {
         }
 
         this.state = GameState.INGAME;
+        this.isPaused = false; // Freeze Fix: Ensure game is unpaused on mission start
 
         // Reset HP for the session
         if (DataManager.instance) {
@@ -236,6 +240,9 @@ export class GameManager extends Component implements IGameManager {
         this.playState.collectedItemsCount = 0;
         this.playState.items = []; // Reset items
         this.playState.elapsedTime = 0; // Reset Timer
+        this.playState.damageDealt = 0;    // Reset
+        this.playState.damageReceived = 0; // Reset
+        this.playState.itemsList = [];      // Reset
 
         // Inject GM to Player
         if (this.playerNode) {
@@ -262,7 +269,10 @@ export class GameManager extends Component implements IGameManager {
         }
 
         // Start BGM
-        SoundManager.instance.playBGM("bgm_ingame01", 1.0);
+        if (SoundManager.instance) {
+            SoundManager.instance.pauseBGM(1.0); // Pause OutGame Atmosphere
+            SoundManager.instance.playBGM("bgm_ingame01", 1.0);
+        }
     }
 
     public retryGame() {
@@ -289,7 +299,9 @@ export class GameManager extends Component implements IGameManager {
         this.switchContent(this.homePrefab);
 
         if (SoundManager.instance) {
-            SoundManager.instance.playBGM("bgm_outgame01", 1.0);
+            if (!SoundManager.instance.resumeBGM(1.5)) {
+                SoundManager.instance.playBGM("bgm_outgame01", 1.0);
+            }
         }
 
         if (UIManager.instance) {
@@ -400,7 +412,7 @@ export class GameManager extends Component implements IGameManager {
 
         if (this.playState.distance <= 0) {
             this.playState.distance = 0;
-            this.onMissionComplete();
+            this.triggerGoalSequence();
         }
 
         // UI Update (via UIManager)
@@ -453,7 +465,23 @@ export class GameManager extends Component implements IGameManager {
 
         // Method 1: Use GameDatabase (New System)
         if (db.enemies.length > 0) {
-            const enemyData = db.getRandomEnemy();
+            let enemyData: any = null;
+            const mission = this.currentMission;
+
+            if (mission && mission.enemyPattern && mission.enemyPattern.length > 0) {
+                // Pick random ID from the mission's defined pattern
+                const pattern = mission.enemyPattern;
+                const randomId = pattern[Math.floor(Math.random() * pattern.length)];
+                enemyData = db.getEnemyData(randomId);
+
+                // Fallback to random if the specific ID is invalid or missing prefab
+                if (!enemyData || !enemyData.prefab) {
+                    enemyData = db.getRandomEnemy();
+                }
+            } else {
+                enemyData = db.getRandomEnemy();
+            }
+
             if (enemyData && enemyData.prefab) {
                 const node = instantiate(enemyData.prefab);
                 node.parent = this.enemyLayer; // Prefab base ref
@@ -481,19 +509,97 @@ export class GameManager extends Component implements IGameManager {
         }
     }
 
-    public onMissionComplete() {
+    public triggerGoalSequence() {
         if (this.state === GameState.RESULT) return;
-
         this.state = GameState.RESULT;
+
+        console.log("[GameManager] GOAL Distance reached! Triggering sequence...");
+
+        // 1. Stop Game World
+        this.isPaused = true;
+        if (SoundManager.instance) {
+            SoundManager.instance.stopBGM(0.5);
+        }
+
+        // 2. Show GOAL Decorative Text
+        const scene = director.getScene();
+        const canvas = scene.getChildByName("Canvas");
+        if (canvas) {
+            // 2. Show GOAL Decorative Text
+            const goalNode = new Node("GOAL_Text");
+            canvas.addChild(goalNode);
+            goalNode.setPosition(0, 0, 0);
+
+            const lbl = goalNode.addComponent(Label);
+            lbl.string = "GOAL!!";
+            lbl.fontSize = 120;
+            lbl.lineHeight = 130; // Prevent clipping
+            lbl.color = Color.YELLOW;
+            lbl.overflow = Label.Overflow.NONE;
+
+            const outline = goalNode.addComponent(LabelOutline);
+            outline.color = Color.BLACK;
+            outline.width = 6;
+
+            // Ensure UITransform is enough
+            const trans = goalNode.getComponent(UITransform) || goalNode.addComponent(UITransform);
+            trans.setContentSize(new Size(800, 200));
+
+            // UI Sound with GOAL text
+            if (SoundManager.instance) {
+                SoundManager.instance.playBGM("sounds/BGM/shooter_BGM_Result", 0.5);
+            }
+
+            // Simple scale pop
+            tween(goalNode)
+                .set({ scale: v3(0, 0, 0) })
+                .to(0.5, { scale: v3(1.1, 1.1, 1) }, { easing: 'backOut' })
+                .to(0.2, { scale: v3(1, 1, 1) })
+                .start();
+
+            // 3. Blackout (0.5s fade, shorter wait)
+            this.scheduleOnce(() => {
+                const blackout = new Node("Blackout");
+                canvas.addChild(blackout);
+                blackout.setPosition(0, 0, 0);
+                blackout.addComponent(BlockInputEvents);
+
+                const graphics = blackout.addComponent(Graphics);
+                graphics.fillColor = new Color(0, 0, 0, 0);
+                graphics.rect(-2000, -2000, 4000, 4000);
+                graphics.fill();
+
+                const opacity = blackout.addComponent(UIOpacity);
+                tween(opacity)
+                    .to(0.5, { opacity: 255 }) // Halved from 1.0
+                    .call(() => {
+                        goalNode.destroy();
+                        this.onMissionComplete();
+                        // Fade in blackout briefly or let ResultUI handle its own appearance
+                        tween(opacity)
+                            .delay(0.2) // Shortened from 0.5
+                            .to(0.3, { opacity: 0 }) // Shortened from 0.5
+                            .call(() => blackout.destroy())
+                            .start();
+                    })
+                    .start();
+            }, 1.0); // Wait 1s (Halved from 2s) for GOAL text to be seen
+        } else {
+            this.onMissionComplete();
+        }
+    }
+
+    public onMissionComplete() {
+        if (this.state === GameState.FAILURE) return; // Failure takes precedence
+
         console.log("Mission Complete!");
 
-        // Reset Buffs
-        const pCtrl = this.playerNode?.getComponent("PlayerController") as any;
-        if (pCtrl && pCtrl.resetBuffs) pCtrl.resetBuffs();
+        // 1. Add Mission Reward with Time Bonus/Penalty
+        let actualReward = 0;
+        let prevCredits = DataManager.instance ? DataManager.instance.data.money : 0;
 
-        // Add Mission Reward with Time Bonus/Penalty
         if (this.currentMission && this.currentMission.reward > 0) {
-            let actualReward = this.currentMission.reward;
+            actualReward = this.currentMission.reward;
             const targetTime = this.currentMission.targetTime || 60;
             const timeBonus = 0.1; // ±10%
 
@@ -505,25 +611,22 @@ export class GameManager extends Component implements IGameManager {
                 console.log(`[GameManager] Target Time exceeded! Penalty applied: ${actualReward}`);
             }
 
-            DataManager.instance.addResource("credits", actualReward);
+            if (DataManager.instance) {
+                DataManager.instance.addResource("credits", actualReward);
+            }
         }
 
-        // Track Cleared Stage
-        const difficulty = this.currentMission ? (this.currentMission.stars || 1) : 1;
-        DataManager.instance.incrementClearedStages(difficulty);
-
-        // Save Data
-        DataManager.instance.save();
-
-        if (UIManager.instance) {
-            // UIManager.instance.showResult(); // Deprecated
+        // 2. Track Cleared Stage
+        if (DataManager.instance) {
+            const difficulty = this.currentMission ? (this.currentMission.stars || 1) : 1;
+            DataManager.instance.incrementClearedStages(difficulty);
+            DataManager.instance.save();
         }
 
-        // Apply ResultUI dynamically
+        // 4. Apply ResultUI dynamically
         console.log("[GameManager] Showing ResultUI...");
         const node = new Node("ResultUI");
 
-        // Canvasを探して親にする
         const sceneRoot = director.getScene();
         const canvasNode = sceneRoot.getChildByName("Canvas");
         if (canvasNode) {
@@ -537,12 +640,55 @@ export class GameManager extends Component implements IGameManager {
         // Get stats from playState
         const enemies = this.playState.killedEnemies || 0;
         const items = this.playState.collectedItemsCount || 0;
-        const score = 0; // Score logic if implemented
 
-        resUI.setup(enemies, items, score);
+        resUI.setup(enemies, items, 0, this.playState.itemsList, actualReward, prevCredits);
+    }
 
-        // Stop BGM with fade out
-        SoundManager.instance.stopBGM(2.0);
+    /**
+     * Transition back to Home with blackout and crossfade
+     */
+    public returnToHomeTransition() {
+        const scene = director.getScene();
+        const canvas = scene.getChildByName("Canvas");
+        if (!canvas) {
+            this.goToHome();
+            return;
+        }
+
+        const blackout = new Node("HomeTransitionBlackout");
+        canvas.addChild(blackout);
+        blackout.setSiblingIndex(canvas.children.length - 1);
+        blackout.addComponent(BlockInputEvents);
+
+        const graphics = blackout.addComponent(Graphics);
+        graphics.fillColor = Color.BLACK;
+        graphics.rect(-2000, -2000, 4000, 4000);
+        graphics.fill();
+
+        const opacity = blackout.addComponent(UIOpacity);
+        opacity.opacity = 0;
+
+        tween(opacity)
+            .to(0.5, { opacity: 255 }) // Halved from 1.0
+            .call(() => {
+                // Crossfade BGM
+                if (SoundManager.instance) {
+                    SoundManager.instance.playBGM("sounds/BGM/Shooter_OutgameA", 1.0);
+                }
+                // Switch Content
+                this.goToHome();
+
+                // Fade out blackout after switching scene content
+                this.scheduleOnce(() => {
+                    tween(opacity)
+                        .to(0.5, { opacity: 0 }) // Halved from 1.0
+                        .call(() => {
+                            if (blackout.isValid) blackout.destroy();
+                        })
+                        .start();
+                }, 0.1);
+            })
+            .start();
     }
 
     // Bullet Factory
@@ -631,6 +777,14 @@ export class GameManager extends Component implements IGameManager {
             // General Item
             if (UIManager.instance) UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
             SoundManager.instance.playSE("itemget01", "System");
+        }
+
+        // --- Multi-item Listing for Result screen ---
+        let exist = this.playState.itemsList.find((it: any) => it.id === id);
+        if (exist) {
+            exist.amount += amount;
+        } else {
+            this.playState.itemsList.push({ id, name, amount, rare: rarity });
         }
     }
 

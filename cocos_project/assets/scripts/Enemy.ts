@@ -206,6 +206,9 @@ export class Enemy extends Component {
             if (DataManager.instance) {
                 DataManager.instance.addDamageDealt(finalDamage);
             }
+            if (this._gm && this._gm.playState) {
+                this._gm.playState.damageDealt += finalDamage;
+            }
         }
 
         // Play Hit SE (3D)
