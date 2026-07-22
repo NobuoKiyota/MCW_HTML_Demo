@@ -145,12 +145,25 @@ export class PlayerController extends Component {
     private updateTargetPos(uiLoc: any) {
         const parentTransform = this.node.parent?.getComponent(UITransform);
         if (parentTransform) {
-            const localPos = parentTransform.convertToNodeSpaceAR(new Vec3(uiLoc.x, uiLoc.y, 0));
-            this.targetPos.set(localPos);
-            this.clampTarget();
+            try {
+                const localPos = parentTransform.convertToNodeSpaceAR(new Vec3(uiLoc.x, uiLoc.y, 0));
+                this.targetPos.set(localPos);
+                this.clampTarget();
+            } catch (e) {
+                // guard against occasional null _uiProps errors during editor preview
+                console.warn("[PlayerController] convertToNodeSpaceAR failed", e);
+                // Assume centered world if transform fails
+                const halfW = GAME_SETTINGS.SCREEN_WIDTH / 2;
+                const halfH = GAME_SETTINGS.SCREEN_HEIGHT / 2;
+                this.targetPos.x = uiLoc.x - halfW;
+                this.targetPos.y = uiLoc.y - halfH;
+                this.clampTarget();
+            }
         } else {
-            const halfW = GAME_SETTINGS.CANVAS_WIDTH / 2;
-            const halfH = GAME_SETTINGS.CANVAS_HEIGHT / 2;
+            // Likely in Scene Root (3D space)
+            // Screen center is (640, 360) for 1280x720 res. Center world is (0,0).
+            const halfW = GAME_SETTINGS.SCREEN_WIDTH / 2;
+            const halfH = GAME_SETTINGS.SCREEN_HEIGHT / 2;
             this.targetPos.x = uiLoc.x - halfW;
             this.targetPos.y = uiLoc.y - halfH;
             this.clampTarget();

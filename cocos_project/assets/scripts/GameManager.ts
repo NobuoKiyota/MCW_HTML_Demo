@@ -1,4 +1,5 @@
-import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3, Color, game, resources, UITransform, Sprite, BoxCollider2D, LabelOutline, tween, v3, UIOpacity, BlockInputEvents, Graphics, Size, CCInteger, CCFloat } from 'cc';
+import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3, Color, game, resources, UITransform, Sprite, BoxCollider2D, LabelOutline, tween, v3, UIOpacity, BlockInputEvents, Graphics, Size, CCInteger, CCFloat, Camera, DirectionalLight, Light, Vec3 as Vec3Type, Layers, Canvas } from 'cc';
+import './enginePatches';
 import { UIManager } from './UIManager';
 import { GameState, GAME_SETTINGS, IGameManager } from './Constants'; // Removed Constants
 import { SoundManager } from './SoundManager';
@@ -98,6 +99,9 @@ export class GameManager extends Component implements IGameManager {
         console.log("[GameManager] onLoad completed. Ready for start.");
         this.speedManager.reset();
 
+        // ensure scene basic setup (lighting & camera) in case it was corrupted or missing
+        this.ensureSceneSetup();
+
         // Fallback for Item Prefab if not assigned in Inspector
         if (!this.itemPrefab) {
             console.log("[GameManager] itemPrefab not assigned. Attempting to load from resources/Prefabs/Item...");
@@ -117,6 +121,59 @@ export class GameManager extends Component implements IGameManager {
         director.on("GAME_HOME", this.goToHome, this);
     }
 
+    /**
+     * Ensures basic lighting and camera settings exist in the scene (DirectionalLight + blue clear color).
+     * Called during onLoad when recovering from a corrupted or cloned scene.
+     */
+    private ensureSceneSetup() {
+        const scene = director.getScene();
+        if (!scene) return;
+
+        // camera
+        const cam = scene.getComponentInChildren(Camera);
+        if (cam) {
+            cam.clearColor = new Color(0, 0, 255, 255); // blue background for better 3D visibility
+        }
+
+        // directional light - only add if missing
+        let lightNode = scene.getChildByName("DirectionalLight");
+        if (!lightNode) {
+            if (typeof DirectionalLight !== "function") {
+                console.warn("[GameManager] DirectionalLight class unavailable at runtime (Feature Crop likely excludes the '3d' module) - skipping directional light setup.");
+            } else {
+                console.log("[GameManager] Creating missing directional light.");
+                lightNode = new Node("DirectionalLight");
+                const light = lightNode.addComponent(DirectionalLight);
+                light.color = new Color(255, 255, 255, 255);
+                light.illuminance = 65000; // Standard daylight
+                lightNode.eulerAngles = new Vec3Type(-45, -45, 0);
+                scene.addChild(lightNode);
+            }
+        }
+    }
+
+    /**
+     * Apply patches at runtime to engine classes that are causing preview errors.
+     */
+    private patchSpriteMethods() {
+        try {
+            const proto: any = Sprite.prototype as any;
+            const origSize = proto._applySpriteSize;
+            proto._applySpriteSize = function () {
+                if (!this._uiProps) return;
+                return origSize.apply(this, arguments);
+            };
+            const origFrame = proto._applySpriteFrame;
+            proto._applySpriteFrame = function () {
+                if (!this._uiProps) return;
+                return origFrame.apply(this, arguments);
+            };
+            console.log("[GameManager] Patched Sprite methods to guard _uiProps.");
+        } catch (e) {
+            console.warn("[GameManager] Failed to patch Sprite methods", e);
+        }
+    }
+
     onDestroy() {
         if (GameManager.instance === this) {
             GameManager.instance = null;
@@ -124,18 +181,22 @@ export class GameManager extends Component implements IGameManager {
     }
 
     start() {
-        // Show Title on start
-        console.log("[GameManager] start. Showing Title.");
-        this.switchContent(this.titlePrefab);
-
-        // BGM handled in goToTitle essentially
-        if (SoundManager.instance) {
-            SoundManager.instance.playBGM("bgm_outgame01", 1.0);
+        console.log("[GameManager] start triggered.");
+        // prefer title, fallback to home if title missing
+        if (this.titlePrefab) {
+            this.goToTitle();
+        } else if (this.homePrefab) {
+            console.warn("[GameManager] titlePrefab missing, falling back to homePrefab.");
+            this.goToHome();
+        } else {
+            console.error("[GameManager] No titlePrefab or homePrefab assigned! UI will not appear.");
         }
+
+        // BGM handled within goToTitle/goToHome
     }
 
     /**
-     * Switch content (Prefab) under Canvas
+     * Switch content (Prefab) under Canvas or Scene root
      * Returns the instantiated node
      */
     public switchContent(prefab: Prefab) {
@@ -146,22 +207,10 @@ export class GameManager extends Component implements IGameManager {
 
         console.log(`[GameManager] switchContent: switching to ${prefab.name}`);
 
-        // 1. Find Canvas
-        // Since this node is PersistRoot, it is NOT under Canvas usually.
-        // We need to find the Canvas in the scene.
         const scene = director.getScene();
         const canvas = scene.getChildByName("Canvas");
-        if (!canvas) {
-            console.error("[GameManager] Canvas not found in scene!");
-            return null;
-        }
 
-        // Reset to (640, 360) and ensure active
-        canvas.setPosition(640, 360, 0);
-        canvas.active = true;
-
-        // 2. Clear previous content
-        // We assume we tag the content node or keep track of it
+        // 1. Clear previous content
         if (this.currentContentNode && this.currentContentNode.isValid) {
             this.currentContentNode.destroy();
             this.currentContentNode = null;
@@ -173,22 +222,122 @@ export class GameManager extends Component implements IGameManager {
         this.enemyLayer = null;
         this.itemLayer = null;
 
-        // 3. Instantiate new
+        // 2. Instantiate new
         const node = instantiate(prefab);
-        canvas.addChild(node);
-        // Force to (0, 0) in Canvas local
-        node.setPosition(0, 0, 0);
-        node.setSiblingIndex(0); // Put at bottom (behind UI)
+        console.log(`[GameManager] Instantiated prefab: ${prefab.name}, node name: ${node.name}, children count: ${node.children.length}`);
+
+        // --- Decision: Place in Canvas or Scene root? ---
+        // Ingame content (3D) should be in World space (Scene root)
+        // UI content (Title, Home) should be in Screen space (Canvas) -
+        // UNLESS the content prefab already brings its own Canvas+Camera (self-contained screen),
+        // in which case nesting it under the persistent Canvas would create a Canvas-in-Canvas conflict.
+        const isIngame = prefab.name.toLowerCase().includes("ingame") || this.state === GameState.INGAME;
+        const hasOwnCanvas = !!node.getComponentInChildren(Canvas);
+        console.log(`[GameManager] isIngame: ${isIngame}, hasOwnCanvas: ${hasOwnCanvas}`);
+
+        if (isIngame || hasOwnCanvas) {
+            scene.addChild(node);
+            // In world space, (0,0,0) is center. Layers are already at (0,0) in prefab usually.
+            node.setPosition(0, 0, 0);
+            console.log(isIngame
+                ? "[GameManager] Ingame content placed in Scene Root for 3D rendering."
+                : "[GameManager] UI content has its own Canvas; placed in Scene Root to avoid nested Canvas.");
+        } else {
+            if (!canvas) {
+                console.error("[GameManager] Canvas not found in scene and content has no own Canvas - cannot place UI content.");
+                return null;
+            }
+            console.log(`[GameManager] Canvas before adding UI content: ${canvas.name}, children: ${canvas.children.length}`);
+            canvas.addChild(node);
+            node.setPosition(0, 0, 0);
+            node.setSiblingIndex(0); // Put at bottom (behind persistent UI)
+            console.log(`[GameManager] UI content placed in Canvas. Canvas now has ${canvas.children.length} children.`);
+        }
+
+        // For UI (non-ingame) content: ensure cameras inside are enabled
+        // Ingame cameras are handled separately during resolveInGameReferences
+        if (!isIngame) {
+            console.log(`[GameManager] Seeking cameras in UI content for ${node.name}`);
+            const cams = node.getComponentsInChildren(Camera);
+            console.log(`[GameManager] Found ${cams ? cams.length : 0} camera components in ${node.name}`);
+            
+            if (cams && cams.length > 0) {
+                cams.forEach((cam, idx) => {
+                    console.log(`[GameManager] Camera[${idx}]: ${cam.node.name}, node.active=${cam.node.active}, cam.enabled=${cam.enabled}`);
+                    cam.node.active = true;
+                    cam.enabled = true;
+                    console.log(`[GameManager] Activated UI camera: ${cam.node.name}`);
+                });
+                
+                // If we found a real camera in content, remove any fallback camera from Canvas
+                const fallbackCam = canvas?.getChildByName("UICamera_Fallback");
+                if (fallbackCam && fallbackCam.isValid) {
+                    fallbackCam.removeFromParent();
+                    fallbackCam.destroy();
+                    console.log("[GameManager] Removed fallback camera as real camera was found");
+                }
+            } else {
+                console.warn(`[GameManager] No cameras found in UI prefab ${node.name}. Attempting fallback...`);
+
+                // Try to find a "Camera" node by name and enable it
+                const cameraNode = this.findNodeByNameRecursive(node, "Camera");
+                if (cameraNode) {
+                    cameraNode.active = true;
+                    const cam = cameraNode.getComponent(Camera);
+                    if (cam) {
+                        cam.enabled = true;
+                        console.log("[GameManager] Found and enabled Camera node by name");
+
+                        // Remove fallback camera if found a real one
+                        const fallbackCam = canvas?.getChildByName("UICamera_Fallback");
+                        if (fallbackCam && fallbackCam.isValid) {
+                            fallbackCam.removeFromParent();
+                            fallbackCam.destroy();
+                            console.log("[GameManager] Removed fallback camera as real camera was found");
+                        }
+                    }
+                } else {
+                    // Last resort: create fallback UI camera (only if no real camera exists)
+                    const camNode = new Node("FallbackUICamera");
+                    const camComponent = camNode.addComponent(Camera);
+                    camComponent.visibility = Layers.BitMask.UI_2D | Layers.BitMask.UI_3D;
+                    camComponent.clearColor = new Color(0, 0, 255, 255);
+                    camNode.setPosition(640, 360, 1000);
+                    (canvas ?? scene).addChild(camNode);
+                    console.log(`[GameManager] Fallback UI camera created in ${canvas ? "Canvas" : "Scene Root"}`);
+                }
+            }
+        }
+
+        // For UI content only: disable Scene root cameras (except the ones belonging to
+        // the content we just added) to avoid double rendering
+        if (!isIngame) {
+            const sceneCameras = scene.getComponentsInChildren(Camera);
+            console.log(`[GameManager] Disabling Scene root cameras for UI focus (found ${sceneCameras.length})`);
+
+            sceneCameras.forEach(cam => {
+                const belongsToNewContent = cam.node === node || cam.node.isChildOf(node);
+                if (!belongsToNewContent) {
+                    cam.node.active = false;
+                    console.log(`[GameManager] Disabled Scene camera: ${cam.node.name}`);
+                }
+            });
+        }
+
+        if (node.children.length === 0) {
+            console.warn("[GameManager] Instantiated prefab has no child nodes. May be empty.");
+        }
+
         this.currentContentNode = node;
 
-        // 4. Force UI to resolve references for the new content (GameOver, HUD etc)
+        // 3. Force UI to resolve references for the new content (GameOver, HUD etc)
         if (UIManager.instance) {
             UIManager.instance.resolveReferences();
         }
 
-        // 5. SideBarUI Visibility: Managed via UIManager
+        // 4. SideBarUI Visibility
         if (UIManager.instance) {
-            const shouldBeActive = this.state !== GameState.TITLE;
+            const shouldBeActive = (this.state !== GameState.TITLE);
             UIManager.instance.setSideBarActive(shouldBeActive);
         }
 
@@ -309,6 +458,17 @@ export class GameManager extends Component implements IGameManager {
         }
     }
 
+    private findNodeByNameRecursive(node: Node, name: string): Node | null {
+        if (!node) return null;
+        if (node.name === name) return node;
+        
+        for (const child of node.children) {
+            const found = this.findNodeByNameRecursive(child, name);
+            if (found) return found;
+        }
+        return null;
+    }
+
     /**
      * 新しく生成されたインゲームノードツリーから参照を取得
      */
@@ -330,11 +490,25 @@ export class GameManager extends Component implements IGameManager {
         this.enemyLayer = findNode(rootNode, "EnemyLayer");
         this.itemLayer = findNode(rootNode, "ItemLayer");
 
+        // if the player is still using UI2D waterfall, log warning and consider converting to 3D
+        if (this.playerNode) {
+            const uiTrans = this.playerNode.getComponent(UITransform);
+            if (uiTrans) {
+                console.warn("[GameManager] PlayerNode has UITransform (2D). For 3D model use PlayerShip_3D.prefab or remove this component.");
+                // disable or remove it so 3D child can render properly
+                uiTrans.enabled = false;
+                this.playerNode.removeComponent(UITransform);
+            }
+            // ensure layer is Default for 3D rendering
+            this.playerNode.layer = Layers.BitMask.DEFAULT;
+        }
+
         if (!this.playerNode) console.error("[GameManager] Player Node NOT FOUND in Prefab!");
         if (!this.enemyLayer) console.error("[GameManager] EnemyLayer Node NOT FOUND in Prefab!");
 
         // Force zero positions to ensure coordinate sync between layers
-        // This fixes the issue where layers in the prefab had (640, 360) offsets
+        // This fixes the issue where layers in the prefab had (640, 360) offsets from Canvas space
+        if (this.playerNode) this.playerNode.setPosition(0, -200, 0); // Start at bottom center
         if (this.bulletLayer) this.bulletLayer.setPosition(0, 0, 0);
         if (this.enemyLayer) this.enemyLayer.setPosition(0, 0, 0);
         if (this.itemLayer) this.itemLayer.setPosition(0, 0, 0);
@@ -351,6 +525,25 @@ export class GameManager extends Component implements IGameManager {
         if (starField) starField.setPosition(0, 0, 0);
 
         console.log(`[GameManager] References resolved: Player=${this.playerNode?.name}, EnemyLayer=${this.enemyLayer?.name}`);
+
+        // attempt to attach 3D model prefab to player if none present
+        if (this.playerNode) {
+            const pCtrl = this.playerNode.getComponent("PlayerController") as any;
+            if (pCtrl && !pCtrl.model3D) {
+                resources.load("Prefabs/PlayerShip_3D", Prefab, (err, prefab) => {
+                    if (!err && prefab) {
+                        const node = instantiate(prefab);
+                        node.layer = Layers.BitMask.DEFAULT;
+                        this.playerNode.addChild(node);
+                        node.setPosition(0, 0, 0);
+                        pCtrl.model3D = node;
+                        console.log("[GameManager] Attached 3D model to PlayerNode.");
+                    } else {
+                        console.warn("[GameManager] Unable to load PlayerShip_3D prefab for 3D model.");
+                    }
+                });
+            }
+        }
 
         // Ensure PlayerController setup
         if (this.playerNode) {

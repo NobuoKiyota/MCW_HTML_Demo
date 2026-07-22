@@ -21,6 +21,86 @@ export class TitleUI extends Component {
         this.applyButtonLayout("BtnHome", 0, 160);
         this.applyButtonLayout("BtnOption", 0, 80);
         this.applyButtonLayout("BtnExit", 0, 0);
+
+        // Register button click events
+        this.registerButtonEvents();
+    }
+
+    private registerButtonEvents() {
+        console.log("[TitleUI] Registering button click events...");
+        
+        // Find button nodes (try multiple naming conventions)
+        const buttonNames = [
+            { name: "Button-Home", handler: this.onHomeClicked },
+            { name: "BtnHome", handler: this.onHomeClicked },
+            { name: "Button-Option", handler: this.onOptionClicked },
+            { name: "BtnOption", handler: this.onOptionClicked },
+            { name: "Button-Exit", handler: this.onExitClicked },
+            { name: "BtnExit", handler: this.onExitClicked }
+        ];
+
+        // Helper to attach multiple event types to a node
+        const attachClick = (node: Node, handlerFn: Function, name?: string) => {
+            const bound = handlerFn.bind(this);
+            try {
+                node.on(Node.EventType.TOUCH_END, bound);
+                node.on(Node.EventType.MOUSE_UP, bound);
+                // keep MOUSE_DOWN as well for Editor preview compatibility
+                node.on(Node.EventType.MOUSE_DOWN, bound);
+                console.log(`[TitleUI] Attached touch/mouse handlers to ${name || node.name}`);
+            } catch (e) {
+                console.warn(`[TitleUI] Failed attaching handlers to ${name || node.name}:`, e);
+            }
+        };
+
+        // Search in Buttons node children first
+        const buttonsNode = this.node.getChildByName("Buttons");
+        if (buttonsNode) {
+            console.log("[TitleUI] Found Buttons container node");
+            buttonNames.forEach(btn => {
+                const btnNode = buttonsNode.getChildByName(btn.name);
+                if (btnNode) {
+                    // If there's a Button component, prefer attaching to its node as well
+                    const btnComp = (btnNode.getComponent as any) ? btnNode.getComponent('Button') : null;
+                    if (btnComp) {
+                        console.log(`[TitleUI] Found Button component on ${btn.name}`);
+                    }
+                    attachClick(btnNode, btn.handler, btn.name);
+                } else {
+                    console.log(`[TitleUI] Button ${btn.name} not found in Buttons node`);
+                }
+            });
+        } else {
+            console.log("[TitleUI] Buttons node not found, searching root children recursively");
+            // Fallback: search recursively and attach handlers when name matches
+            const searchRecursive = (node: Node) => {
+                for (const child of node.children) {
+                    buttonNames.forEach(btn => {
+                        if (child.name === btn.name) {
+                            attachClick(child, btn.handler, btn.name);
+                        }
+                    });
+                    // if the child has a Button component, also attach to it
+                    try {
+                        const maybeButton = (child.getComponent as any) ? child.getComponent('Button') : null;
+                        if (maybeButton) {
+                            console.log(`[TitleUI] Found Button component on node ${child.name} - attaching handlers`);
+                            // find which logical button it likely is
+                            const match = buttonNames.find(b => child.name.includes(b.name) || b.name.includes(child.name));
+                            if (match) attachClick(child, match.handler, child.name);
+                            else attachClick(child, this.onHomeClicked, child.name);
+                        }
+                    } catch (e) {
+                        // ignore
+                    }
+                    // recurse
+                    if (child.children && child.children.length > 0) {
+                        searchRecursive(child);
+                    }
+                }
+            };
+            searchRecursive(this.node);
+        }
     }
 
     private applyButtonLayout(name: string, y: number, x: number = 0) {

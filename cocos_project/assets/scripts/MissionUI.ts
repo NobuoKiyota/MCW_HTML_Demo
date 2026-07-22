@@ -24,7 +24,11 @@ export class MissionUI extends Component {
         }
 
         // 全画面を覆ってタッチイベントをブロック（モーダル化）
-        this.setupModalBackground();
+        try {
+            this.setupModalBackground();
+        } catch (e) {
+            console.warn("[MissionUI] setupModalBackground failed", e);
+        }
 
         // データベースの準備を待ってから表示
         this.schedule(this.checkDatabaseAndInit, 0.1);
@@ -71,12 +75,16 @@ export class MissionUI extends Component {
 
     private setupModalBackground() {
         // Widgetで全画面化
-        const widget = this.node.addComponent(Widget);
-        widget.isAlignTop = widget.isAlignBottom = widget.isAlignLeft = widget.isAlignRight = true;
-        widget.top = widget.bottom = widget.left = widget.right = 0;
+        if (this.node) {
+            const widget = this.node.addComponent(Widget);
+            widget.isAlignTop = widget.isAlignBottom = widget.isAlignLeft = widget.isAlignRight = true;
+            widget.top = widget.bottom = widget.left = widget.right = 0;
 
-        // タッチブロック
-        this.node.addComponent(BlockInputEvents);
+            // タッチブロック
+            this.node.addComponent(BlockInputEvents);
+        } else {
+            console.warn("[MissionUI] node is null in setupModalBackground");
+        }
 
         // 半透明黒背景
         const gr = this.node.addComponent(Graphics);

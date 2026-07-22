@@ -1,8 +1,9 @@
-import { _decorator, Component, Node, Label, Color, Sprite, UITransform, Size, Widget, Graphics, LabelOutline, resources, SpriteFrame } from 'cc';
+import { _decorator, Component, Node, Label, Color, Sprite, UITransform, Size, Widget, Graphics, LabelOutline, resources, SpriteFrame, Button } from 'cc';
 import { DataManager } from './DataManager';
 import { GameManager } from './GameManager';
 import { GameState, GAME_SETTINGS } from './Constants';
 import { UIManager } from './UIManager';
+import { SoundManager } from './SoundManager';
 
 const { ccclass, property } = _decorator;
 
@@ -134,7 +135,13 @@ export class SideBarUI extends Component {
         }
 
         // ラベル作成（LeftPanel内）
-        if (!this.missionLabel) this.missionLabel = this.createLabel(this.leftPanel, "DESTINATION\n3000 km", 0, 0, 24, Color.WHITE, true);
+        if (!this.missionLabel) {
+            this.missionLabel = this.createLabel(this.leftPanel, "DESTINATION\n3000 km", 0, 0, 24, Color.WHITE, true);
+            // make mission label clickable to open mission selection
+            const btn = this.missionLabel.node.addComponent(Button);
+            btn.transition = Button.Transition.SCALE;
+            this.missionLabel.node.on(Button.EventType.CLICK, this.onMissionLabelClicked, this);
+        }
         if (!this.timerLabel) this.timerLabel = this.createLabel(this.leftPanel, "TIME: 00:00", 0, 0, 20, Color.WHITE, true);
         if (!this.speedLabel) this.speedLabel = this.createLabel(this.leftPanel, "SPD: 0 km/h", 0, 0, 20, Color.YELLOW, true);
         if (!this.hpLabel) this.hpLabel = this.createLabel(this.leftPanel, "VEHICLE INTEGRITY", 0, 0, 20, Color.WHITE, true);
@@ -503,5 +510,15 @@ export class SideBarUI extends Component {
         const minStr = min < 10 ? "0" + min : "" + min;
         const secStr = sec < 10 ? "0" + sec : "" + sec;
         this.timerLabel.string = `TIME: ${minStr}:${secStr}`;
+    }
+
+    /**
+     * Handler executed when the mission label/button in the sidebar is clicked.
+     */
+    private onMissionLabelClicked() {
+        SoundManager.instance?.playSE("click");
+        if (UIManager.instance) {
+            UIManager.instance.openMissionUI();
+        }
     }
 }

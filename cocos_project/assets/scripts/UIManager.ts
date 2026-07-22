@@ -1,8 +1,10 @@
-import { _decorator, Component, Node, Label, Tween, tween, v3, UIOpacity, director, LabelOutline, Color, UITransform, Vec3, Widget, Camera, Button, BlockInputEvents } from 'cc';
+import { _decorator, Component, Node, Label, Tween, tween, v3, UIOpacity, director, LabelOutline, Color, UITransform, Vec3, Widget, Camera, Button, BlockInputEvents, Layers } from 'cc';
 import { SideBarUI } from './SideBarUI';
 import { SettingsManager } from './SettingsManager';
 import { GameManager } from './GameManager';
 import { GameState } from './Constants';
+import { MissionUI } from './MissionUI';
+import { SoundManager } from './SoundManager';
 
 const { ccclass, property } = _decorator;
 
@@ -78,23 +80,141 @@ export class UIManager extends Component {
     }
 
     /**
-     * 新しいシーンに合わせてパネルなどの参照を再取得する
+     * Ensure a UI camera exists in Canvas with proper configuration.
+     * Fallback for when prefab doesn't include a camera.
      */
+    private ensureCanvasCamera(canvas: Node) {
+        if (!canvas) {
+            console.warn("[UIManager] ensureCanvasCamera called with null canvas!");
+            return;
+        }
+
+        console.log(`[UIManager] ensureCanvasCamera: checking Canvas ${canvas.name}`);
+
+        // If the currently active content (e.g. Title/Home, which bring their own
+        // self-contained Canvas+Camera placed outside this persistent Canvas) already has
+        // a working camera elsewhere in the scene, don't also turn on this Canvas's own
+        // camera - that would render the same UI content twice from two different cameras.
+        const activeCameraOutsideCanvas = director.getScene().getComponentsInChildren(Camera)
+            .find(cam => cam.enabled && cam.node.active && !cam.node.isChildOf(canvas));
+        if (activeCameraOutsideCanvas) {
+            console.log(`[UIManager] Active camera already present outside Canvas (${activeCameraOutsideCanvas.node.name}); skipping Canvas camera setup.`);
+            return activeCameraOutsideCanvas;
+        }
+
+        // First check if canvas already has an enabled camera child
+        const camsInCanvas = canvas.getComponentsInChildren(Camera);
+        console.log(`[UIManager] Found ${camsInCanvas.length} cameras in Canvas subtree`);
+        
+        for (const cam of camsInCanvas) {
+            console.log(`  Camera: ${cam.node.name}, enabled=${cam.enabled}, active=${cam.node.active}`);
+            if (cam.enabled && cam.node.active) {
+                console.log(`[UIManager] Found active camera in Canvas: ${cam.node.name}`);
+                return cam;
+            }
+        }
+
+        // If no active camera, look for any camera node (even if disabled)
+        let camNode = canvas.getChildByName("Camera");
+        console.log(`[UIManager] Direct child Camera found: ${!!camNode}`);
+        
+        if (camNode) {
+            const cam = camNode.getComponent(Camera);
+            if (cam) {
+                cam.node.active = true;
+                cam.enabled = true;
+                console.log(`[UIManager] Reactivated disabled camera in Canvas`);
+                return cam;
+            }
+        }
+
+        // List all Canvas children for debugging
+        console.log(`[UIManager] Canvas children (${canvas.children.length}):`);
+        canvas.children.forEach((child, i) => {
+            console.log(`  [${i}] ${child.name}`);
+        });
+
+        // Last resort: create fallback camera
+        console.warn(`[UIManager] No canvas camera found. Creating fallback UI camera.`);
+        camNode = new Node("UICamera_Fallback");
+        const cam = camNode.addComponent(Camera);
+        cam.priority = -1;  // Lower priority than content cameras
+        cam.visibility = Layers.BitMask.UI_2D | Layers.BitMask.UI_3D;
+        cam.clearColor = new Color(0, 0, 255, 255);
+        camNode.setPosition(0, 0, 1000);  // Position at 0,0 to show full canvas
+        canvas.addChild(camNode);
+        console.log(`[UIManager] Fallback camera created at (0,0) with priority -1`);
+        return cam;
+    }
     public resolveReferences() {
         const sceneName = director.getScene().name;
         console.log(`[UIManager] Resolving references for scene: ${sceneName}`);
 
         const canvas = director.getScene().getChildByName("Canvas");
-        if (!canvas) return;
+        console.log(`[UIManager] Canvas found: ${!!canvas}, name: ${canvas?.name}`);
+        if (!canvas) {
+            console.error("[UIManager] Canvas NOT FOUND in Scene! Scene children:");
+            director.getScene().children.forEach((child, i) => {
+                console.log(`  [${i}] ${child.name}`);
+            });
+            return;
+        }
 
         // Apply (0, 0) to Canvas and Camera
-        canvas.setPosition(640, 360, 0);
-
-        // Find camera and set to (0, 0)
-        const camera = director.getScene().getComponentInChildren(Camera);
-        if (camera) {
-            camera.node.setPosition(640, 360, camera.node.position.z);
+        if (canvas && canvas.isValid) {
+            canvas.setPosition(640, 360, 0);
         }
+
+        // Ensure we have a working UI camera
+        this.ensureCanvasCamera(canvas);
+
+        // Only work with cameras that are actually active and enabled
+        const cameras = director.getScene().getComponentsInChildren(Camera);
+        console.log(`[UIManager] Found ${cameras.length} cameras in scene`);
+        
+        const isAncestorCanvas = (node: Node): boolean => {
+            let p = node.parent;
+            while (p) {
+                if (p.name === "Canvas") return true;
+                p = p.parent;
+            }
+            return false;
+        };
+        
+        cameras.forEach(cam => {
+            // Skip disabled cameras (they'll be handled by GameManager when content is instantiated)
+            if (!cam.enabled || !cam.node.active) {
+                console.log(`[UIManager] Skipping inactive camera: ${cam.node.name}`);
+                return;
+            }
+            
+            const isUICamera = cam.node.name.toLowerCase().includes("ui") || isAncestorCanvas(cam.node);
+            console.log(`[UIManager] Camera ${cam.node.name}: isUICamera=${isUICamera}`);
+            
+            if (isUICamera) {
+                // UI Camera configuration: local (0,0,z) relative to its parent, which is
+                // what centers it on the Canvas - the Canvas node itself already sits at
+                // world (640, 360, 0), so a local (640, 360, z) here would push the camera
+                // an extra screen-width/height off-center.
+                cam.node.setPosition(0, 0, cam.node.position.z);
+                const uiMask = (Layers.BitMask.UI_2D | Layers.BitMask.UI_3D);
+                if ((cam.visibility & uiMask) !== uiMask) {
+                    console.log(`[UIManager] Updating UI camera mask for ${cam.node.name}`);
+                    cam.visibility |= uiMask;
+                }
+                // Standard UI clear color
+                cam.clearColor = new Color(0, 0, 255, 255);
+            } else {
+                // Main (3D) Camera configuration: Centered on World (0, 0)
+                cam.node.setPosition(0, 0, cam.node.position.z);
+                // Ensure it doesn't render UI layers to avoid duplicates/overlap
+                const uiMask = (Layers.BitMask.UI_2D | Layers.BitMask.UI_3D);
+                if (cam.visibility & uiMask) {
+                    console.log(`[UIManager] Removing UI layers from Main camera: ${cam.node.name}`);
+                    cam.visibility &= ~uiMask;
+                }
+            }
+        });
 
         // --- Improved Recursive Node Search ---
         const findNodeRecursive = (node: Node, name: string): Node => {
@@ -279,6 +399,26 @@ export class UIManager extends Component {
     }
 
     /**
+     * Convenience helper for opening the mission selection popup from anywhere.
+     */
+    public openMissionUI() {
+        console.log("[UIManager] openMissionUI called.");
+        const node = new Node("MissionUI");
+        const scene = director.getScene();
+        const canvas = scene.getChildByName("Canvas");
+        if (canvas) {
+            canvas.addChild(node);
+        } else {
+            scene.addChild(node);
+        }
+        node.addComponent(MissionUI);
+        // play click sound if available
+        if (SoundManager.instance) {
+            SoundManager.instance.playSE("click");
+        }
+    }
+
+    /**
      * バフUIを強制リセット（サイドバーが表示されていない状態でも安全に呼び出し可能）
      */
     public resetBuffs() {
@@ -386,8 +526,12 @@ export class UIManager extends Component {
         let startPos = v3(0, 0, 0); // Center relative to Canvas (0,0)
         if (pos) {
             const uiTransform = this.notificationLayer.getComponent(UITransform);
-            startPos = uiTransform.convertToNodeSpaceAR(pos);
-            startPos.y += 40;
+            if (uiTransform) {
+                startPos = uiTransform.convertToNodeSpaceAR(pos);
+                startPos.y += 40;
+            } else {
+                console.warn("[UIManager] notificationLayer missing UITransform, cannot convert position.");
+            }
         }
 
         // --- 4. Opacity & Lifetime ---
