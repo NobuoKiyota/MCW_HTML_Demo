@@ -1,0 +1,42 @@
+{
+  "package_version": 2,
+  "version": "1.0.0",
+  "name": "master-manager",
+  "label": "Master Manager",
+  "description": "Master Manager Editor Panel for Player, Mission, Enemy, and Sound tuning",
+  "author": "Antigravity",
+  "main": "./main.js",
+  "panels": {
+    "default": {
+      "title": "Master Manager",
+      "type": "dockable",
+      "main": "./panels/default/index.js",
+      "size": {
+        "min-width": 400,
+        "min-height": 350,
+        "width": 600,
+        "height": 500
+      }
+    }
+  },
+  "contributions": {
+    "menu": [
+      {
+        "path": "i18n:menu.extension",
+        "label": "Master Manager",
+        "message": "openPanel"
+      }
+    ],
+    "messages": {
+      "openPanel": {
+        "methods": ["openPanel"]
+      },
+      "load-csv": {
+        "methods": ["loadCsv"]
+      },
+      "save-csv": {
+        "methods": ["saveCsv"]
+      }
+    }
+  }
+}
