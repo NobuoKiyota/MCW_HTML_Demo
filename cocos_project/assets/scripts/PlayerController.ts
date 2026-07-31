@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Input, input, EventTouch, Vec3, view, math, UITransform, find, Enum, Prefab, instantiate, Color } from 'cc';
+import { _decorator, Component, Node, Input, input, EventTouch, Vec3, view, math, find, Enum, Prefab, instantiate, Color } from 'cc';
 import { DataManager } from './DataManager';
 import { GAME_SETTINGS, IGameManager, GameState } from './Constants';
 import { UIManager } from './UIManager';
@@ -143,31 +143,20 @@ export class PlayerController extends Component {
     }
 
     private updateTargetPos(uiLoc: any) {
-        const parentTransform = this.node.parent?.getComponent(UITransform);
-        if (parentTransform) {
-            try {
-                const localPos = parentTransform.convertToNodeSpaceAR(new Vec3(uiLoc.x, uiLoc.y, 0));
-                this.targetPos.set(localPos);
-                this.clampTarget();
-            } catch (e) {
-                // guard against occasional null _uiProps errors during editor preview
-                console.warn("[PlayerController] convertToNodeSpaceAR failed", e);
-                // Assume centered world if transform fails
-                const halfW = GAME_SETTINGS.SCREEN_WIDTH / 2;
-                const halfH = GAME_SETTINGS.SCREEN_HEIGHT / 2;
-                this.targetPos.x = uiLoc.x - halfW;
-                this.targetPos.y = uiLoc.y - halfH;
-                this.clampTarget();
-            }
-        } else {
-            // Likely in Scene Root (3D space)
-            // Screen center is (640, 360) for 1280x720 res. Center world is (0,0).
-            const halfW = GAME_SETTINGS.SCREEN_WIDTH / 2;
-            const halfH = GAME_SETTINGS.SCREEN_HEIGHT / 2;
-            this.targetPos.x = uiLoc.x - halfW;
-            this.targetPos.y = uiLoc.y - halfH;
-            this.clampTarget();
-        }
+        // Player only ever operates in Ingame's world-space content (see canControl()),
+        // where MainCamera sits centered on world (0,0) - screen center (640,360 in UI
+        // pixels) maps to world (0,0). Previously this branched on whether the parent node
+        // had a UITransform to decide between this math and convertToNodeSpaceAR(), but
+        // that check stopped being reliable once the parent "Canvas" node picked up a
+        // UITransform as a side effect of adding a real cc.Canvas component to it - passing
+        // getUILocation()'s screen-pixel coordinates into convertToNodeSpaceAR() (which
+        // expects a world position) produced incorrect, non-1:1 mouse tracking. Always use
+        // the direct screen-to-world offset instead.
+        const halfW = GAME_SETTINGS.SCREEN_WIDTH / 2;
+        const halfH = GAME_SETTINGS.SCREEN_HEIGHT / 2;
+        this.targetPos.x = uiLoc.x - halfW;
+        this.targetPos.y = uiLoc.y - halfH;
+        this.clampTarget();
     }
 
     private clampTarget() {

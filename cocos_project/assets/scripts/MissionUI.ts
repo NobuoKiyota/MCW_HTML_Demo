@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Color, Sprite, UITransform, Size, Widget, Graphics, LabelOutline, Button, EventHandler, BlockInputEvents, instantiate, Vec3, director, RichText } from 'cc';
+import { _decorator, Component, Node, Label, Color, Sprite, UITransform, Size, Widget, Graphics, LabelOutline, Button, EventHandler, BlockInputEvents, instantiate, Vec3, director, RichText, Layers } from 'cc';
 import { GameManager } from './GameManager';
 import { SoundManager } from './SoundManager';
 import { DataManager } from './DataManager';
@@ -71,6 +71,20 @@ export class MissionUI extends Component {
 
         // 再抽選ボタン
         this.createReselectButton();
+
+        // Nodes created via `new Node(...)` default to the DEFAULT layer, not this
+        // panel's UI_2D - they don't inherit layer from their parent. Without this,
+        // everything under Content is logically built but invisible (MainCamera's
+        // UI visibility mask doesn't include DEFAULT).
+        this.forceUILayer(this.node);
+    }
+
+    /** Recursively force a node subtree onto the UI_2D layer so MainCamera can see it. */
+    private forceUILayer(node: Node) {
+        node.layer = Layers.Enum.UI_2D;
+        for (const child of node.children) {
+            this.forceUILayer(child);
+        }
     }
 
     private setupModalBackground() {
@@ -288,10 +302,7 @@ export class MissionUI extends Component {
             // BACK Button only
             this.createDialogButton(winNode, "BACK", 0, -120, Color.GRAY, () => {
                 SoundManager.instance.playSE("click");
-                if (this.dialogNode) {
-                    this.dialogNode.destroy();
-                    this.dialogNode = null;
-                }
+                this.closeDialog();
             });
         } else {
             // Check for overload
@@ -306,16 +317,30 @@ export class MissionUI extends Component {
             this.createDialogButton(winNode, "YES", -120, -120, Color.GREEN, () => {
                 SoundManager.instance.playSE("click");
                 this.startGame(mission);
+                this.closeDialog();
             });
 
             // NO Button
             this.createDialogButton(winNode, "NO", 120, -120, Color.RED, () => {
                 SoundManager.instance.playSE("click");
-                if (this.dialogNode) {
-                    this.dialogNode.destroy();
-                    this.dialogNode = null;
-                }
+                this.closeDialog();
             });
+        }
+
+        this.forceUILayer(this.dialogNode);
+    }
+
+    // Defer destruction by a frame - the dialog buttons live under dialogNode itself,
+    // so destroying it synchronously from inside its own click handler corrupts the
+    // component teardown order (Sprite depends on UITransform) and leaves a visual
+    // ghost even though the node is gone from the hierarchy.
+    private closeDialog() {
+        const node = this.dialogNode;
+        this.dialogNode = null;
+        if (node) {
+            this.scheduleOnce(() => {
+                if (node.isValid) node.destroy();
+            }, 0);
         }
     }
 

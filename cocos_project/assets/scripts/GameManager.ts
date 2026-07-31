@@ -7,8 +7,20 @@ import { GameSpeedManager } from './GameSpeedManager';
 import { GameDatabase } from './GameDatabase';
 import { ResultUI } from './ResultUI'; // Import Added Here
 import { DataManager } from './DataManager';
+import { CocosLogger } from './CocosLogger';
+import { CocosDiagnostic } from './CocosDiagnostic';
+
 
 const { ccclass, property } = _decorator;
+
+// Dedicated layer for background-only content (BackgroundLayer/StarField), separate from
+// UI_2D. Cocos's 2D UI batcher always draws after (on top of) 3D opaque content regardless
+// of Z position - if the background stayed on UI_2D, MainCamera would keep redrawing it over
+// the Player's 3D ship no matter how the ship's Z was adjusted. Giving background content its
+// own layer lets a dedicated, lower-priority BackgroundCamera draw it first, while MainCamera
+// (which no longer includes this bit in its visibility) draws the 3D ship and remaining UI_2D
+// content on top without re-drawing the background itself.
+const BG_ONLY_LAYER = 1 << 19;
 
 @ccclass('GameManager')
 export class GameManager extends Component implements IGameManager {
@@ -74,6 +86,26 @@ export class GameManager extends Component implements IGameManager {
     // Current Active Content Node (Title or Ingame)
     private currentContentNode: Node = null;
 
+    // Single persistent camera, owned exclusively by GameManager. Never searched-for,
+    // reactivated, or recreated per content switch - see applyCameraForState().
+    private mainCamera: Camera = null;
+
+    // Dedicated background-only camera, lower priority than mainCamera so it draws first.
+    // See BG_ONLY_LAYER for why this exists - Cocos's 2D UI batcher always draws over 3D
+    // content regardless of Z, so the space background needs its own render pass ahead of
+    // the Player's 3D ship instead of sharing mainCamera's UI_2D pass.
+    private bgCamera: Camera = null;
+
+    // Dedicated DEFAULT-layer (3D) camera, HIGHER priority than mainCamera so it draws
+    // LAST. Same root cause as bgCamera but on the other end: mainCamera's own UI_2D pass
+    // draws after its own 3D pass within a single camera, so any UI_2D content (HUD panels,
+    // enemies, etc.) that visually overlaps the Player's 3D ship would occlude it again -
+    // this was already observed once with the background and is expected to recur with any
+    // other UI_2D element. Moving all DEFAULT-layer 3D content to its own camera drawn after
+    // mainCamera guarantees it always renders on top, regardless of what UI_2D content
+    // happens to overlap it on screen.
+    private foregroundCamera: Camera = null;
+
     onLoad() {
         console.log("[GameManager] onLoad triggered.");
         if (!GameManager.instance || !GameManager.instance.isValid) {
@@ -96,7 +128,14 @@ export class GameManager extends Component implements IGameManager {
         // Force this node to (0,0,0) to avoid world-space offsets
         this.node.setPosition(0, 0, 0);
 
+        // Initialize AI Bridge Telemetry & Diagnostics
+        CocosLogger.initGlobalHook();
+        if (!this.node.getComponent(CocosDiagnostic)) {
+            this.node.addComponent(CocosDiagnostic);
+        }
+
         console.log("[GameManager] onLoad completed. Ready for start.");
+
         this.speedManager.reset();
 
         // ensure scene basic setup (lighting & camera) in case it was corrupted or missing
@@ -129,11 +168,36 @@ export class GameManager extends Component implements IGameManager {
         const scene = director.getScene();
         if (!scene) return;
 
-        // camera
-        const cam = scene.getComponentInChildren(Camera);
-        if (cam) {
-            cam.clearColor = new Color(0, 0, 255, 255); // blue background for better 3D visibility
+        // Single persistent MainCamera - create once if missing, never again after that.
+        // All position/visibility configuration happens in applyCameraForState().
+        let camNode = scene.getChildByName("MainCamera");
+        if (!camNode) {
+            console.log("[GameManager] Creating missing MainCamera.");
+            camNode = new Node("MainCamera");
+            camNode.addComponent(Camera);
+            scene.addChild(camNode);
         }
+        this.mainCamera = camNode.getComponent(Camera);
+
+        // Dedicated background-only camera - create once if missing, never again after that.
+        let bgCamNode = scene.getChildByName("BackgroundCamera");
+        if (!bgCamNode) {
+            console.log("[GameManager] Creating missing BackgroundCamera.");
+            bgCamNode = new Node("BackgroundCamera");
+            bgCamNode.addComponent(Camera);
+            scene.addChild(bgCamNode);
+        }
+        this.bgCamera = bgCamNode.getComponent(Camera);
+
+        // Dedicated foreground (DEFAULT-layer / 3D ship) camera - create once if missing.
+        let fgCamNode = scene.getChildByName("ForegroundCamera");
+        if (!fgCamNode) {
+            console.log("[GameManager] Creating missing ForegroundCamera.");
+            fgCamNode = new Node("ForegroundCamera");
+            fgCamNode.addComponent(Camera);
+            scene.addChild(fgCamNode);
+        }
+        this.foregroundCamera = fgCamNode.getComponent(Camera);
 
         // directional light - only add if missing
         let lightNode = scene.getChildByName("DirectionalLight");
@@ -149,6 +213,122 @@ export class GameManager extends Component implements IGameManager {
                 lightNode.eulerAngles = new Vec3Type(-45, -45, 0);
                 scene.addChild(lightNode);
             }
+        }
+    }
+
+    /**
+     * Single source of truth for MainCamera position/visibility. Call right after
+     * `this.state` changes. UI states (Title/Home/Result/...) center on world (640,360)
+     * where the persistent Canvas and UI content prefabs live; Ingame content is placed
+     * at world (0,0) (see switchContent()'s isIngame branch), so the camera needs to
+     * move between exactly these two points depending on state.
+     */
+    private applyCameraForState() {
+        if (!this.mainCamera) return;
+        const isIngame = this.state === GameState.INGAME;
+        // DEFAULT-layer content (SideBarUI's panel children, the Player's 3D ship) is now
+        // handled exclusively by foregroundCamera (drawn after mainCamera - see below), so
+        // it always renders on top of any UI_2D content instead of being occluded by
+        // whatever UI_2D element happens to overlap it on screen.
+        const uiMask = Layers.BitMask.UI_2D | Layers.BitMask.UI_3D;
+        this.mainCamera.visibility = uiMask;
+        this.mainCamera.node.setPosition(isIngame ? 0 : 640, isIngame ? 0 : 360, 1000);
+        // A Camera node created via the editor's "Create > Camera" menu defaults to
+        // PERSPECTIVE projection, which breaks UI screen-to-world hit testing (clicks land
+        // in the wrong place) even though on-screen rendering can look approximately right.
+        // Force ORTHO unconditionally so this doesn't depend on how MainCamera was set up.
+        this.mainCamera.projection = Camera.ProjectionType.ORTHO;
+        this.mainCamera.orthoHeight = 360;
+        // Far=1000 (the default) means anything past world Z=0 (camera Z 1000 minus far
+        // 1000) gets clipped. The Player's 3D model's baked-in local Z offset, compounded
+        // by its parent's 8x scale, can push it to world Z ~ -157 - past that threshold and
+        // invisible from a straight-on ortho view even though an angled Scene-view camera
+        // (much closer, perspective) doesn't hit the same clip. Give real headroom.
+        this.mainCamera.far = 2000;
+        // BackgroundCamera now owns clearing the screen to the "space black" / "UI blue"
+        // backdrop color (see below) and draws first - mainCamera must NOT clear on top of
+        // it, or it would erase whatever BackgroundCamera just drew.
+        this.mainCamera.clearFlags = Camera.ClearFlag.DONT_CLEAR;
+        this.mainCamera.priority = 1;
+        this.mainCamera.node.active = true;
+        this.mainCamera.enabled = true;
+
+        // BackgroundCamera: same view transform as mainCamera (so background content lines
+        // up with everything else) but only sees BG_ONLY_LAYER content, drawn first (lower
+        // priority) so mainCamera's 3D ship and UI_2D content composite on top of it instead
+        // of being redrawn-over by the background every frame.
+        if (this.bgCamera) {
+            this.bgCamera.visibility = BG_ONLY_LAYER;
+            this.bgCamera.node.setPosition(this.mainCamera.node.position);
+            this.bgCamera.projection = Camera.ProjectionType.ORTHO;
+            this.bgCamera.orthoHeight = 360;
+            this.bgCamera.clearFlags = Camera.ClearFlag.SOLID_COLOR;
+            // Ingame's SpaceBackground.ts cross-fades semi-transparent nebula images capped
+            // at ~50% opacity by design - a vivid blue clear color washes them out
+            // completely. Space should read as black behind them; UI screens keep the
+            // existing blue (BackgroundCamera has nothing to draw on UI screens, so this
+            // clear color is effectively the whole screen's backdrop there too).
+            this.bgCamera.clearColor = isIngame ? new Color(0, 0, 0, 255) : new Color(0, 0, 255, 255);
+            this.bgCamera.priority = 0;
+            this.bgCamera.node.active = true;
+            this.bgCamera.enabled = true;
+        }
+
+        // ForegroundCamera: same view transform as mainCamera but only sees DEFAULT-layer
+        // content (Player's 3D ship, SideBarUI's DEFAULT-layer children), drawn LAST
+        // (highest priority) so nothing UI_2D can occlude it. Never clears anything - it
+        // only adds 3D content on top of whatever mainCamera already drew.
+        if (this.foregroundCamera) {
+            this.foregroundCamera.visibility = Layers.BitMask.DEFAULT;
+            this.foregroundCamera.node.setPosition(this.mainCamera.node.position);
+            this.foregroundCamera.projection = Camera.ProjectionType.ORTHO;
+            this.foregroundCamera.orthoHeight = 360;
+            this.foregroundCamera.far = 2000; // see mainCamera.far comment above
+            this.foregroundCamera.clearFlags = Camera.ClearFlag.DONT_CLEAR;
+            this.foregroundCamera.priority = 2;
+            this.foregroundCamera.node.active = true;
+            this.foregroundCamera.enabled = true;
+        }
+
+        // The persistent Canvas (SideBarUI's parent) is saved at world (640,360) to match
+        // the UI-state camera center. During Ingame, mainCamera recenters to (0,0), but
+        // Canvas's own position never moved - SideBarUI is Widget-anchored to Canvas's
+        // edges, so it visually slides into a corner whenever Canvas and the camera center
+        // disagree. Keep Canvas following mainCamera's current center so anything anchored
+        // to it (SideBarUI) stays framed correctly in every state, not just non-Ingame ones.
+        const scene = director.getScene();
+        const persistentCanvas = scene ? scene.getChildByName("Canvas") : null;
+        if (persistentCanvas) {
+            // X/Y only - copying mainCamera's full position (including its Z=1000) pushed
+            // Canvas past the camera's own near clip plane, hiding everything under it
+            // (SideBarUI, Home/Mission content) on every non-Ingame screen.
+            persistentCanvas.setPosition(isIngame ? 0 : 640, isIngame ? 0 : 360, 0);
+        }
+    }
+
+    /**
+     * Recursively force a node subtree onto the UI_2D layer, so Cocos's 2D UI batcher
+     * actually draws it - Sprite-based Ingame content (background, enemies, bullets,
+     * items) is saved on the DEFAULT layer, which the 2D batcher never walks. Only the
+     * Player's 3D model subtree should stay on DEFAULT (set separately) - don't call
+     * this on the player node itself.
+     */
+    private forceUILayer(node: Node) {
+        node.layer = Layers.BitMask.UI_2D;
+        for (const child of node.children) {
+            this.forceUILayer(child);
+        }
+    }
+
+    /**
+     * Recursively force a node subtree onto BG_ONLY_LAYER, so only BackgroundCamera draws
+     * it (see BG_ONLY_LAYER) - keeps the space background from being redrawn over the
+     * Player's 3D ship by mainCamera's UI_2D pass.
+     */
+    private forceBackgroundLayer(node: Node) {
+        node.layer = BG_ONLY_LAYER;
+        for (const child of node.children) {
+            this.forceBackgroundLayer(child);
         }
     }
 
@@ -254,75 +434,8 @@ export class GameManager extends Component implements IGameManager {
             console.log(`[GameManager] UI content placed in Canvas. Canvas now has ${canvas.children.length} children.`);
         }
 
-        // For UI (non-ingame) content: ensure cameras inside are enabled
-        // Ingame cameras are handled separately during resolveInGameReferences
-        if (!isIngame) {
-            console.log(`[GameManager] Seeking cameras in UI content for ${node.name}`);
-            const cams = node.getComponentsInChildren(Camera);
-            console.log(`[GameManager] Found ${cams ? cams.length : 0} camera components in ${node.name}`);
-            
-            if (cams && cams.length > 0) {
-                cams.forEach((cam, idx) => {
-                    console.log(`[GameManager] Camera[${idx}]: ${cam.node.name}, node.active=${cam.node.active}, cam.enabled=${cam.enabled}`);
-                    cam.node.active = true;
-                    cam.enabled = true;
-                    console.log(`[GameManager] Activated UI camera: ${cam.node.name}`);
-                });
-                
-                // If we found a real camera in content, remove any fallback camera from Canvas
-                const fallbackCam = canvas?.getChildByName("UICamera_Fallback");
-                if (fallbackCam && fallbackCam.isValid) {
-                    fallbackCam.removeFromParent();
-                    fallbackCam.destroy();
-                    console.log("[GameManager] Removed fallback camera as real camera was found");
-                }
-            } else {
-                console.warn(`[GameManager] No cameras found in UI prefab ${node.name}. Attempting fallback...`);
-
-                // Try to find a "Camera" node by name and enable it
-                const cameraNode = this.findNodeByNameRecursive(node, "Camera");
-                if (cameraNode) {
-                    cameraNode.active = true;
-                    const cam = cameraNode.getComponent(Camera);
-                    if (cam) {
-                        cam.enabled = true;
-                        console.log("[GameManager] Found and enabled Camera node by name");
-
-                        // Remove fallback camera if found a real one
-                        const fallbackCam = canvas?.getChildByName("UICamera_Fallback");
-                        if (fallbackCam && fallbackCam.isValid) {
-                            fallbackCam.removeFromParent();
-                            fallbackCam.destroy();
-                            console.log("[GameManager] Removed fallback camera as real camera was found");
-                        }
-                    }
-                } else {
-                    // Last resort: create fallback UI camera (only if no real camera exists)
-                    const camNode = new Node("FallbackUICamera");
-                    const camComponent = camNode.addComponent(Camera);
-                    camComponent.visibility = Layers.BitMask.UI_2D | Layers.BitMask.UI_3D;
-                    camComponent.clearColor = new Color(0, 0, 255, 255);
-                    camNode.setPosition(640, 360, 1000);
-                    (canvas ?? scene).addChild(camNode);
-                    console.log(`[GameManager] Fallback UI camera created in ${canvas ? "Canvas" : "Scene Root"}`);
-                }
-            }
-        }
-
-        // For UI content only: disable Scene root cameras (except the ones belonging to
-        // the content we just added) to avoid double rendering
-        if (!isIngame) {
-            const sceneCameras = scene.getComponentsInChildren(Camera);
-            console.log(`[GameManager] Disabling Scene root cameras for UI focus (found ${sceneCameras.length})`);
-
-            sceneCameras.forEach(cam => {
-                const belongsToNewContent = cam.node === node || cam.node.isChildOf(node);
-                if (!belongsToNewContent) {
-                    cam.node.active = false;
-                    console.log(`[GameManager] Disabled Scene camera: ${cam.node.name}`);
-                }
-            });
-        }
+        // Camera is no longer searched-for/created here - GameManager owns a single
+        // persistent MainCamera configured by applyCameraForState() on every state change.
 
         if (node.children.length === 0) {
             console.warn("[GameManager] Instantiated prefab has no child nodes. May be empty.");
@@ -352,6 +465,7 @@ export class GameManager extends Component implements IGameManager {
         }
 
         this.state = GameState.INGAME;
+        this.applyCameraForState();
         this.isPaused = false; // Freeze Fix: Ensure game is unpaused on mission start
 
         // Reset HP for the session
@@ -433,6 +547,7 @@ export class GameManager extends Component implements IGameManager {
     public goToTitle() {
         console.log("[GameManager] Switch to Title via Prefab");
         this.state = GameState.TITLE;
+        this.applyCameraForState();
         this.switchContent(this.titlePrefab);
 
         if (SoundManager.instance) {
@@ -445,6 +560,7 @@ export class GameManager extends Component implements IGameManager {
     public goToHome() {
         console.log("[GameManager] Switch to Home via Prefab");
         this.state = GameState.HOME;
+        this.applyCameraForState();
         this.switchContent(this.homePrefab);
 
         if (SoundManager.instance) {
@@ -456,17 +572,6 @@ export class GameManager extends Component implements IGameManager {
         if (UIManager.instance) {
             UIManager.instance.resetBuffs();
         }
-    }
-
-    private findNodeByNameRecursive(node: Node, name: string): Node | null {
-        if (!node) return null;
-        if (node.name === name) return node;
-        
-        for (const child of node.children) {
-            const found = this.findNodeByNameRecursive(child, name);
-            if (found) return found;
-        }
-        return null;
     }
 
     /**
@@ -485,19 +590,29 @@ export class GameManager extends Component implements IGameManager {
             return null;
         };
 
+        // Camera is handled exclusively by applyCameraForState() (called from startInGame()
+        // when this.state was set to INGAME) - no per-content camera setup needed here.
+
         this.playerNode = findNode(rootNode, "Player");
         this.bulletLayer = findNode(rootNode, "BulletLayer");
         this.enemyLayer = findNode(rootNode, "EnemyLayer");
         this.itemLayer = findNode(rootNode, "ItemLayer");
 
-        // if the player is still using UI2D waterfall, log warning and consider converting to 3D
+        // Player.prefab's root node carries a legacy 2D Sprite (with its required UITransform)
+        // alongside PlayerController - Cocos refuses removeComponent(UITransform) while a
+        // Sprite on the same node still depends on it (same class of error seen earlier with
+        // MissionUI dialogs), so removal was never attempted here. Instead of disabling it
+        // outright, repurpose it as a bright, semi-transparent "glow" marker underneath the
+        // 3D ship model - the model's own material has no Emissive property and barely
+        // responds to the scene's DirectionalLight, so it reads as a near-black silhouette
+        // against the space background. This reuses the already-correctly-anchored legacy
+        // Sprite instead of adding a new node/asset. Tune color/opacity in the Inspector
+        // (this.playerNode's Sprite component) to taste.
         if (this.playerNode) {
-            const uiTrans = this.playerNode.getComponent(UITransform);
-            if (uiTrans) {
-                console.warn("[GameManager] PlayerNode has UITransform (2D). For 3D model use PlayerShip_3D.prefab or remove this component.");
-                // disable or remove it so 3D child can render properly
-                uiTrans.enabled = false;
-                this.playerNode.removeComponent(UITransform);
+            const legacySprite = this.playerNode.getComponent(Sprite);
+            if (legacySprite) {
+                legacySprite.enabled = true;
+                legacySprite.color = new Color(0, 220, 255, 140);
             }
             // ensure layer is Default for 3D rendering
             this.playerNode.layer = Layers.BitMask.DEFAULT;
@@ -518,30 +633,71 @@ export class GameManager extends Component implements IGameManager {
             UIManager.instance.resolveReferences();
         }
 
-        // Background and StarField might also need reset if they were offset
+        // Background and StarField might also need reset if they were offset.
+        // BackgroundLayer is saved inactive in the prefab (leftover from earlier
+        // debugging) - force it active or the space backdrop never renders.
+        // They're also saved on the DEFAULT layer: Cocos's 2D UI batcher only walks
+        // UI_2D-layer content, so a 2D Sprite on DEFAULT never gets drawn even though
+        // the camera's visibility mask includes DEFAULT (that mask is what lets the
+        // Player's 3D mesh show through the same camera - a completely different
+        // render path with its own layer rules).
+        // Zero out any leftover offset on the wrapper nodes between rootNode and the
+        // layers above (e.g. "640x360_Canvas" / "Canvas") - these used to sit nested
+        // inside the persistent UI Canvas at a (640,360)-ish offset under the old
+        // architecture. Now that Ingame content is placed at Scene root (0,0,0) by
+        // switchContent(), any leftover local offset saved on these wrapper nodes
+        // shifts everything under them out from under MainCamera's Ingame view.
+        const wrapper1 = findNode(rootNode, "640x360_Canvas");
+        if (wrapper1) wrapper1.setPosition(0, 0, 0);
+        const wrapper2 = findNode(rootNode, "Canvas");
+        if (wrapper2) wrapper2.setPosition(0, 0, 0);
+
+        // BackgroundLayer/StarField go on BG_ONLY_LAYER (not UI_2D) so only BackgroundCamera
+        // draws them - see BG_ONLY_LAYER for why (2D UI otherwise always draws over the
+        // Player's 3D ship regardless of Z, no matter how the ship's Z is adjusted).
         const bgLayer = findNode(rootNode, "BackgroundLayer");
-        if (bgLayer) bgLayer.setPosition(0, 0, 0);
+        if (bgLayer) {
+            bgLayer.active = true;
+            bgLayer.setPosition(0, 0, 0);
+            this.forceBackgroundLayer(bgLayer);
+        }
         const starField = findNode(rootNode, "StarField");
-        if (starField) starField.setPosition(0, 0, 0);
+        if (starField) {
+            starField.setPosition(0, 0, 0);
+            this.forceBackgroundLayer(starField);
+        }
 
         console.log(`[GameManager] References resolved: Player=${this.playerNode?.name}, EnemyLayer=${this.enemyLayer?.name}`);
 
-        // attempt to attach 3D model prefab to player if none present
+        // Attach a 3D model to the player only if one isn't already present. Player.prefab
+        // now ships with its own embedded "PlayerShip3D" child node - only fall back to
+        // dynamically loading the standalone Prefabs/PlayerShip_3D resource (an older
+        // workaround for when the prefab had no embedded model) if neither the Inspector's
+        // model3D field NOR an existing child node covers it. Without this guard, both the
+        // embedded child and a freshly-instantiated resource copy render simultaneously as
+        // two overlapping ships.
         if (this.playerNode) {
             const pCtrl = this.playerNode.getComponent("PlayerController") as any;
             if (pCtrl && !pCtrl.model3D) {
-                resources.load("Prefabs/PlayerShip_3D", Prefab, (err, prefab) => {
-                    if (!err && prefab) {
-                        const node = instantiate(prefab);
-                        node.layer = Layers.BitMask.DEFAULT;
-                        this.playerNode.addChild(node);
-                        node.setPosition(0, 0, 0);
-                        pCtrl.model3D = node;
-                        console.log("[GameManager] Attached 3D model to PlayerNode.");
-                    } else {
-                        console.warn("[GameManager] Unable to load PlayerShip_3D prefab for 3D model.");
-                    }
-                });
+                const existingModel = this.playerNode.getChildByName("PlayerShip3D") || this.playerNode.getChildByName("PlayerShip_3D");
+                if (existingModel) {
+                    existingModel.layer = Layers.BitMask.DEFAULT;
+                    pCtrl.model3D = existingModel;
+                    console.log("[GameManager] Reused existing embedded 3D model on PlayerNode (no dynamic load needed).");
+                } else {
+                    resources.load("Prefabs/PlayerShip_3D", Prefab, (err, prefab) => {
+                        if (!err && prefab) {
+                            const node = instantiate(prefab);
+                            node.layer = Layers.BitMask.DEFAULT;
+                            this.playerNode.addChild(node);
+                            node.setPosition(0, 0, 0);
+                            pCtrl.model3D = node;
+                            console.log("[GameManager] Attached 3D model to PlayerNode (dynamic load fallback).");
+                        } else {
+                            console.warn("[GameManager] Unable to load PlayerShip_3D prefab for 3D model.");
+                        }
+                    });
+                }
             }
         }
 
@@ -678,6 +834,7 @@ export class GameManager extends Component implements IGameManager {
             if (enemyData && enemyData.prefab) {
                 const node = instantiate(enemyData.prefab);
                 node.parent = this.enemyLayer; // Prefab base ref
+                this.forceUILayer(node);
 
                 // Random X, Top Y
                 const x = (Math.random() * GAME_SETTINGS.CANVAS_WIDTH) - (GAME_SETTINGS.CANVAS_WIDTH / 2);
@@ -705,6 +862,7 @@ export class GameManager extends Component implements IGameManager {
     public triggerGoalSequence() {
         if (this.state === GameState.RESULT) return;
         this.state = GameState.RESULT;
+        this.applyCameraForState();
 
         console.log("[GameManager] GOAL Distance reached! Triggering sequence...");
 
@@ -900,6 +1058,7 @@ export class GameManager extends Component implements IGameManager {
 
         const node = instantiate(this.bulletPrefab);
         node.parent = parent;
+        this.forceUILayer(node);
         node.setPosition(x, y, 0);
 
         // Init Bullet Component
@@ -1012,6 +1171,7 @@ export class GameManager extends Component implements IGameManager {
         }
 
         node.parent = this.itemLayer;
+        this.forceUILayer(node);
         node.setPosition(x, y, 0);
 
         const itemComp = node.getComponent("Item") || node.addComponent("Item") as any;
@@ -1028,6 +1188,7 @@ export class GameManager extends Component implements IGameManager {
 
         const node = instantiate(prefab);
         node.parent = this.itemLayer;
+        this.forceUILayer(node);
         node.setPosition(x, y, 0);
 
         // Init Item
@@ -1073,6 +1234,7 @@ export class GameManager extends Component implements IGameManager {
     public onGameOver() {
         if (this.state === GameState.FAILURE) return;
         this.state = GameState.FAILURE;
+        this.applyCameraForState();
         console.log("Game Over!");
 
         // Reset Buffs

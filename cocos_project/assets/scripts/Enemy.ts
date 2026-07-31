@@ -72,6 +72,8 @@ export class Enemy extends Component {
             this.fireInterval = eb.interval;
             this.bulletSpeed = eb.speed * (data.bulletSpeedMult || 1.0);
             this.bulletDamage = eb.damage * (data.bulletDmgMult || 1.0);
+            // Wait a full interval before the first shot instead of firing instantly on spawn.
+            this.cooldown = this.fireInterval;
         } else {
             // No bullet data = No shooting
             this.canShoot = false;

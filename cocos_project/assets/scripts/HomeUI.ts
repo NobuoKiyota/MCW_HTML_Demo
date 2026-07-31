@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, director, Button, Graphics, Color, BlockInputEvents, UITransform, Size, LabelOutline } from 'cc';
+import { _decorator, Component, Node, Label, director, Button, Graphics, Color, BlockInputEvents, UITransform, Size, LabelOutline, Layers } from 'cc';
 import { GameManager } from './GameManager';
 import { DataManager } from './DataManager';
 import { OptionsUI } from './OptionsUI';
@@ -109,19 +109,24 @@ export class HomeUI extends Component {
 
         // Open Mission UI
         console.log("[HomeUI] Opening MissionUI...");
-        const node = new Node("MissionUI");
 
         // Canvasを探して親にする（最前面表示のため）
         // Find Canvas to ensure it's on top
         // director is imported
         const sceneRoot = director.getScene();
         const canvasNode = sceneRoot.getChildByName("Canvas");
+        const parent = canvasNode || this.node;
 
-        if (canvasNode) {
-            canvasNode.addChild(node);
-        } else {
-            this.node.addChild(node);
-        }
+        // Guard against stacking multiple instances if this handler fires more than
+        // once (e.g. repeated clicks before the first panel is visibly up) - each
+        // instance carries a full-screen BlockInputEvents, so leftover copies pile up
+        // and swallow all future input.
+        const existing = parent.getChildByName("MissionUI");
+        if (existing) existing.destroy();
+
+        const node = new Node("MissionUI");
+        node.layer = Layers.Enum.UI_2D;
+        parent.addChild(node);
 
         node.addComponent(MissionUI); // スクリプト追加で自動初期化(onLoad)
     }
@@ -278,10 +283,18 @@ export class HomeUI extends Component {
     }
 
     private showRepairConfirmDialog(cost: number, hpToHeal: number) {
-        const dialogNode = new Node("RepairDialog");
         const sceneRoot = director.getScene();
         const canvasNode = sceneRoot?.getChildByName("Canvas");
-        (canvasNode || this.node).addChild(dialogNode);
+        const parent = canvasNode || this.node;
+
+        // Same accumulation guard as onStartMissionClicked() - avoid stacking multiple
+        // full-screen BlockInputEvents layers from repeated clicks.
+        const existing = parent.getChildByName("RepairDialog");
+        if (existing) existing.destroy();
+
+        const dialogNode = new Node("RepairDialog");
+        dialogNode.layer = Layers.Enum.UI_2D;
+        parent.addChild(dialogNode);
 
         // Background
         const gr = dialogNode.addComponent(Graphics);
@@ -335,6 +348,19 @@ export class HomeUI extends Component {
             SoundManager.instance.playSE("cansel", "System");
             dialogNode.destroy();
         });
+
+        // Nodes created via `new Node(...)` default to the DEFAULT layer and don't
+        // inherit it from their parent - without this, Window/Text/Buttons are built
+        // but invisible to MainCamera's UI_2D-only visibility mask.
+        this.forceUILayer(dialogNode);
+    }
+
+    /** Recursively force a node subtree onto the UI_2D layer so MainCamera can see it. */
+    private forceUILayer(node: Node) {
+        node.layer = Layers.Enum.UI_2D;
+        for (const child of node.children) {
+            this.forceUILayer(child);
+        }
     }
 
     private createDialogButton(parent: Node, text: string, x: number, y: number, color: Color, onClick: () => void) {

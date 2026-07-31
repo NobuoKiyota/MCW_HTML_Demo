@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Tween, tween, v3, UIOpacity, director, LabelOutline, Color, UITransform, Vec3, Widget, Camera, Button, BlockInputEvents, Layers } from 'cc';
+import { _decorator, Component, Node, Label, Tween, tween, v3, UIOpacity, director, LabelOutline, Color, UITransform, Vec3, Widget, Button, BlockInputEvents, Layers } from 'cc';
 import { SideBarUI } from './SideBarUI';
 import { SettingsManager } from './SettingsManager';
 import { GameManager } from './GameManager';
@@ -79,73 +79,6 @@ export class UIManager extends Component {
         }
     }
 
-    /**
-     * Ensure a UI camera exists in Canvas with proper configuration.
-     * Fallback for when prefab doesn't include a camera.
-     */
-    private ensureCanvasCamera(canvas: Node) {
-        if (!canvas) {
-            console.warn("[UIManager] ensureCanvasCamera called with null canvas!");
-            return;
-        }
-
-        console.log(`[UIManager] ensureCanvasCamera: checking Canvas ${canvas.name}`);
-
-        // If the currently active content (e.g. Title/Home, which bring their own
-        // self-contained Canvas+Camera placed outside this persistent Canvas) already has
-        // a working camera elsewhere in the scene, don't also turn on this Canvas's own
-        // camera - that would render the same UI content twice from two different cameras.
-        const activeCameraOutsideCanvas = director.getScene().getComponentsInChildren(Camera)
-            .find(cam => cam.enabled && cam.node.active && !cam.node.isChildOf(canvas));
-        if (activeCameraOutsideCanvas) {
-            console.log(`[UIManager] Active camera already present outside Canvas (${activeCameraOutsideCanvas.node.name}); skipping Canvas camera setup.`);
-            return activeCameraOutsideCanvas;
-        }
-
-        // First check if canvas already has an enabled camera child
-        const camsInCanvas = canvas.getComponentsInChildren(Camera);
-        console.log(`[UIManager] Found ${camsInCanvas.length} cameras in Canvas subtree`);
-        
-        for (const cam of camsInCanvas) {
-            console.log(`  Camera: ${cam.node.name}, enabled=${cam.enabled}, active=${cam.node.active}`);
-            if (cam.enabled && cam.node.active) {
-                console.log(`[UIManager] Found active camera in Canvas: ${cam.node.name}`);
-                return cam;
-            }
-        }
-
-        // If no active camera, look for any camera node (even if disabled)
-        let camNode = canvas.getChildByName("Camera");
-        console.log(`[UIManager] Direct child Camera found: ${!!camNode}`);
-        
-        if (camNode) {
-            const cam = camNode.getComponent(Camera);
-            if (cam) {
-                cam.node.active = true;
-                cam.enabled = true;
-                console.log(`[UIManager] Reactivated disabled camera in Canvas`);
-                return cam;
-            }
-        }
-
-        // List all Canvas children for debugging
-        console.log(`[UIManager] Canvas children (${canvas.children.length}):`);
-        canvas.children.forEach((child, i) => {
-            console.log(`  [${i}] ${child.name}`);
-        });
-
-        // Last resort: create fallback camera
-        console.warn(`[UIManager] No canvas camera found. Creating fallback UI camera.`);
-        camNode = new Node("UICamera_Fallback");
-        const cam = camNode.addComponent(Camera);
-        cam.priority = -1;  // Lower priority than content cameras
-        cam.visibility = Layers.BitMask.UI_2D | Layers.BitMask.UI_3D;
-        cam.clearColor = new Color(0, 0, 255, 255);
-        camNode.setPosition(0, 0, 1000);  // Position at 0,0 to show full canvas
-        canvas.addChild(camNode);
-        console.log(`[UIManager] Fallback camera created at (0,0) with priority -1`);
-        return cam;
-    }
     public resolveReferences() {
         const sceneName = director.getScene().name;
         console.log(`[UIManager] Resolving references for scene: ${sceneName}`);
@@ -160,61 +93,16 @@ export class UIManager extends Component {
             return;
         }
 
-        // Apply (0, 0) to Canvas and Camera
-        if (canvas && canvas.isValid) {
-            canvas.setPosition(640, 360, 0);
-        }
+        // Canvas position is owned exclusively by GameManager.applyCameraForState(), which
+        // keeps it following MainCamera's current center (640,360 outside Ingame, 0,0
+        // during Ingame) so SideBarUI stays framed correctly in every state. This used to
+        // hardcode (640,360,0) here, which ran after applyCameraForState() (resolveReferences()
+        // is called from switchContent(), itself called after applyCameraForState()) and
+        // silently overwrote it every time, permanently pinning SideBarUI to the corner
+        // during Ingame regardless of what GameManager set.
 
-        // Ensure we have a working UI camera
-        this.ensureCanvasCamera(canvas);
-
-        // Only work with cameras that are actually active and enabled
-        const cameras = director.getScene().getComponentsInChildren(Camera);
-        console.log(`[UIManager] Found ${cameras.length} cameras in scene`);
-        
-        const isAncestorCanvas = (node: Node): boolean => {
-            let p = node.parent;
-            while (p) {
-                if (p.name === "Canvas") return true;
-                p = p.parent;
-            }
-            return false;
-        };
-        
-        cameras.forEach(cam => {
-            // Skip disabled cameras (they'll be handled by GameManager when content is instantiated)
-            if (!cam.enabled || !cam.node.active) {
-                console.log(`[UIManager] Skipping inactive camera: ${cam.node.name}`);
-                return;
-            }
-            
-            const isUICamera = cam.node.name.toLowerCase().includes("ui") || isAncestorCanvas(cam.node);
-            console.log(`[UIManager] Camera ${cam.node.name}: isUICamera=${isUICamera}`);
-            
-            if (isUICamera) {
-                // UI Camera configuration: local (0,0,z) relative to its parent, which is
-                // what centers it on the Canvas - the Canvas node itself already sits at
-                // world (640, 360, 0), so a local (640, 360, z) here would push the camera
-                // an extra screen-width/height off-center.
-                cam.node.setPosition(0, 0, cam.node.position.z);
-                const uiMask = (Layers.BitMask.UI_2D | Layers.BitMask.UI_3D);
-                if ((cam.visibility & uiMask) !== uiMask) {
-                    console.log(`[UIManager] Updating UI camera mask for ${cam.node.name}`);
-                    cam.visibility |= uiMask;
-                }
-                // Standard UI clear color
-                cam.clearColor = new Color(0, 0, 255, 255);
-            } else {
-                // Main (3D) Camera configuration: Centered on World (0, 0)
-                cam.node.setPosition(0, 0, cam.node.position.z);
-                // Ensure it doesn't render UI layers to avoid duplicates/overlap
-                const uiMask = (Layers.BitMask.UI_2D | Layers.BitMask.UI_3D);
-                if (cam.visibility & uiMask) {
-                    console.log(`[UIManager] Removing UI layers from Main camera: ${cam.node.name}`);
-                    cam.visibility &= ~uiMask;
-                }
-            }
-        });
+        // Camera is owned exclusively by GameManager (MainCamera + applyCameraForState());
+        // UIManager no longer searches for, creates, or repositions any camera here.
 
         // --- Improved Recursive Node Search ---
         const findNodeRecursive = (node: Node, name: string): Node => {
@@ -315,7 +203,7 @@ export class UIManager extends Component {
             if (!this.sideBarUI) {
                 console.log(`[UIManager] SideBarUI not found. Creating child of UIManager.`);
                 const node = new Node("SideBarUI");
-                node.layer = 1; // DEFAULT
+                node.layer = Layers.Enum.UI_2D; // was `1`, which isn't any layer MainCamera's visibility mask includes
                 this.node.addChild(node);
 
                 const trans = node.addComponent(UITransform);
