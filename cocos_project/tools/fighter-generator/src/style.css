@@ -1,0 +1,403 @@
+/* Premium Design System */
+:root {
+  --bg-color: #0b0d19;
+  --panel-bg: rgba(15, 18, 36, 0.65);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --accent-primary: #5865f2;
+  --accent-primary-hover: #4752c4;
+  --accent-secondary: #00f0ff;
+  --accent-secondary-hover: #00c8d6;
+  --text-main: #f3f4f6;
+  --text-muted: #9ca3af;
+  --font-family-title: 'Outfit', 'Inter', sans-serif;
+  --font-family-body: 'Inter', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body, html {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--bg-color);
+  font-family: var(--font-family-body);
+  color: var(--text-main);
+  user-select: none;
+}
+
+#three-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+/* Floating UI Panel */
+#ui-container {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  width: 380px;
+  max-height: calc(100vh - 40px);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px;
+  background: var(--panel-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+  overflow-y: auto;
+}
+
+/* Scrollbar styling for floating UI */
+#ui-container::-webkit-scrollbar {
+  width: 6px;
+}
+#ui-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+#ui-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+/* Header */
+.app-header h1 {
+  font-family: var(--font-family-title);
+  font-weight: 800;
+  font-size: 1.8rem;
+  background: linear-gradient(135deg, #ffffff 0%, var(--accent-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.5px;
+}
+
+.app-header .subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* UI Sections */
+.ui-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 15px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.ui-section label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+}
+
+/* Custom Controls */
+select, input[type="text"] {
+  width: 100%;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: var(--text-main);
+  font-family: var(--font-family-body);
+  font-size: 0.9rem;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+select:focus, input[type="text"]:focus {
+  border-color: var(--accent-secondary);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+select option {
+  background-color: var(--bg-color);
+  color: var(--text-main);
+}
+
+.input-group {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.input-group input {
+  padding-right: 60px;
+}
+
+.input-group .extension {
+  position: absolute;
+  right: 16px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* Buttons */
+.button-group {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  font-family: var(--font-family-body);
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-primary {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, var(--accent-primary) 0%, #7289da 100%);
+  color: white;
+  box-shadow: 0 4px 15px rgba(88, 101, 242, 0.3);
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, var(--accent-primary-hover) 0%, #5b73c7 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(88, 101, 242, 0.4);
+}
+
+.btn-secondary {
+  flex: 2;
+  padding: 12px;
+  background: linear-gradient(135deg, #00bdcc 0%, var(--accent-secondary) 100%);
+  color: #0b0d19;
+  box-shadow: 0 4px 12px rgba(0, 240, 255, 0.25);
+}
+
+.btn-secondary:hover {
+  background: linear-gradient(135deg, #00a4b0 0%, var(--accent-secondary-hover) 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 240, 255, 0.35);
+}
+
+.btn-outline {
+  flex: 1;
+  padding: 12px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-main);
+}
+
+.btn-outline:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Status message */
+.status-message {
+  font-size: 0.8rem;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-top: 5px;
+  text-align: center;
+  transition: all 0.3s ease;
+}
+
+.status-message.success {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+.status-message.error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.status-message.hidden {
+  display: none;
+}
+
+/* Footer & Badges */
+.app-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 15px;
+}
+
+.badge {
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.usage-tip {
+  line-height: 1.4;
+  opacity: 0.8;
+}
+
+/* lil-gui Custom Styling to fit premium design */
+.lil-gui {
+  --background-color: rgba(15, 18, 36, 0.7) !important;
+  --text-color: var(--text-main) !important;
+  --title-background-color: rgba(30, 35, 66, 0.4) !important;
+  --widget-color: rgba(255, 255, 255, 0.04) !important;
+  --hover-color: rgba(255, 255, 255, 0.08) !important;
+  --focus-color: var(--accent-secondary) !important;
+  /* Must differ from --focus-color: lil-gui paints the slider track with --focus-color
+     while dragging (.slider.active) and draws the fill/knob border with --number-color
+     (.fill), so using the same value made the number text and knob vanish mid-drag. */
+  --number-color: #ffffff !important;
+  --string-color: #34d399 !important;
+  
+  border-radius: 12px !important;
+  border: 1px solid var(--panel-border) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4) !important;
+  font-family: var(--font-family-body) !important;
+  padding: 6px !important;
+  max-height: calc(100vh - 40px) !important;
+  overflow-y: auto !important;
+}
+
+/* lil-gui 数値入力・反転色の文字視認性向上 */
+.lil-gui input {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  border-radius: 4px !important;
+  padding: 2px 4px !important;
+}
+
+.lil-gui input:focus,
+.lil-gui input:active {
+  background-color: #1e2342 !important;
+  color: #00f0ff !important;
+  outline: 1.5px solid #00f0ff !important;
+}
+
+.lil-gui input::selection {
+  background-color: #00f0ff !important;
+  color: #0b0d19 !important;
+}
+
+.lil-gui .number-input:focus {
+  color: #00f0ff !important;
+}
+
+.lil-gui .title {
+  font-family: var(--font-family-title) !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.5px !important;
+  border-radius: 6px !important;
+}
+
+.lil-gui .controller {
+  margin-bottom: 4px !important;
+}
+
+/* Drag and Drop Overlay */
+.drag-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(11, 13, 25, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+  pointer-events: none; /* Let drag/drop events bypass the overlay container */
+}
+
+.drag-overlay.hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.drag-overlay-content {
+  text-align: center;
+  padding: 40px 60px;
+  border: 2px dashed rgba(0, 240, 255, 0.4);
+  border-radius: 24px;
+  background: rgba(15, 18, 36, 0.5);
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
+  max-width: 500px;
+  animation: pulse-glow 2s infinite ease-in-out;
+}
+
+.drag-icon {
+  font-size: 4rem;
+  margin-bottom: 20px;
+  animation: bounce-slow 2s infinite ease-in-out;
+}
+
+.drag-overlay h2 {
+  font-family: var(--font-family-title);
+  font-size: 1.8rem;
+  font-weight: 800;
+  margin-bottom: 10px;
+  background: linear-gradient(135deg, #ffffff 0%, var(--accent-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.drag-overlay p {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+/* Visibility hide helper for UI Panel */
+#ui-container.hidden {
+  display: none !important;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    border-color: rgba(0, 240, 255, 0.3);
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.1);
+  }
+  50% {
+    border-color: rgba(0, 240, 255, 0.7);
+    box-shadow: 0 0 40px rgba(0, 240, 255, 0.3);
+  }
+}
+
+@keyframes bounce-slow {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}

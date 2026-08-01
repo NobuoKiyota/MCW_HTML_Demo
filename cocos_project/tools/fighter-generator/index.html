@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Fighter Generator</title>
+  <!-- Google Fonts: Outfit, Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+  <!-- 3D Canvas -->
+  <canvas id="three-canvas"></canvas>
+
+  <!-- Premium Floating UI Panel -->
+  <div id="ui-container">
+    <header class="app-header">
+      <h1>Fighter Generator</h1>
+      <p class="subtitle">Procedural 3D Model Authoring Tool</p>
+    </header>
+
+    <section class="ui-section preset-section">
+      <label for="fighter-type">Fighter Type Preset</label>
+      <select id="fighter-type">
+        <option value="PLAYER">PLAYER (smart, forward/backward wings)</option>
+        <option value="ENEMY_STANDARD">ENEMY STANDARD (drone-like, military)</option>
+        <option value="ENEMY_HEAVY">ENEMY HEAVY (heavy armor, dual engines)</option>
+        <option value="RANDOM">RANDOM (all parameters randomized)</option>
+      </select>
+      <button id="btn-generate" class="btn-primary">🎲 Generate Fighter</button>
+    </section>
+
+    <section class="ui-section save-section">
+      <label for="export-filename">Export Filename</label>
+      <div class="input-group">
+        <input type="text" id="export-filename" placeholder="fighter_model" value="fighter_player">
+        <span class="extension">.glb</span>
+      </div>
+      <div class="button-group">
+        <button id="btn-save-cocos" class="btn-secondary">💾 Save directly to Cocos</button>
+        <button id="btn-download" class="btn-outline">📥 Download GLB</button>
+      </div>
+      <div id="status-message" class="status-message hidden"></div>
+    </section>
+
+    <footer class="app-footer">
+      <p>Symmetry Mode: <span class="badge active">X-Axis Mirror (Sync L ➔ R)</span></p>
+      <p class="usage-tip">Left-click + drag to rotate | Right-click + drag to pan | Scroll to zoom</p>
+    </footer>
+  </div>
+  
+  <!-- Drag and Drop Overlay -->
+  <div id="drag-overlay" class="drag-overlay hidden">
+    <div class="drag-overlay-content">
+      <div class="drag-icon">🛸</div>
+      <h2>Drop GLB to Instant Preview</h2>
+      <p>Drop any .glb or .gltf fighter parts here</p>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>

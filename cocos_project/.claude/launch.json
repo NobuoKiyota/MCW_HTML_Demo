@@ -5,6 +5,12 @@
       "name": "cocos-preview",
       "url": "http://localhost:7456",
       "port": 7456
+    },
+    {
+      "name": "fighter-generator",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "tools/fighter-generator", "run", "dev"],
+      "port": 3000
     }
   ]
 }
