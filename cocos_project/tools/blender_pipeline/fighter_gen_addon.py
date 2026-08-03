@@ -12,7 +12,7 @@ import bpy
 import os
 import math
 import random
-from bpy.props import FloatProperty, IntProperty, StringProperty, BoolProperty, EnumProperty, PointerProperty
+from bpy.props import FloatProperty, IntProperty, StringProperty, BoolProperty, EnumProperty, PointerProperty, FloatVectorProperty
 from bpy.types import PropertyGroup, Operator, Panel
 from mathutils import Vector, Matrix, Euler
 
@@ -2595,6 +2595,57 @@ def export_object_glb(obj, filepath):
     select_hierarchy(obj)
     bpy.context.view_layer.objects.active = obj
 
+
+def export_assembly_glb(objs, filepath):
+    """Like export_object_glb, but for a list of independent objects that are NOT a
+    Blender parent/child hierarchy (Assembly parts are separate top-level objects
+    positioned in world space) -- duplicates all of them, bakes each one's own
+    modifier stack (Mirror/Twist/Taper/Lattice/whatever), joins them into a single
+    mesh (each source object's material becomes its own material slot on the result),
+    and exports as one combined GLB. This is what makes the whole assembled ship
+    importable into Cocos Creator as one model instead of one file per part."""
+    objs = [o for o in objs if o.type == 'MESH']
+    if not objs:
+        return False
+
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in objs:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = objs[0]
+    bpy.ops.object.duplicate()
+    copied_objs = [o for o in bpy.context.selected_objects if o.type == 'MESH']
+    if not copied_objs:
+        return False
+
+    bpy.ops.object.select_all(action='DESELECT')
+    for co in copied_objs:
+        co.select_set(True)
+    bpy.context.view_layer.objects.active = copied_objs[0]
+
+    bpy.ops.object.convert(target='MESH')
+    if len(copied_objs) > 1:
+        bpy.ops.object.join()
+
+    main_export_obj = bpy.context.active_object
+    main_export_obj.location = (0.0, 0.0, 0.0)
+    main_export_obj.rotation_euler = (0.0, 0.0, 0.0)
+    main_export_obj.scale = (1.0, 1.0, 1.0)
+    main_export_obj.name = "assembly_gltf_export_temp"
+
+    bpy.ops.export_scene.gltf(
+        filepath=filepath,
+        use_selection=True,
+        export_format='GLB',
+        export_yup=True,
+        export_apply=True,
+    )
+
+    bpy.data.objects.remove(main_export_obj, do_unlink=True)
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in objs:
+        o.select_set(True)
+    return True
+
 # ---------------------------------------------------------------------------
 # Settings / per-category variant generators / Operators / Panel
 # ---------------------------------------------------------------------------
@@ -2614,6 +2665,12 @@ class FighterGenSettings(PropertyGroup):
         name="Export Folder (parts root)",
         default=r"Z:\HTMLShooterCocos\cocos_project\tools\fighter-generator\public\parts",
         subtype='DIR_PATH',
+    )
+    cocos_export_dir: StringProperty(
+        name="Cocos Export Folder",
+        default=r"Z:\HTMLShooterCocos\cocos_project\assets\resources\Models",
+        subtype='DIR_PATH',
+        description="Where 'Export Assembly to Cocos' writes the combined GLB -- matches the project's existing assets/resources/Models convention, so Cocos Creator picks it up automatically",
     )
 
     length_min: FloatProperty(name='Length Min', default=3.0, min=0.1)
@@ -2735,6 +2792,12 @@ class FighterGenSettings(PropertyGroup):
     taper_factor_min: FloatProperty(name="Taper Factor Min", default=-0.45, min=-1.0, max=1.0)
     taper_factor_max: FloatProperty(name="Taper Factor Max", default=0.45, min=-1.0, max=1.0)
     metallic: FloatProperty(name="Metallic", default=0.8, min=0.0, max=1.0)
+    primary_color: FloatVectorProperty(name="Primary Color", subtype='COLOR', size=4,
+        default=(0.55, 0.58, 0.62, 1.0), min=0.0, max=1.0,
+        description="Base hull color applied to every generated part -- change this to repaint the whole ship at once")
+    accent_glow_color: FloatVectorProperty(name="Accent Glow Color", subtype='COLOR', size=4,
+        default=(0.0, 1.0, 1.0, 1.0), min=0.0, max=1.0,
+        description="Emissive color for engine exhaust rings and weapon glow bits")
 
     # Detail pass: applied on-demand to whatever is currently SELECTED (see
     # fightergen.apply_detail_pass), not baked into every batch-generated variant --
@@ -3053,10 +3116,10 @@ class FIGHTERGEN_OT_generate(Operator):
         part = s.part_type
         cat_lower = CATEGORY_FOLDERS[part]
 
-        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
+        mat_base = make_material('FighterGen_Base', tuple(s.primary_color), s.metallic)
         mat_glow = None
         if part in ('WEAPONS', 'ENGINES'):
-            mat_glow = make_glow_material('FighterGen_Glow', (0.0, 1.0, 1.0, 1.0))
+            mat_glow = make_glow_material('FighterGen_Glow', tuple(s.accent_glow_color))
 
         cols = max(1, math.ceil(math.sqrt(s.variant_count)))
         x_step = 2.0 * s.spacing
@@ -3139,6 +3202,40 @@ class FIGHTERGEN_OT_export_selected(Operator):
             export_object_glb(obj, filepath)
 
         self.report({'INFO'}, f"Exported {len(sel)} baked GLB(s) to {export_folder}")
+        return {'FINISHED'}
+
+
+class FIGHTERGEN_OT_export_assembly_cocos(Operator):
+    bl_idname = "fightergen.export_assembly_cocos"
+    bl_label = "Export Assembly to Cocos"
+    bl_description = ("Joins every part of the current assembly (or the selected objects, if any) into one "
+                       "mesh and exports it as a single GLB into the Cocos project's assets/resources/Models "
+                       "folder, so it shows up as one importable model instead of one file per part")
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        s = context.scene.fightergen_settings
+        parts = [o for o in context.selected_objects if o.type == 'MESH']
+        if not parts:
+            coll = bpy.data.collections.get(ASSEMBLY_COLLECTION)
+            if coll is not None:
+                parts = [o for o in coll.objects if o.type == 'MESH']
+
+        if not parts:
+            self.report({'WARNING'}, "No mesh objects selected (and no FighterGen_Assembly to fall back to).")
+            return {'CANCELLED'}
+
+        export_folder = bpy.path.abspath(s.cocos_export_dir)
+        os.makedirs(export_folder, exist_ok=True)
+        name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
+        filepath = os.path.join(export_folder, name + '.glb')
+
+        ok = export_assembly_glb(parts, filepath)
+        if not ok:
+            self.report({'ERROR'}, "Export failed -- no mesh geometry to export.")
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, f"Exported {len(parts)} part(s) as one GLB to {filepath}")
         return {'FINISHED'}
 
 
@@ -3265,6 +3362,8 @@ class FIGHTERGEN_PT_panel(Panel):
         mat_box = layout.box()
         mat_box.label(text="Material")
         mat_box.prop(s, 'metallic')
+        mat_box.prop(s, 'primary_color')
+        mat_box.prop(s, 'accent_glow_color')
 
         adv_box = layout.box()
         row = adv_box.row()
@@ -3420,6 +3519,10 @@ class FIGHTERGEN_PT_panel(Panel):
         export_box.prop(s, 'export_glb')
         export_box.prop(s, 'export_dir')
         export_box.operator('fightergen.export_selected', icon='EXPORT')
+        export_box.separator()
+        export_box.label(text="Cocos Creator (whole assembly -> one GLB)")
+        export_box.prop(s, 'cocos_export_dir')
+        export_box.operator('fightergen.export_assembly_cocos', icon='EXPORT')
 
 
 # ---------------------------------------------------------------------------
@@ -3954,7 +4057,7 @@ class FIGHTERGEN_OT_assemble(Operator):
         rng = random.Random(s.random_seed if s.random_seed != 0 else None)
         coll = _clear_assembly_collection()
 
-        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
+        mat_base = make_material('FighterGen_Base', tuple(s.primary_color), s.metallic)
 
         name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
         fuselage = _generate_fuselage_variant(rng, f"{name}_fuselage", s, mat_base)
@@ -3997,7 +4100,7 @@ class FIGHTERGEN_OT_assemble(Operator):
 
         engine_msg = ""
         if s.assemble_engine_pod_enable:
-            mat_glow = make_glow_material('FighterGen_Glow', (0.0, 1.0, 1.0, 1.0))
+            mat_glow = make_glow_material('FighterGen_Glow', tuple(s.accent_glow_color))
             span_fracs = _engine_pod_span_fracs(rng, s)
             for i, frac in enumerate(span_fracs):
                 pod = _generate_engine_pod(rng, name, f'enginepod{i}', s, mat_base, mat_glow, fuselage, wing, wing_span, frac)
@@ -4006,7 +4109,7 @@ class FIGHTERGEN_OT_assemble(Operator):
 
         weapon_msg = ""
         if s.assemble_wing_weapon_enable:
-            mat_glow_wp = make_glow_material('FighterGen_Glow', (0.0, 1.0, 1.0, 1.0))
+            mat_glow_wp = make_glow_material('FighterGen_Glow', tuple(s.accent_glow_color))
             wp_span_frac = _rr(rng, s.assemble_wing_weapon_span_frac_min, s.assemble_wing_weapon_span_frac_max)
             wing_weapon = _generate_wing_weapon(rng, name, 'wing_weapon', s, mat_base, mat_glow_wp, fuselage, wing, wing_span, wp_span_frac)
             created.append(wing_weapon)
@@ -4040,7 +4143,7 @@ class FIGHTERGEN_OT_reroll_tail(Operator):
             self.report({'ERROR'}, "No assembly fuselage found in FighterGen_Assembly collection")
             return {'CANCELLED'}
         fuselage_length = fuselage.dimensions.y
-        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
+        mat_base = make_material('FighterGen_Base', tuple(s.primary_color), s.metallic)
         rng = random.Random()
         name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
 
@@ -4067,7 +4170,7 @@ class FIGHTERGEN_OT_reroll_canopy(Operator):
             self.report({'ERROR'}, "No assembly fuselage found in FighterGen_Assembly collection")
             return {'CANCELLED'}
         fuselage_length = fuselage.dimensions.y
-        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
+        mat_base = make_material('FighterGen_Base', tuple(s.primary_color), s.metallic)
         rng = random.Random()
         name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
 
@@ -4102,8 +4205,8 @@ class FIGHTERGEN_OT_reroll_engine_pods(Operator):
             self.report({'ERROR'}, "No main wing found in FighterGen_Assembly collection")
             return {'CANCELLED'}
 
-        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
-        mat_glow = make_glow_material('FighterGen_Glow', (0.0, 1.0, 1.0, 1.0))
+        mat_base = make_material('FighterGen_Base', tuple(s.primary_color), s.metallic)
+        mat_glow = make_glow_material('FighterGen_Glow', tuple(s.accent_glow_color))
         rng = random.Random()
         name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
 
@@ -4147,8 +4250,8 @@ class FIGHTERGEN_OT_reroll_wing_weapon(Operator):
             self.report({'ERROR'}, "No main wing found in FighterGen_Assembly collection")
             return {'CANCELLED'}
 
-        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
-        mat_glow = make_glow_material('FighterGen_Glow', (0.0, 1.0, 1.0, 1.0))
+        mat_base = make_material('FighterGen_Base', tuple(s.primary_color), s.metallic)
+        mat_glow = make_glow_material('FighterGen_Glow', tuple(s.accent_glow_color))
         rng = random.Random()
         name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
 
@@ -4198,7 +4301,7 @@ class FIGHTERGEN_OT_reroll_wing(Operator):
             return {'CANCELLED'}
 
         rng = random.Random(s.random_seed if s.random_seed != 0 else None)
-        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
+        mat_base = make_material('FighterGen_Base', tuple(s.primary_color), s.metallic)
 
         _remove_assembly_objects_by_suffix(coll, fuselage, '_wing_r')
         had_aileron = any(o.name.endswith('_wing_aileron_r') for o in coll.objects)
@@ -4240,7 +4343,7 @@ class FIGHTERGEN_OT_reroll_subwing(Operator):
             return {'CANCELLED'}
 
         rng = random.Random(s.random_seed if s.random_seed != 0 else None)
-        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
+        mat_base = make_material('FighterGen_Base', tuple(s.primary_color), s.metallic)
 
         _remove_assembly_objects_by_suffix(coll, fuselage, '_subwing_r')
         had_aileron = any(o.name.endswith('_subwing_aileron_r') for o in coll.objects)
@@ -4270,6 +4373,7 @@ classes = (
     FighterGenSettings,
     FIGHTERGEN_OT_generate,
     FIGHTERGEN_OT_export_selected,
+    FIGHTERGEN_OT_export_assembly_cocos,
     FIGHTERGEN_OT_apply_detail_pass,
     FIGHTERGEN_OT_add_whole_ship_lattice,
     FIGHTERGEN_OT_assemble,
