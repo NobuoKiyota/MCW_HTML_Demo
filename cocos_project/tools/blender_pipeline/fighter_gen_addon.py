@@ -2565,6 +2565,27 @@ class FighterGenSettings(PropertyGroup):
     taper_factor_max: FloatProperty(name="Taper Factor Max", default=0.45, min=-1.0, max=1.0)
     metallic: FloatProperty(name="Metallic", default=0.8, min=0.0, max=1.0)
 
+    # Detail pass: applied on-demand to whatever is currently SELECTED (see
+    # fightergen.apply_detail_pass), not baked into every batch-generated variant --
+    # two voxel remeshes plus a wireframe-duplicate are expensive enough that running
+    # them on every random variant (most of which get discarded) would be wasteful.
+    use_detail_remesh1: BoolProperty(name="Remesh 1 (Blocks)", default=False)
+    detail_remesh1_octree_min: IntProperty(name="Remesh 1 Octree Min", default=5, min=1, max=10)
+    detail_remesh1_octree_max: IntProperty(name="Remesh 1 Octree Max", default=6, min=1, max=10)
+    detail_remesh1_scale: FloatProperty(name="Remesh 1 Scale", default=0.9, min=0.1, max=0.99)
+    use_detail_remesh2: BoolProperty(name="Remesh 2 (Sharp)", default=False)
+    detail_remesh2_octree_min: IntProperty(name="Remesh 2 Octree Min", default=4, min=1, max=10)
+    detail_remesh2_octree_max: IntProperty(name="Remesh 2 Octree Max", default=5, min=1, max=10)
+    detail_remesh2_scale: FloatProperty(name="Remesh 2 Scale", default=0.9, min=0.1, max=0.99)
+    detail_remesh2_sharpness: FloatProperty(name="Remesh 2 Sharpness", default=1.0, min=0.0, max=1.0)
+    use_detail_bevel: BoolProperty(name="Bevel", default=False)
+    detail_bevel_width: FloatProperty(name="Detail Bevel Width", default=0.1, min=0.0, max=0.5)
+    detail_bevel_angle_deg: FloatProperty(name="Detail Bevel Angle", default=30.0, min=1.0, max=180.0)
+    use_wireframe_detail: BoolProperty(name="Wireframe Copy", default=False,
+        description="Duplicates the object and adds a Wireframe modifier to the copy (cage overlay on top of the solid part)")
+    wireframe_thickness: FloatProperty(name="Wireframe Thickness", default=0.1, min=0.001, max=1.0)
+    wireframe_offset: FloatProperty(name="Wireframe Offset", default=0.3, min=-1.0, max=1.0)
+
     assemble_wing_attach_min: FloatProperty(name="Wing Attach Y Min (frac of Length)", default=0.45, min=0.05, max=0.95)
     assemble_wing_attach_max: FloatProperty(name="Wing Attach Y Max (frac of Length)", default=0.62, min=0.05, max=0.95)
     assemble_wing_overlap: FloatProperty(name="Wing Root Overlap", default=0.85, min=0.5, max=1.05)
@@ -2612,6 +2633,51 @@ def _apply_bevel(obj, s):
         bevel.angle_limit = math.radians(s.bevel_angle_deg)
         bpy.context.view_layer.objects.active = obj
         bpy.ops.object.modifier_apply(modifier=bevel.name)
+
+
+def _apply_detail_pass(obj, s):
+    """Live Remesh(Blocks)->Remesh(Sharp)->Bevel stack, matching the user's manual
+    hard-surface workflow, plus an optional Wireframe-modifier duplicate as a cage
+    overlay. Deliberately NOT wired into random generation -- run via the
+    'Apply Detail Pass to Selected' button on whatever part you've already picked, since
+    two voxel remeshes are expensive to redo on every random batch variant."""
+    if s.use_detail_remesh1:
+        mod = obj.modifiers.new("DetailRemesh1_Blocks", 'REMESH')
+        mod.mode = 'BLOCKS'
+        mod.octree_depth = random.randint(*sorted((s.detail_remesh1_octree_min, s.detail_remesh1_octree_max)))
+        mod.scale = s.detail_remesh1_scale
+        mod.use_remove_disconnected = True
+        mod.threshold = 1.0
+
+    if s.use_detail_remesh2:
+        mod = obj.modifiers.new("DetailRemesh2_Sharp", 'REMESH')
+        mod.mode = 'SHARP'
+        mod.octree_depth = random.randint(*sorted((s.detail_remesh2_octree_min, s.detail_remesh2_octree_max)))
+        mod.scale = s.detail_remesh2_scale
+        mod.sharpness = s.detail_remesh2_sharpness
+        mod.use_remove_disconnected = True
+        mod.threshold = 1.0
+
+    if s.use_detail_bevel:
+        mod = obj.modifiers.new("DetailBevel", 'BEVEL')
+        mod.width = s.detail_bevel_width
+        mod.segments = 1
+        mod.limit_method = 'ANGLE'
+        mod.angle_limit = math.radians(s.detail_bevel_angle_deg)
+
+    if s.use_wireframe_detail:
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.duplicate()
+        dup = bpy.context.active_object
+        dup.name = obj.name + "_wireframe"
+        wf = dup.modifiers.new("Wireframe", 'WIREFRAME')
+        wf.thickness = s.wireframe_thickness
+        wf.offset = s.wireframe_offset
+        wf.use_replace = True
+        wf.use_even_offset = True
+        wf.use_relative_offset = True
 
 
 def _finish_gn_object(name, template, socket_values, mat_base=None, mat_glow=None):
@@ -2889,6 +2955,29 @@ class FIGHTERGEN_OT_export_selected(Operator):
         return {'FINISHED'}
 
 
+class FIGHTERGEN_OT_apply_detail_pass(Operator):
+    bl_idname = "fightergen.apply_detail_pass"
+    bl_label = "Apply Detail Pass to Selected"
+    bl_description = ("Adds the enabled Remesh(Blocks)/Remesh(Sharp)/Bevel/Wireframe-copy modifiers "
+                       "to the currently selected object(s) only -- run this on a part you've already "
+                       "chosen, not during batch generation, since voxel remeshing is expensive")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        s = context.scene.fightergen_settings
+        targets = [o for o in context.selected_objects if o.type == 'MESH']
+        if not targets:
+            self.report({'WARNING'}, "No mesh objects selected.")
+            return {'CANCELLED'}
+        if not (s.use_detail_remesh1 or s.use_detail_remesh2 or s.use_detail_bevel or s.use_wireframe_detail):
+            self.report({'WARNING'}, "No detail-pass options are enabled.")
+            return {'CANCELLED'}
+        for obj in targets:
+            _apply_detail_pass(obj, s)
+        self.report({'INFO'}, f"Applied detail pass to {len(targets)} object(s)")
+        return {'FINISHED'}
+
+
 class FIGHTERGEN_PT_panel(Panel):
     bl_label = "Fighter Part Generator"
     bl_idname = "FIGHTERGEN_PT_panel"
@@ -3033,6 +3122,23 @@ class FIGHTERGEN_PT_panel(Panel):
         row = assemble_box.row(align=True)
         row.operator('fightergen.reroll_tail', icon='FILE_REFRESH', text="Reroll Tail")
         row.operator('fightergen.reroll_canopy', icon='FILE_REFRESH', text="Reroll Canopy")
+
+        detail_box = layout.box()
+        detail_box.label(text="Detail Pass (applies to selected object(s) only)")
+        detail_box.label(text="Not run during batch generation -- voxel remesh is expensive", icon='INFO')
+        row = detail_box.row(align=True)
+        row.prop(s, 'use_detail_remesh1')
+        row.prop(s, 'detail_remesh1_octree_min'); row.prop(s, 'detail_remesh1_octree_max')
+        row = detail_box.row(align=True)
+        row.prop(s, 'use_detail_remesh2')
+        row.prop(s, 'detail_remesh2_octree_min'); row.prop(s, 'detail_remesh2_octree_max')
+        row = detail_box.row(align=True)
+        row.prop(s, 'use_detail_bevel')
+        row.prop(s, 'detail_bevel_width'); row.prop(s, 'detail_bevel_angle_deg')
+        row = detail_box.row(align=True)
+        row.prop(s, 'use_wireframe_detail')
+        row.prop(s, 'wireframe_thickness'); row.prop(s, 'wireframe_offset')
+        detail_box.operator('fightergen.apply_detail_pass', icon='MOD_REMESH')
 
         export_box = layout.box()
         export_box.label(text="Export")
@@ -3603,6 +3709,7 @@ classes = (
     FighterGenSettings,
     FIGHTERGEN_OT_generate,
     FIGHTERGEN_OT_export_selected,
+    FIGHTERGEN_OT_apply_detail_pass,
     FIGHTERGEN_OT_assemble,
     FIGHTERGEN_OT_reroll_wing,
     FIGHTERGEN_OT_reroll_subwing,
