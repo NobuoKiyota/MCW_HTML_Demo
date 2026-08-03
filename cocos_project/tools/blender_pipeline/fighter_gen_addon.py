@@ -3178,19 +3178,25 @@ def _generate_aileron(rng, name_prefix, part_label, s, mat_base, fuselage_obj, p
     _apply_bevel(aileron, s)
     add_optional_modifiers(aileron, s, rng, 'X')
 
-    # Target position along span
+    # Target position along span. `parent_span` is the wing's full tip-to-tip Span
+    # parameter, but since build_wings_template now generates BOTH halves in one
+    # mesh centered on X=0 (bilateral conversion), each side's actual local-space
+    # extent is only half of that: root at X=0, tip at X=-parent_span/2 (this side).
+    # Using the full parent_span here (as before the bilateral change) puts the
+    # raycast origin past the mesh's real edge, missing it entirely.
+    half_span = parent_span / 2.0
     span_frac = _rr(rng, s.assemble_aileron_span_frac_min, s.assemble_aileron_span_frac_max)
-    x_center = -parent_span * span_frac
+    x_center = -half_span * span_frac
 
     # Multi-point sampling along the trailing edge around x_center
-    delta = max(parent_span * 0.04, 0.02)
+    delta = max(half_span * 0.04, 0.02)
     sample_offsets = [0.0, -delta, delta, -2.0 * delta, 2.0 * delta]
     hits = []  # list of (x_local, hit_loc_world, hit_norm_world)
 
     for off in sample_offsets:
         x_loc = x_center + off
-        # Clamp within valid wing span [-parent_span * 0.98, -parent_span * 0.02]
-        x_loc_clamped = max(min(x_loc, -parent_span * 0.02), -parent_span * 0.98)
+        # Clamp within valid wing half-span [-half_span * 0.98, -half_span * 0.02]
+        x_loc_clamped = max(min(x_loc, -half_span * 0.02), -half_span * 0.98)
         hit_loc, hit_norm = sample_wing_trailing_edge(parent_wing_obj, x_loc_clamped)
         if hit_loc is not None:
             w_loc = parent_wing_obj.matrix_world @ hit_loc
@@ -3242,7 +3248,7 @@ def _generate_aileron(rng, name_prefix, part_label, s, mat_base, fuselage_obj, p
             aileron_rot = Euler((0.0, 0.0, angle_z))
     else:
         # Fallback if all raycasts failed: align roughly with wing world transform
-        hit_local = Vector((x_center, -parent_span * 0.2, 0.0))
+        hit_local = Vector((x_center, -half_span * 0.2, 0.0))
         hit_world = parent_wing_obj.matrix_world @ hit_local
         aileron_rot = parent_wing_obj.matrix_world.to_euler()
 
@@ -3302,7 +3308,7 @@ def _generate_tail_assembly(rng, name_prefix, s, mat_base, fuselage_obj, fuselag
 
     tail = _finish_gn_object(f"{name_prefix}_tail_r", template, p, mat_base=mat_base)
     _apply_bevel(tail, s)
-    add_optional_modifiers(tail, s, rng, 'X')
+    add_optional_modifiers(tail, s, rng, 'Z')  # tails span along Z (build_tails_template), not X like wings
 
     # Origin at X=0 on the centerline so MirrorToLeft and Rotation Y fold symmetrically
     tail.location = (0.0, attach_y, root_z)
