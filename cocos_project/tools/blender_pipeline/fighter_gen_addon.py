@@ -3620,6 +3620,10 @@ def _generate_engine_pod(rng, name_prefix, part_label, s, mat_base, mat_glow, fu
     # Hang the pod below the wing surface by its own radius plus a small gap, so it
     # reads as flush-mounted underneath rather than floating or clipping through.
     pod.location = hit_world + Vector((0.0, 0.0, -(radius + 0.02)))
+    # NOT _orient_forward() here: a jet nacelle's narrow end (the exhaust) is supposed
+    # to face BACKWARD by design, the opposite of the "narrow end = forward-facing
+    # tip" assumption _orient_forward relies on. build_jet_nacelle_template already
+    # puts the exhaust at local +Y (aft) intentionally, so identity rotation is correct.
     pod.rotation_euler = (0.0, 0.0, 0.0)
     pod.scale = (1.0, 1.0, 1.0)
 
@@ -3643,6 +3647,60 @@ def sample_wing_topside(wing_obj, x_local, y_local, max_dist=50.0):
     if not success:
         return None, None
     return hit_loc, hit_normal
+
+
+# Confirmed empirically (test_orientation_check2.py): the fuselage's nose sits at
+# local Y=0 and the hull widens toward +Y as it runs aft to the tail. So for the
+# ASSEMBLED SHIP specifically, "forward" is -Y -- not the same thing as the general
+# per-part "Length runs along Y" convention, which says nothing about which end of
+# that Y range is the front. Templates built at different times (weapons vs. the
+# nacelle built this session) turned out to disagree on which of their own ends is
+# the "business end" pointing towards +Y vs -Y, which is how the wing weapon ended up
+# facing backward. Rather than re-deriving each new template's convention by hand
+# (and getting it wrong again), measure it automatically.
+def _needs_forward_flip(obj, forward_sign=-1.0):
+    """True if `obj`'s geometry needs a 180-degree Z rotation so its narrower/tapered
+    end faces `forward_sign` * local Y (default -Y, the ship's forward direction)
+    instead of the opposite end. Measures the object's OWN current mesh, so it
+    self-corrects regardless of which way any individual template happens to have
+    been built -- no more re-deriving a new template's local "front" by hand.
+
+    CAVEAT: this assumes the narrow/tapered end IS the forward-facing tip, which
+    holds for most pointed add-ons (weapon muzzles, probes, spikes, noses) but is
+    WRONG for parts that are deliberately narrower at the REAR, like a jet nacelle
+    (exhaust < intake) -- for those, set rotation explicitly instead and say why,
+    see _generate_engine_pod."""
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    obj_eval = obj.evaluated_get(depsgraph)
+    mesh = obj_eval.to_mesh()
+    verts = [v.co for v in mesh.vertices if abs(v.co.y) < 1000.0 and (v.co.x ** 2 + v.co.z ** 2) < 1000.0]
+    obj_eval.to_mesh_clear()
+    if len(verts) < 8:
+        return False
+    ys = [v.y for v in verts]
+    y_min, y_max = min(ys), max(ys)
+    if y_max - y_min < 1e-6:
+        return False
+    band = (y_max - y_min) * 0.15
+    near_min = [math.sqrt(v.x ** 2 + v.z ** 2) for v in verts if v.y < y_min + band]
+    near_max = [math.sqrt(v.x ** 2 + v.z ** 2) for v in verts if v.y > y_max - band]
+    if not near_min or not near_max:
+        return False
+    avg_min = sum(near_min) / len(near_min)
+    avg_max = sum(near_max) / len(near_max)
+    tip_is_positive_y = avg_max < avg_min
+    wants_positive_y = forward_sign > 0
+    return tip_is_positive_y != wants_positive_y
+
+
+def _orient_forward(obj, forward_sign=-1.0):
+    """Rotates `obj` 180 degrees around Z if needed so its tapered end faces the
+    ship's forward direction, per _needs_forward_flip. Call this instead of hardcoding
+    rotation_euler=(0,0,0) on any newly-attached part that should face forward."""
+    if _needs_forward_flip(obj, forward_sign):
+        obj.rotation_euler = (0.0, 0.0, math.pi)
+    else:
+        obj.rotation_euler = (0.0, 0.0, 0.0)
 
 
 def _generate_wing_weapon(rng, name_prefix, part_label, s, mat_base, mat_glow, fuselage_obj, parent_wing_obj, parent_span, span_frac):
@@ -3682,7 +3740,7 @@ def _generate_wing_weapon(rng, name_prefix, part_label, s, mat_base, mat_glow, f
     # Sit the weapon on top of the wing surface by its own radius plus a small gap,
     # so it reads as flush-mounted on top rather than floating or clipping through.
     weapon.location = hit_world + Vector((0.0, 0.0, radius + 0.02))
-    weapon.rotation_euler = (0.0, 0.0, 0.0)
+    _orient_forward(weapon)
     weapon.scale = (1.0, 1.0, 1.0)
 
     mirror_mod = weapon.modifiers.new("MirrorToLeft", 'MIRROR')
