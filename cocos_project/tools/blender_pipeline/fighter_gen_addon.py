@@ -3273,16 +3273,20 @@ def _generate_tail_assembly(rng, name_prefix, s, mat_base, fuselage_obj, fuselag
     tail_root = fuselage_length * _rr(rng, 0.08, 0.12)
     tail_tip = tail_root * _rr(rng, 0.35, 0.55)
 
+    # NOTE: Sweep parameter is in METERS (trailing-edge setback at tip), NOT degrees.
+    # wing_sweep_max defaults to 1.2m. Tail uses fuselage-proportional values.
+    tail_sweep = tail_root * _rr(rng, 0.4, 1.0)
+
     p = {
         'Span': tail_span,
         'RootChord': tail_root,
         'TipChord': tail_tip,
-        'Sweep': _rr(rng, 20.0, 45.0),
+        'Sweep': tail_sweep,
         'Thickness': tail_root * 0.12,
         'ThicknessMid': 0.0,
         'RootThickness': 0.8,
         'TipThickness': 0.5,
-        'Dihedral': _rr(rng, 35.0, 70.0),
+        'Dihedral': _rr(rng, 30.0, 65.0),  # in degrees (converted RADIANS→TAN in template)
         'Twist': 0.0,
         'AirfoilSharpness': 1.2,
         'LeadingEdgeMid': 0.0,
