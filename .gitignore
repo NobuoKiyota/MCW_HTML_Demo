@@ -4,3 +4,5 @@ cocos_project/.ignore
 node_modules/
 dist/
 .DS_Store
+__pycache__/
+*.blend1

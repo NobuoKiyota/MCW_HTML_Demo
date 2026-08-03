@@ -11,7 +11,7 @@ if (-not (Test-Path $sourcePath)) {
     exit 1
 }
 
-$blenderAppDataRoot = "C:\Users\kiyot\AppData\Roaming\Blender Foundation\Blender"
+$blenderAppDataRoot = Join-Path $env:APPDATA "Blender Foundation\Blender"
 if (-not (Test-Path $blenderAppDataRoot)) {
     Write-Warning "Blender AppData directory not found at $blenderAppDataRoot. Skip automatic installation."
     exit 0

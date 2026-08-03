@@ -16,6 +16,16 @@ from bpy.props import FloatProperty, IntProperty, StringProperty, BoolProperty, 
 from bpy.types import PropertyGroup, Operator, Panel
 from mathutils import Vector, Matrix, Euler
 
+# Export folder defaults, computed from this addon file's own location instead of a
+# hardcoded drive letter - "Z:\HTMLShooterCocos\..." was a mapped/subst drive that only
+# existed on the machine this addon was originally written on. This file always lives at
+# <cocos_project>/tools/blender_pipeline/fighter_gen_addon.py, so walk up two levels to
+# find <cocos_project> regardless of which machine or drive letter it's checked out to.
+_ADDON_DIR = os.path.dirname(os.path.abspath(__file__))
+_COCOS_PROJECT_DIR = os.path.abspath(os.path.join(_ADDON_DIR, "..", ".."))
+_DEFAULT_PARTS_EXPORT_DIR = os.path.join(_COCOS_PROJECT_DIR, "tools", "fighter-generator", "public", "parts")
+_DEFAULT_COCOS_EXPORT_DIR = os.path.join(_COCOS_PROJECT_DIR, "assets", "resources", "Models")
+
 FUSELAGE_TEMPLATE = "GN_Fuselage_Template"
 WINGS_TEMPLATE = "GN_Wings_Template"
 TAILS_TEMPLATE = "GN_Tails_Template"
@@ -2609,6 +2619,11 @@ def make_material(name, base_color, metallic, roughness=0.4):
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     if bsdf:
+        # Clear any link left over from a previous apply_ship_gradient() call - an input
+        # socket with an incoming link ignores default_value entirely, so without this a
+        # gradient would keep showing even after the user turns Nose-to-Tail Gradient off.
+        for link in list(bsdf.inputs['Base Color'].links):
+            mat.node_tree.links.remove(link)
         bsdf.inputs['Base Color'].default_value = base_color
         bsdf.inputs['Metallic'].default_value = metallic
         bsdf.inputs['Roughness'].default_value = roughness
@@ -2625,6 +2640,70 @@ def make_glow_material(name, color):
         bsdf.inputs['Emission'].default_value = color
         bsdf.inputs['Emission Strength'].default_value = 4.0
     return mat
+
+
+_GRADIENT_NODE_NAMES = ("FighterGen_GradientCoord", "FighterGen_GradientSep",
+                         "FighterGen_GradientRange", "FighterGen_GradientRamp")
+
+
+def apply_ship_gradient(mat, base_color, tail_color, collection):
+    """Rebuilds a World Position(Y) -> Map Range -> ColorRamp node network driving
+    `mat`'s Base Color, blending base_color (nose) into tail_color (tail) across the
+    real world-space Y extent of every mesh object currently in `collection`.
+
+    Must be called AFTER all of this generation/reroll's parts are linked into
+    `collection` - the Y extent isn't known before then. Call make_material() first as
+    usual (sets the flat fallback + clears any stale link); this only adds the gradient
+    network on top when the caller decides s.use_gradient is on. No-op if the
+    collection has no mesh objects yet (e.g. called before Assemble Fighter has run).
+    """
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = nodes.get("Principled BSDF")
+    if not bsdf:
+        return
+
+    # Idempotent rebuild: drop any gradient network from a previous Assemble/Reroll so
+    # repeated clicks don't accumulate orphan nodes.
+    for existing in [nodes.get(n) for n in _GRADIENT_NODE_NAMES]:
+        if existing:
+            nodes.remove(existing)
+
+    y_min = y_max = None
+    for obj in collection.objects:
+        if obj.type != 'MESH':
+            continue
+        for corner in obj.bound_box:
+            wy = (obj.matrix_world @ Vector(corner)).y
+            y_min = wy if y_min is None else min(y_min, wy)
+            y_max = wy if y_max is None else max(y_max, wy)
+    if y_min is None or y_max <= y_min:
+        return
+
+    coord = nodes.new('ShaderNodeNewGeometry')
+    coord.name = coord.label = "FighterGen_GradientCoord"
+    coord.location = (bsdf.location.x - 700, bsdf.location.y - 250)
+
+    sep = nodes.new('ShaderNodeSeparateXYZ')
+    sep.name = sep.label = "FighterGen_GradientSep"
+    sep.location = (bsdf.location.x - 500, bsdf.location.y - 250)
+    links.new(coord.outputs['Position'], sep.inputs['Vector'])
+
+    rng = nodes.new('ShaderNodeMapRange')
+    rng.name = rng.label = "FighterGen_GradientRange"
+    rng.location = (bsdf.location.x - 350, bsdf.location.y - 250)
+    rng.inputs['From Min'].default_value = y_min
+    rng.inputs['From Max'].default_value = y_max
+    links.new(sep.outputs['Y'], rng.inputs['Value'])
+
+    ramp = nodes.new('ShaderNodeValToRGB')
+    ramp.name = ramp.label = "FighterGen_GradientRamp"
+    ramp.location = (bsdf.location.x - 150, bsdf.location.y - 250)
+    ramp.color_ramp.elements[0].color = base_color
+    ramp.color_ramp.elements[1].color = tail_color
+    links.new(rng.outputs['Result'], ramp.inputs['Fac'])
+
+    links.new(ramp.outputs['Color'], bsdf.inputs['Base Color'])
 
 
 def export_object_glb(obj, filepath):
@@ -2742,12 +2821,12 @@ class FighterGenSettings(PropertyGroup):
     export_glb: BoolProperty(name='Export GLB on Generate', default=False)
     export_dir: StringProperty(
         name="Export Folder (parts root)",
-        default=r"Z:\HTMLShooterCocos\cocos_project\tools\fighter-generator\public\parts",
+        default=_DEFAULT_PARTS_EXPORT_DIR,
         subtype='DIR_PATH',
     )
     cocos_export_dir: StringProperty(
         name="Cocos Export Folder",
-        default=r"Z:\HTMLShooterCocos\cocos_project\assets\resources\Models",
+        default=_DEFAULT_COCOS_EXPORT_DIR,
         subtype='DIR_PATH',
         description="Where 'Export Assembly to Cocos' writes the combined GLB -- matches the project's existing assets/resources/Models convention, so Cocos Creator picks it up automatically",
     )
@@ -2881,6 +2960,14 @@ class FighterGenSettings(PropertyGroup):
     accent_glow_color: FloatVectorProperty(name="Accent Glow Color", subtype='COLOR', size=4,
         default=(0.0, 1.0, 1.0, 1.0), min=0.0, max=1.0,
         description="Emissive color for engine exhaust rings and weapon glow bits")
+    use_gradient: BoolProperty(name="Nose-to-Tail Gradient", default=False,
+        description="Blend Primary Color (nose) into Tail Color (tail) across the whole "
+                    "assembled ship instead of a flat single color. Only affects the "
+                    "Assembly operators (Assemble/Reroll *), not the plain per-part "
+                    "Generate Variants batch")
+    gradient_color_tail: FloatVectorProperty(name="Tail Color", subtype='COLOR', size=4,
+        default=(0.12, 0.13, 0.16, 1.0), min=0.0, max=1.0,
+        description="Color blended in toward the tail end when Nose-to-Tail Gradient is enabled")
 
     # Detail pass: applied on-demand to whatever is currently SELECTED (see
     # fightergen.apply_detail_pass), not baked into every batch-generated variant --
@@ -3450,6 +3537,9 @@ class FIGHTERGEN_PT_panel(Panel):
         mat_box.prop(s, 'metallic')
         mat_box.prop(s, 'primary_color')
         mat_box.prop(s, 'accent_glow_color')
+        mat_box.prop(s, 'use_gradient')
+        if s.use_gradient:
+            mat_box.prop(s, 'gradient_color_tail')
 
         adv_box = layout.box()
         row = adv_box.row()
@@ -4219,6 +4309,9 @@ class FIGHTERGEN_OT_assemble(Operator):
             obj.select_set(True)
         bpy.context.view_layer.objects.active = fuselage
 
+        if s.use_gradient:
+            apply_ship_gradient(mat_base, tuple(s.primary_color), tuple(s.gradient_color_tail), coll)
+
         self.report({'INFO'}, f"Assembled full ship (length={fuselage_length:.2f}{subwing_msg}{aileron_msg}{tail_msg}{canopy_msg}{engine_msg}{weapon_msg})")
         return {'FINISHED'}
 
@@ -4246,6 +4339,8 @@ class FIGHTERGEN_OT_reroll_tail(Operator):
         for c in list(tail.users_collection):
             c.objects.unlink(tail)
         coll.objects.link(tail)
+        if s.use_gradient:
+            apply_ship_gradient(mat_base, tuple(s.primary_color), tuple(s.gradient_color_tail), coll)
         self.report({'INFO'}, f"Rerolled tail (attach Y={attach_y:.2f})")
         return {'FINISHED'}
 
@@ -4273,6 +4368,8 @@ class FIGHTERGEN_OT_reroll_canopy(Operator):
         for c in list(canopy.users_collection):
             c.objects.unlink(canopy)
         coll.objects.link(canopy)
+        if s.use_gradient:
+            apply_ship_gradient(mat_base, tuple(s.primary_color), tuple(s.gradient_color_tail), coll)
         self.report({'INFO'}, f"Rerolled canopy (attach Y={attach_y:.2f})")
         return {'FINISHED'}
 
@@ -4318,6 +4415,9 @@ class FIGHTERGEN_OT_reroll_engine_pods(Operator):
                 c.objects.unlink(pod)
             coll.objects.link(pod)
 
+        if s.use_gradient:
+            apply_ship_gradient(mat_base, tuple(s.primary_color), tuple(s.gradient_color_tail), coll)
+
         self.report({'INFO'}, f"Rerolled {len(span_fracs)} engine pod(s)")
         return {'FINISHED'}
 
@@ -4357,6 +4457,9 @@ class FIGHTERGEN_OT_reroll_wing_weapon(Operator):
         for c in list(weapon.users_collection):
             c.objects.unlink(weapon)
         coll.objects.link(weapon)
+
+        if s.use_gradient:
+            apply_ship_gradient(mat_base, tuple(s.primary_color), tuple(s.gradient_color_tail), coll)
 
         self.report({'INFO'}, "Rerolled wing weapon")
         return {'FINISHED'}
@@ -4417,6 +4520,9 @@ class FIGHTERGEN_OT_reroll_wing(Operator):
         wing.select_set(True)
         bpy.context.view_layer.objects.active = wing
 
+        if s.use_gradient:
+            apply_ship_gradient(mat_base, tuple(s.primary_color), tuple(s.gradient_color_tail), coll)
+
         self.report({'INFO'}, f"Rerolled main wing on existing fuselage (attach Y={attach_y:.2f})")
         return {'FINISHED'}
 
@@ -4458,6 +4564,9 @@ class FIGHTERGEN_OT_reroll_subwing(Operator):
         bpy.ops.object.select_all(action='DESELECT')
         subwing.select_set(True)
         bpy.context.view_layer.objects.active = subwing
+
+        if s.use_gradient:
+            apply_ship_gradient(mat_base, tuple(s.primary_color), tuple(s.gradient_color_tail), coll)
 
         self.report({'INFO'}, f"Rerolled sub-wing on existing fuselage (attach Y={attach_y:.2f})")
         return {'FINISHED'}
