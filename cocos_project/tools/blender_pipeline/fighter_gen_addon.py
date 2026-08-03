@@ -267,6 +267,7 @@ def build_tails_template():
     group.inputs.new('NodeSocketFloat', 'AirfoilSharpness')
     group.inputs.new('NodeSocketFloat', 'LeadingEdgeMid')
     group.inputs.new('NodeSocketFloat', 'TrailingEdgeMid')
+    group.inputs.new('NodeSocketFloat', 'RootOffset')
     group.inputs.new('NodeSocketInt', 'Subdivision')
     group.inputs.new('NodeSocketMaterial', 'Material')
     group.outputs.new('NodeSocketGeometry', 'Geometry')
@@ -527,11 +528,21 @@ def build_tails_template():
     links.new(n_x_airfoil.outputs['Value'], n_new_x_flat.inputs[0])
     links.new(n_edge_scale.outputs['Value'], n_new_x_flat.inputs[1])
 
+    n_dih_rad = nodes.new('ShaderNodeMath')
+    n_dih_rad.location = (1500, -1200)
+    n_dih_rad.operation = 'RADIANS'
+    links.new(n_in.outputs['Dihedral'], n_dih_rad.inputs[0])
+
+    n_dih_tan = nodes.new('ShaderNodeMath')
+    n_dih_tan.location = (1650, -1200)
+    n_dih_tan.operation = 'TANGENT'
+    links.new(n_dih_rad.outputs['Value'], n_dih_tan.inputs[0])
+
     n_dihedral_offset = nodes.new('ShaderNodeMath')
     n_dihedral_offset.location = (1800, -1200)
     n_dihedral_offset.operation = 'MULTIPLY'
-    links.new(n_z_offset.outputs['Value'], n_dihedral_offset.inputs[0])
-    links.new(n_in.outputs['Dihedral'], n_dihedral_offset.inputs[1])
+    links.new(n_new_z_val.outputs['Value'], n_dihedral_offset.inputs[0])
+    links.new(n_dih_tan.outputs['Value'], n_dihedral_offset.inputs[1])
 
     n_new_x = nodes.new('ShaderNodeMath')
     n_new_x.location = (1950, -1200)
@@ -539,9 +550,15 @@ def build_tails_template():
     links.new(n_new_x_flat.outputs['Value'], n_new_x.inputs[0])
     links.new(n_dihedral_offset.outputs['Value'], n_new_x.inputs[1])
 
+    n_root_offset_x = nodes.new('ShaderNodeMath')
+    n_root_offset_x.location = (2100, -1200)
+    n_root_offset_x.operation = 'ADD'
+    links.new(n_new_x.outputs['Value'], n_root_offset_x.inputs[0])
+    links.new(n_in.outputs['RootOffset'], n_root_offset_x.inputs[1])
+
     n_comb = nodes.new('ShaderNodeCombineXYZ')
     n_comb.location = (1300, 200)
-    links.new(n_new_x.outputs['Value'], n_comb.inputs['X'])
+    links.new(n_root_offset_x.outputs['Value'], n_comb.inputs['X'])
     links.new(n_new_y.outputs['Value'], n_comb.inputs['Y'])
     links.new(n_new_z_val.outputs['Value'], n_comb.inputs['Z'])
 
@@ -617,6 +634,7 @@ def build_wings_template():
     group.inputs.new('NodeSocketFloat', 'AirfoilSharpness')
     group.inputs.new('NodeSocketFloat', 'LeadingEdgeMid')
     group.inputs.new('NodeSocketFloat', 'TrailingEdgeMid')
+    group.inputs.new('NodeSocketFloat', 'RootOffset')
     group.inputs.new('NodeSocketInt', 'Subdivision')
     group.inputs.new('NodeSocketMaterial', 'Material')
     group.outputs.new('NodeSocketGeometry', 'Geometry')
@@ -659,7 +677,7 @@ def build_wings_template():
     n_new_x = nodes.new('ShaderNodeMath')
     n_new_x.location = (-50, -50)
     n_new_x.operation = 'MULTIPLY'
-    n_new_x.inputs[1].default_value = -1.0
+    n_new_x.inputs[1].default_value = 1.0
     links.new(n_new_x_val.outputs['Value'], n_new_x.inputs[0])
 
     # --- chord axis (Y, 0..1) leading/trailing edge curves ---
@@ -884,11 +902,21 @@ def build_wings_template():
     links.new(n_z_airfoil.outputs['Value'], n_new_z_flat.inputs[0])
     links.new(n_edge_scale.outputs['Value'], n_new_z_flat.inputs[1])
 
+    n_dih_rad = nodes.new('ShaderNodeMath')
+    n_dih_rad.location = (1500, -1200)
+    n_dih_rad.operation = 'RADIANS'
+    links.new(n_in.outputs['Dihedral'], n_dih_rad.inputs[0])
+
+    n_dih_tan = nodes.new('ShaderNodeMath')
+    n_dih_tan.location = (1650, -1200)
+    n_dih_tan.operation = 'TANGENT'
+    links.new(n_dih_rad.outputs['Value'], n_dih_tan.inputs[0])
+
     n_dihedral_offset = nodes.new('ShaderNodeMath')
     n_dihedral_offset.location = (1800, -1200)
     n_dihedral_offset.operation = 'MULTIPLY'
-    links.new(n_x_offset.outputs['Value'], n_dihedral_offset.inputs[0])
-    links.new(n_in.outputs['Dihedral'], n_dihedral_offset.inputs[1])
+    links.new(n_new_x_val.outputs['Value'], n_dihedral_offset.inputs[0])
+    links.new(n_dih_tan.outputs['Value'], n_dihedral_offset.inputs[1])
 
     n_new_z = nodes.new('ShaderNodeMath')
     n_new_z.location = (1950, -1200)
@@ -896,9 +924,15 @@ def build_wings_template():
     links.new(n_new_z_flat.outputs['Value'], n_new_z.inputs[0])
     links.new(n_dihedral_offset.outputs['Value'], n_new_z.inputs[1])
 
+    n_root_offset_x = nodes.new('ShaderNodeMath')
+    n_root_offset_x.location = (1100, 200)
+    n_root_offset_x.operation = 'ADD'
+    links.new(n_new_x.outputs['Value'], n_root_offset_x.inputs[0])
+    links.new(n_in.outputs['RootOffset'], n_root_offset_x.inputs[1])
+
     n_comb = nodes.new('ShaderNodeCombineXYZ')
     n_comb.location = (1300, 200)
-    links.new(n_new_x.outputs['Value'], n_comb.inputs['X'])
+    links.new(n_root_offset_x.outputs['Value'], n_comb.inputs['X'])
     links.new(n_new_y.outputs['Value'], n_comb.inputs['Y'])
     links.new(n_new_z.outputs['Value'], n_comb.inputs['Z'])
 
@@ -3043,6 +3077,14 @@ def _generate_wing_pair(rng, name_prefix, part_label, s, mat_base, fuselage_obj,
     sweep_raw = _rr(rng, s.wing_sweep_min, s.wing_sweep_max)
     if sweep_floor_frac > 0.0:
         sweep_raw = max(sweep_raw, s.wing_sweep_max * sweep_floor_frac)
+    attach_frac = _rr(rng, attach_min, attach_max)
+    attach_y = fuselage_length * attach_frac
+    radius_x, _normal = sample_hull_offset(fuselage_obj, attach_y, Vector((1.0, 0.0, 0.0)))
+    if radius_x is None:
+        radius_x = 0.25 * size_scale
+
+    root_x = radius_x * s.assemble_wing_overlap
+
     p = {
         'Span': _rr(rng, s.wing_span_min, s.wing_span_max) * size_scale,
         'RootChord': _rr(rng, s.wing_root_min, s.wing_root_max) * size_scale,
@@ -3057,30 +3099,22 @@ def _generate_wing_pair(rng, name_prefix, part_label, s, mat_base, fuselage_obj,
         'AirfoilSharpness': _rr(rng, s.wing_sharp_min, s.wing_sharp_max),
         'LeadingEdgeMid': rng.uniform(0.0, 0.5),
         'TrailingEdgeMid': rng.uniform(0.0, 0.5),
+        'RootOffset': root_x,
         'Subdivision': s.wing_subdiv,
     }
     wing = _finish_gn_object(f"{name_prefix}_{part_label}_r", template, p, mat_base=mat_base)
     _apply_bevel(wing, s)
     add_optional_modifiers(wing, s, rng, 'X')
 
-    attach_frac = _rr(rng, attach_min, attach_max)
-    attach_y = fuselage_length * attach_frac
-    radius_x, _normal = sample_hull_offset(fuselage_obj, attach_y, Vector((1.0, 0.0, 0.0)))
-    if radius_x is None:
-        # Fallback for the rare miss (e.g. attach_y landed exactly on the nose tip):
-        # fall back to a small nominal offset rather than failing the whole generation.
-        radius_x = 0.25 * size_scale
-
-    root_x = radius_x * s.assemble_wing_overlap
-
-    wing.location = (root_x, attach_y, 0.0)
-    wing.scale.x = -1.0  # mirrors the wing so its tip extends outward (+X)
+    # Origin at (0, attach_y, 0) on the centerline so MirrorToLeft and Rotation Y fold symmetrically
+    wing.location = (0.0, attach_y, 0.0)
+    wing.scale = (1.0, 1.0, 1.0)
 
     mirror_mod = wing.modifiers.new("MirrorToLeft", 'MIRROR')
     mirror_mod.use_axis[0] = True
     mirror_mod.use_axis[1] = False
     mirror_mod.use_axis[2] = False
-    mirror_mod.mirror_object = fuselage_obj  # mirror around the fuselage's own origin (true centerline), not this wing's own origin
+    mirror_mod.mirror_object = fuselage_obj
     mirror_mod.use_clip = False
 
     return wing, attach_y, p['Span']
@@ -3209,7 +3243,7 @@ def _generate_aileron(rng, name_prefix, part_label, s, mat_base, fuselage_obj, p
 
     aileron.location = hit_world
     aileron.rotation_euler = aileron_rot
-    aileron.scale.x = -1.0
+    aileron.scale = (1.0, 1.0, 1.0)
 
     mirror_mod = aileron.modifiers.new("MirrorToLeft", 'MIRROR')
     mirror_mod.use_axis[0] = True
@@ -3222,39 +3256,48 @@ def _generate_aileron(rng, name_prefix, part_label, s, mat_base, fuselage_obj, p
 
 
 def _generate_tail_assembly(rng, name_prefix, s, mat_base, fuselage_obj, fuselage_length):
-    """Raycast-attaches a tail (vertical or V-tail pair) to the aft hull section of fuselage_obj."""
+    """Raycast-attaches a tail pair to the aft hull section of fuselage_obj,
+    scaled proportionally to fuselage length, with origin at X=0 for symmetric folding."""
     template = build_tails_template()
     attach_y = fuselage_length * _rr(rng, s.assemble_tail_y_frac_min, s.assemble_tail_y_frac_max)
-
-    scale = 0.55
-    p = {
-        'Span': _rr(rng, s.wing_span_min, s.wing_span_max) * scale,
-        'RootChord': _rr(rng, s.wing_root_min, s.wing_root_max) * scale * 0.8,
-        'TipChord': _rr(rng, s.wing_tip_min, s.wing_tip_max) * scale * 0.7,
-        'Sweep': _rr(rng, 15.0, 45.0),
-        'Thickness': _rr(rng, s.wing_thick_min, s.wing_thick_max) * 0.8,
-        'ThicknessMid': 0.0,
-        'RootThickness': 0.8,
-        'TipThickness': 0.5,
-        'Dihedral': _rr(rng, 50.0, 75.0),
-        'Twist': 0.0,
-        'AirfoilSharpness': 1.2,
-        'LeadingEdgeMid': 0.0,
-        'TrailingEdgeMid': 0.0,
-        'Subdivision': s.wing_subdiv,
-    }
 
     direction = Vector((0.4, 0.0, 0.9)).normalized()
     radius_offset, hit_normal = sample_hull_offset(fuselage_obj, attach_y, direction)
     if radius_offset is None:
-        radius_offset = 0.3
+        radius_offset = 0.35
+
+    root_x = radius_offset * direction.x * s.assemble_wing_overlap
+    root_z = radius_offset * direction.z * s.assemble_wing_overlap
+
+    tail_span = fuselage_length * _rr(rng, 0.14, 0.22)
+    tail_root = fuselage_length * _rr(rng, 0.08, 0.12)
+    tail_tip = tail_root * _rr(rng, 0.35, 0.55)
+
+    p = {
+        'Span': tail_span,
+        'RootChord': tail_root,
+        'TipChord': tail_tip,
+        'Sweep': _rr(rng, 20.0, 45.0),
+        'Thickness': tail_root * 0.12,
+        'ThicknessMid': 0.0,
+        'RootThickness': 0.8,
+        'TipThickness': 0.5,
+        'Dihedral': _rr(rng, 35.0, 70.0),
+        'Twist': 0.0,
+        'AirfoilSharpness': 1.2,
+        'LeadingEdgeMid': 0.0,
+        'TrailingEdgeMid': 0.0,
+        'RootOffset': root_x,
+        'Subdivision': s.wing_subdiv,
+    }
 
     tail = _finish_gn_object(f"{name_prefix}_tail_r", template, p, mat_base=mat_base)
     _apply_bevel(tail, s)
     add_optional_modifiers(tail, s, rng, 'X')
 
-    tail.location = (radius_offset * direction.x * s.assemble_wing_overlap, attach_y, radius_offset * direction.z * s.assemble_wing_overlap)
-    tail.scale.x = -1.0
+    # Origin at X=0 on the centerline so MirrorToLeft and Rotation Y fold symmetrically
+    tail.location = (0.0, attach_y, root_z)
+    tail.scale = (1.0, 1.0, 1.0)
 
     mirror_mod = tail.modifiers.new("MirrorToLeft", 'MIRROR')
     mirror_mod.use_axis[0] = True
@@ -3267,14 +3310,24 @@ def _generate_tail_assembly(rng, name_prefix, s, mat_base, fuselage_obj, fuselag
 
 
 def _generate_canopy_assembly(rng, name_prefix, s, mat_base, fuselage_obj, fuselage_length):
-    """Raycast-attaches a cockpit canopy to the upper forward hull surface of fuselage_obj."""
+    """Raycast-attaches a cockpit canopy to the upper forward hull surface of fuselage_obj,
+    scaled proportionally to the fuselage's length and actual hull width."""
     template = build_canopy_template()
     attach_y = fuselage_length * _rr(rng, s.assemble_canopy_y_frac_min, s.assemble_canopy_y_frac_max)
 
+    hull_offset, _norm = sample_hull_offset(fuselage_obj, attach_y, Vector((1.0, 0.0, 0.0)))
+    if hull_offset is None:
+        hull_offset = 0.40
+
+    # Mesh UV sphere diameter is 2.0, so multiply radius by 0.5
+    canopy_len = (fuselage_length * _rr(rng, 0.15, 0.22)) * 0.5
+    canopy_width = ((hull_offset * 2.0) * _rr(rng, 0.50, 0.75)) * 0.5
+    canopy_height = canopy_width * _rr(rng, 0.45, 0.65)
+
     p = {
-        'Length': _rr(rng, s.canopy_len_min, s.canopy_len_max),
-        'Width': _rr(rng, s.canopy_width_min, s.canopy_width_max),
-        'Height': _rr(rng, s.canopy_height_min, s.canopy_height_max),
+        'Length': canopy_len,
+        'Width': canopy_width,
+        'Height': canopy_height,
         'Teardrop': _rr(rng, s.canopy_teardrop_min, s.canopy_teardrop_max),
         'Stretch': _rr(rng, s.canopy_stretch_min, s.canopy_stretch_max),
         'Subdivision': s.canopy_subdiv,
@@ -3287,7 +3340,7 @@ def _generate_canopy_assembly(rng, name_prefix, s, mat_base, fuselage_obj, fusel
     if success:
         attach_pos = hit_loc
     else:
-        attach_pos = Vector((0.0, attach_y, 0.4))
+        attach_pos = Vector((0.0, attach_y, 0.35))
 
     mat_canopy = make_material('FighterGen_Canopy', (0.12, 0.22, 0.35, 0.65), roughness=0.08, metallic=0.90)
     canopy = _finish_gn_object(f"{name_prefix}_canopy", template, p, mat_base=mat_canopy)
@@ -3295,6 +3348,7 @@ def _generate_canopy_assembly(rng, name_prefix, s, mat_base, fuselage_obj, fusel
     add_optional_modifiers(canopy, s, rng, 'Y')
 
     canopy.location = attach_pos
+    canopy.scale = (1.0, 1.0, 1.0)
     return canopy, attach_y
 
 
