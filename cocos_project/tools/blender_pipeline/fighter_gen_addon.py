@@ -24,6 +24,7 @@ CANOPY_TEMPLATE = "GN_Canopy_Template"
 CANNON_TEMPLATE = "GN_Cannon_Template"
 GATLING_TEMPLATE = "GN_Gatling_Template"
 RAILGUN_TEMPLATE = "GN_Railgun_Template"
+NACELLE_TEMPLATE = "GN_Nacelle_Template"
 VARIANT_COLLECTION = "FighterGen_Variants"
 ASSEMBLY_COLLECTION = "FighterGen_Assembly"
 RADIUS_CURVE_NODE_NAME = "RadiusCurveNode"
@@ -1289,6 +1290,176 @@ def build_engines_template():
     links.new(n_l1_mat.outputs['Geometry'], n_join.inputs['Geometry'])
     links.new(n_l2_mat.outputs['Geometry'], n_join.inputs['Geometry'])
     links.new(n_l3_mat.outputs['Geometry'], n_join.inputs['Geometry'])
+    links.new(n_join.outputs['Geometry'], n_out.inputs['Geometry'])
+
+    return group
+
+
+# ---------------------------------------------------------------------------
+# JET NACELLE: a plain cylindrical engine pod (deliberately simple, unlike the
+# blocky/grooved ENGINES template) for mounting under a wing -- Length runs
+# along local Y per the project's axis convention, radius tapers slightly
+# toward the rear to read as a nozzle, and a small glow-material ring cylinder
+# is joined on at the rear face for a hot-exhaust look.
+# ---------------------------------------------------------------------------
+
+def build_jet_nacelle_template():
+    if NACELLE_TEMPLATE in bpy.data.node_groups:
+        bpy.data.node_groups.remove(bpy.data.node_groups[NACELLE_TEMPLATE])
+
+    group = bpy.data.node_groups.new(NACELLE_TEMPLATE, 'GeometryNodeTree')
+    group.inputs.new('NodeSocketFloat', 'Length')
+    group.inputs.new('NodeSocketFloat', 'Radius')
+    group.inputs.new('NodeSocketFloat', 'ExhaustRadius')
+    group.inputs.new('NodeSocketInt', 'Sides')
+    group.inputs.new('NodeSocketMaterial', 'Material')
+    group.inputs.new('NodeSocketMaterial', 'MaterialGlow')
+    group.outputs.new('NodeSocketGeometry', 'Geometry')
+
+    nodes = group.nodes
+    links = group.links
+    nodes.clear()
+
+    n_in = nodes.new('NodeGroupInput')
+    n_in.location = (-900, 0)
+    n_out = nodes.new('NodeGroupOutput')
+    n_out.location = (1200, 0)
+
+    # --- main body: a cylinder built along Z by default, rotated 90 deg around
+    # X so its length axis becomes +Y (forward), matching every other part. ---
+    n_body = nodes.new('GeometryNodeMeshCylinder')
+    n_body.location = (-650, 150)
+    n_body.fill_type = 'NGON'
+    links.new(n_in.outputs['Sides'], n_body.inputs['Vertices'])
+    links.new(n_in.outputs['Radius'], n_body.inputs['Radius'])
+    links.new(n_in.outputs['Length'], n_body.inputs['Depth'])
+
+    n_body_rot = nodes.new('GeometryNodeTransform')
+    n_body_rot.location = (-450, 150)
+    n_body_rot.inputs['Rotation'].default_value = (math.radians(-90), 0.0, 0.0)
+    links.new(n_body.outputs['Mesh'], n_body_rot.inputs['Geometry'])
+
+    # Taper the rear third of the body down to ExhaustRadius for a simple nozzle look.
+    n_pos = nodes.new('GeometryNodeInputPosition')
+    n_pos.location = (-650, -150)
+    n_sep = nodes.new('ShaderNodeSeparateXYZ')
+    n_sep.location = (-450, -150)
+    links.new(n_pos.outputs['Position'], n_sep.inputs['Vector'])
+
+    n_y_offset = nodes.new('ShaderNodeMath')  # 0 at front (-Length/2) .. 1 at rear (+Length/2)
+    n_y_offset.location = (-250, -150)
+    n_y_offset.operation = 'ADD'
+    links.new(n_sep.outputs['Y'], n_y_offset.inputs[0])
+    n_y_offset.inputs[1].default_value = 0.5
+
+    n_y_frac = nodes.new('ShaderNodeMath')
+    n_y_frac.location = (-50, -150)
+    n_y_frac.operation = 'DIVIDE'
+    links.new(n_y_offset.outputs['Value'], n_y_frac.inputs[0])
+    links.new(n_in.outputs['Length'], n_y_frac.inputs[1])
+
+    n_taper_ratio = nodes.new('ShaderNodeMath')  # ExhaustRadius/Radius, clamped so Radius=0 is safe
+    n_taper_ratio.location = (-250, -300)
+    n_taper_ratio.operation = 'DIVIDE'
+    links.new(n_in.outputs['ExhaustRadius'], n_taper_ratio.inputs[0])
+    n_radius_safe = nodes.new('ShaderNodeMath')
+    n_radius_safe.location = (-450, -300)
+    n_radius_safe.operation = 'MAXIMUM'
+    links.new(n_in.outputs['Radius'], n_radius_safe.inputs[0])
+    n_radius_safe.inputs[1].default_value = 0.001
+    links.new(n_radius_safe.outputs['Value'], n_taper_ratio.inputs[1])
+
+    n_scale_xz = nodes.new('ShaderNodeMapRange')  # lerp(1.0, taper_ratio, y_frac)
+    n_scale_xz.location = (150, -300)
+    n_scale_xz.clamp = True
+    n_scale_xz.inputs['From Min'].default_value = 0.0
+    n_scale_xz.inputs['From Max'].default_value = 1.0
+    n_scale_xz.inputs['To Min'].default_value = 1.0
+    links.new(n_y_frac.outputs['Value'], n_scale_xz.inputs['Value'])
+    links.new(n_taper_ratio.outputs['Value'], n_scale_xz.inputs['To Max'])
+
+    n_pos2 = nodes.new('GeometryNodeInputPosition')
+    n_pos2.location = (150, 300)
+    n_sep2 = nodes.new('ShaderNodeSeparateXYZ')
+    n_sep2.location = (350, 300)
+    links.new(n_pos2.outputs['Position'], n_sep2.inputs['Vector'])
+    n_new_x = nodes.new('ShaderNodeMath')
+    n_new_x.location = (550, 350)
+    n_new_x.operation = 'MULTIPLY'
+    links.new(n_sep2.outputs['X'], n_new_x.inputs[0])
+    links.new(n_scale_xz.outputs['Result'], n_new_x.inputs[1])
+    n_new_z = nodes.new('ShaderNodeMath')
+    n_new_z.location = (550, 200)
+    n_new_z.operation = 'MULTIPLY'
+    links.new(n_sep2.outputs['Z'], n_new_z.inputs[0])
+    links.new(n_scale_xz.outputs['Result'], n_new_z.inputs[1])
+    n_comb = nodes.new('ShaderNodeCombineXYZ')
+    n_comb.location = (750, 250)
+    links.new(n_new_x.outputs['Value'], n_comb.inputs['X'])
+    links.new(n_sep2.outputs['Y'], n_comb.inputs['Y'])
+    links.new(n_new_z.outputs['Value'], n_comb.inputs['Z'])
+
+    n_setpos = nodes.new('GeometryNodeSetPosition')
+    n_setpos.location = (950, 150)
+    links.new(n_body_rot.outputs['Geometry'], n_setpos.inputs['Geometry'])
+    links.new(n_comb.outputs['Vector'], n_setpos.inputs['Position'])
+
+    n_shade = nodes.new('GeometryNodeSetShadeSmooth')
+    n_shade.location = (1150, 150)
+    n_shade.inputs['Shade Smooth'].default_value = True
+    links.new(n_setpos.outputs['Geometry'], n_shade.inputs['Geometry'])
+
+    n_set_mat = nodes.new('GeometryNodeSetMaterial')
+    n_set_mat.location = (1350, 150)
+    links.new(n_shade.outputs['Geometry'], n_set_mat.inputs['Geometry'])
+    links.new(n_in.outputs['Material'], n_set_mat.inputs['Material'])
+
+    # --- exhaust ring: a thin glowing disc flush with the rear face ---
+    n_ring = nodes.new('GeometryNodeMeshCylinder')
+    n_ring.location = (-650, -600)
+    n_ring.fill_type = 'NGON'
+    links.new(n_in.outputs['Sides'], n_ring.inputs['Vertices'])
+    n_ring_radius = nodes.new('ShaderNodeMath')
+    n_ring_radius.location = (-850, -650)
+    n_ring_radius.operation = 'MULTIPLY'
+    links.new(n_in.outputs['ExhaustRadius'], n_ring_radius.inputs[0])
+    n_ring_radius.inputs[1].default_value = 0.85
+    links.new(n_ring_radius.outputs['Value'], n_ring.inputs['Radius'])
+    n_ring_depth = nodes.new('ShaderNodeMath')
+    n_ring_depth.location = (-850, -750)
+    n_ring_depth.operation = 'MULTIPLY'
+    links.new(n_in.outputs['Length'], n_ring_depth.inputs[0])
+    n_ring_depth.inputs[1].default_value = 0.05
+    links.new(n_ring_depth.outputs['Value'], n_ring.inputs['Depth'])
+
+    n_ring_rot = nodes.new('GeometryNodeTransform')
+    n_ring_rot.location = (-450, -600)
+    n_ring_rot.inputs['Rotation'].default_value = (math.radians(-90), 0.0, 0.0)
+    links.new(n_ring.outputs['Mesh'], n_ring_rot.inputs['Geometry'])
+
+    n_ring_y = nodes.new('ShaderNodeMath')  # position at the rear face: +Length/2 minus half the ring's own depth
+    n_ring_y.location = (-650, -900)
+    n_ring_y.operation = 'MULTIPLY'
+    links.new(n_in.outputs['Length'], n_ring_y.inputs[0])
+    n_ring_y.inputs[1].default_value = 0.47
+    n_ring_translate = nodes.new('ShaderNodeCombineXYZ')
+    n_ring_translate.location = (-450, -900)
+    links.new(n_ring_y.outputs['Value'], n_ring_translate.inputs['Y'])
+
+    n_ring_move = nodes.new('GeometryNodeTransform')
+    n_ring_move.location = (-250, -600)
+    links.new(n_ring_rot.outputs['Geometry'], n_ring_move.inputs['Geometry'])
+    links.new(n_ring_translate.outputs['Vector'], n_ring_move.inputs['Translation'])
+
+    n_ring_mat = nodes.new('GeometryNodeSetMaterial')
+    n_ring_mat.location = (-50, -600)
+    links.new(n_ring_move.outputs['Geometry'], n_ring_mat.inputs['Geometry'])
+    links.new(n_in.outputs['MaterialGlow'], n_ring_mat.inputs['Material'])
+
+    n_join = nodes.new('GeometryNodeJoinGeometry')
+    n_join.location = (1550, 0)
+    links.new(n_set_mat.outputs['Geometry'], n_join.inputs['Geometry'])
+    links.new(n_ring_mat.outputs['Geometry'], n_join.inputs['Geometry'])
     links.new(n_join.outputs['Geometry'], n_out.inputs['Geometry'])
 
     return group
@@ -2602,6 +2773,17 @@ class FighterGenSettings(PropertyGroup):
     assemble_aileron_size_scale: FloatProperty(name="Aileron Size Scale", default=0.28, min=0.05, max=0.8,
         description="Multiplies the main wing's Span/Chord ranges to size the aileron down")
 
+    assemble_engine_pod_enable: BoolProperty(name="Include Wing Engine Pod(s)", default=True,
+        description="Hangs a plain cylindrical jet nacelle under the main wing, raycast-flush to its underside")
+    assemble_engine_pod_count: IntProperty(name="Engine Pods per Wing", default=1, min=1, max=2,
+        description="1 = one pod per wing (2 total); 2 = an inboard+outboard pair per wing (4 total)")
+    assemble_engine_pod_span_frac_min: FloatProperty(name="Pod Position Min (frac of Span)", default=0.25, min=0.05, max=0.9)
+    assemble_engine_pod_span_frac_max: FloatProperty(name="Pod Position Max (frac of Span)", default=0.60, min=0.05, max=0.9)
+    assemble_engine_pod_length_min: FloatProperty(name="Pod Length Min", default=0.9, min=0.1)
+    assemble_engine_pod_length_max: FloatProperty(name="Pod Length Max", default=1.5, min=0.1)
+    assemble_engine_pod_radius_min: FloatProperty(name="Pod Radius Min", default=0.16, min=0.02)
+    assemble_engine_pod_radius_max: FloatProperty(name="Pod Radius Max", default=0.26, min=0.02)
+
     assemble_tail_enable: BoolProperty(name="Include Tail", default=True,
         description="Raycast-attaches a vertical/V-tail pair to the aft section of the fuselage")
     assemble_tail_y_frac_min: FloatProperty(name="Tail Attach Y Min", default=0.70, min=0.5, max=0.95)
@@ -3103,6 +3285,11 @@ class FIGHTERGEN_PT_panel(Panel):
             assemble_adv_box.separator()
             row = assemble_adv_box.row(align=True); row.prop(s, 'assemble_aileron_span_frac_min'); row.prop(s, 'assemble_aileron_span_frac_max')
             assemble_adv_box.prop(s, 'assemble_aileron_size_scale')
+            assemble_adv_box.separator()
+            assemble_adv_box.prop(s, 'assemble_engine_pod_count')
+            row = assemble_adv_box.row(align=True); row.prop(s, 'assemble_engine_pod_span_frac_min'); row.prop(s, 'assemble_engine_pod_span_frac_max')
+            row = assemble_adv_box.row(align=True); row.prop(s, 'assemble_engine_pod_length_min'); row.prop(s, 'assemble_engine_pod_length_max')
+            row = assemble_adv_box.row(align=True); row.prop(s, 'assemble_engine_pod_radius_min'); row.prop(s, 'assemble_engine_pod_radius_max')
 
         layout.operator('fightergen.generate_variants', icon='MOD_ARRAY')
 
@@ -3115,6 +3302,8 @@ class FIGHTERGEN_PT_panel(Panel):
         row = assemble_box.row(align=True)
         row.prop(s, 'assemble_canopy_enable')
         row.prop(s, 'assemble_aileron_enable')
+        row = assemble_box.row(align=True)
+        row.prop(s, 'assemble_engine_pod_enable')
         assemble_box.operator('fightergen.assemble_fighter', icon='MOD_BOOLEAN')
         row = assemble_box.row(align=True)
         row.operator('fightergen.reroll_main_wing', icon='FILE_REFRESH', text="Reroll Wing")
@@ -3122,6 +3311,7 @@ class FIGHTERGEN_PT_panel(Panel):
         row = assemble_box.row(align=True)
         row.operator('fightergen.reroll_tail', icon='FILE_REFRESH', text="Reroll Tail")
         row.operator('fightergen.reroll_canopy', icon='FILE_REFRESH', text="Reroll Canopy")
+        assemble_box.operator('fightergen.reroll_engine_pods', icon='FILE_REFRESH', text="Reroll Engine Pod(s)")
 
         detail_box = layout.box()
         detail_box.label(text="Detail Pass (applies to selected object(s) only)")
@@ -3369,6 +3559,70 @@ def _generate_aileron(rng, name_prefix, part_label, s, mat_base, fuselage_obj, p
     return aileron
 
 
+def sample_wing_underside(wing_obj, x_local, y_local, max_dist=50.0):
+    """Raycast in `wing_obj`'s own local space to find its BOTTOM surface at a given
+    span/chord position. Approaches from far below traveling upward (+Z) so the
+    underside is the first surface hit, instead of passing through it to the top."""
+    direction = Vector((0.0, 0.0, 1.0))
+    origin = Vector((x_local, y_local, 0.0)) - direction * max_dist
+    success, hit_loc, hit_normal, hit_idx = wing_obj.ray_cast(origin, direction, distance=max_dist * 2)
+    if not success:
+        return None, None
+    return hit_loc, hit_normal
+
+
+def _engine_pod_span_fracs(rng, s):
+    """1 pod -> a single random position; 2 pods -> one in each half of the position
+    range (inboard/outboard) so they don't land on top of each other."""
+    lo, hi = sorted((s.assemble_engine_pod_span_frac_min, s.assemble_engine_pod_span_frac_max))
+    if s.assemble_engine_pod_count <= 1:
+        return [rng.uniform(lo, hi)]
+    mid = (lo + hi) / 2.0
+    return [rng.uniform(lo, mid), rng.uniform(mid, hi)]
+
+
+def _generate_engine_pod(rng, name_prefix, part_label, s, mat_base, mat_glow, fuselage_obj, parent_wing_obj, parent_span, span_frac):
+    """A plain cylindrical jet nacelle hung under parent_wing_obj at a given span
+    fraction, raycast-attached flush to the wing's real underside (not a guessed
+    offset). Its own Length axis stays aligned with the aircraft's forward direction
+    (world Y) rather than following wing sweep -- engines point forward, not along
+    whatever angle the wing happens to be swept at. Mirrored around the fuselage
+    centerline like the wing itself."""
+    template = build_jet_nacelle_template()
+    length = _rr(rng, s.assemble_engine_pod_length_min, s.assemble_engine_pod_length_max)
+    radius = _rr(rng, s.assemble_engine_pod_radius_min, s.assemble_engine_pod_radius_max)
+    p = {
+        'Length': length,
+        'Radius': radius,
+        'ExhaustRadius': radius * _rr(rng, 0.6, 0.85),
+        'Sides': 14,
+    }
+    pod = _finish_gn_object(f"{name_prefix}_{part_label}_r", template, p, mat_base=mat_base, mat_glow=mat_glow)
+
+    x_local = -parent_span * span_frac
+    # Sample near mid-chord (y_local=0 in the wing's own chord-centered space)
+    hit_local, _hit_normal = sample_wing_underside(parent_wing_obj, x_local, 0.0)
+    if hit_local is None:
+        hit_world = parent_wing_obj.matrix_world @ Vector((x_local, 0.0, -0.1))
+    else:
+        hit_world = parent_wing_obj.matrix_world @ hit_local
+
+    # Hang the pod below the wing surface by its own radius plus a small gap, so it
+    # reads as flush-mounted underneath rather than floating or clipping through.
+    pod.location = hit_world + Vector((0.0, 0.0, -(radius + 0.02)))
+    pod.rotation_euler = (0.0, 0.0, 0.0)
+    pod.scale = (1.0, 1.0, 1.0)
+
+    mirror_mod = pod.modifiers.new("MirrorToLeft", 'MIRROR')
+    mirror_mod.use_axis[0] = True
+    mirror_mod.use_axis[1] = False
+    mirror_mod.use_axis[2] = False
+    mirror_mod.mirror_object = fuselage_obj
+    mirror_mod.use_clip = False
+
+    return pod
+
+
 def _generate_tail_assembly(rng, name_prefix, s, mat_base, fuselage_obj, fuselage_length):
     """Raycast-attaches a tail pair to the aft hull section of fuselage_obj,
     scaled proportionally to fuselage length, with origin at X=0 for symmetric folding."""
@@ -3536,6 +3790,15 @@ class FIGHTERGEN_OT_assemble(Operator):
             created.append(canopy)
             canopy_msg = f", canopy Y={canopy_attach_y:.2f}"
 
+        engine_msg = ""
+        if s.assemble_engine_pod_enable:
+            mat_glow = make_glow_material('FighterGen_Glow', (0.0, 1.0, 1.0, 1.0))
+            span_fracs = _engine_pod_span_fracs(rng, s)
+            for i, frac in enumerate(span_fracs):
+                pod = _generate_engine_pod(rng, name, f'enginepod{i}', s, mat_base, mat_glow, fuselage, wing, wing_span, frac)
+                created.append(pod)
+            engine_msg = f", {len(span_fracs)} engine pod(s)/wing"
+
         for obj in created:
             for c in list(obj.users_collection):
                 c.objects.unlink(obj)
@@ -3546,7 +3809,7 @@ class FIGHTERGEN_OT_assemble(Operator):
             obj.select_set(True)
         bpy.context.view_layer.objects.active = fuselage
 
-        self.report({'INFO'}, f"Assembled full ship (length={fuselage_length:.2f}{subwing_msg}{aileron_msg}{tail_msg}{canopy_msg})")
+        self.report({'INFO'}, f"Assembled full ship (length={fuselage_length:.2f}{subwing_msg}{aileron_msg}{tail_msg}{canopy_msg}{engine_msg})")
         return {'FINISHED'}
 
 
@@ -3601,6 +3864,51 @@ class FIGHTERGEN_OT_reroll_canopy(Operator):
             c.objects.unlink(canopy)
         coll.objects.link(canopy)
         self.report({'INFO'}, f"Rerolled canopy (attach Y={attach_y:.2f})")
+        return {'FINISHED'}
+
+
+class FIGHTERGEN_OT_reroll_engine_pods(Operator):
+    bl_idname = "fightergen.reroll_engine_pods"
+    bl_label = "Reroll Engine Pod(s) Only"
+    bl_description = "Keep current assembly and generate fresh wing engine pod(s)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        s = context.scene.fightergen_settings
+        coll = bpy.data.collections.get(ASSEMBLY_COLLECTION)
+        fuselage = _find_assembly_fuselage(coll)
+        if not fuselage:
+            self.report({'ERROR'}, "No assembly fuselage found in FighterGen_Assembly collection")
+            return {'CANCELLED'}
+        wing = None
+        for obj in coll.objects:
+            if obj.name.endswith('_wing_r'):
+                wing = obj
+                break
+        if not wing:
+            self.report({'ERROR'}, "No main wing found in FighterGen_Assembly collection")
+            return {'CANCELLED'}
+
+        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
+        mat_glow = make_glow_material('FighterGen_Glow', (0.0, 1.0, 1.0, 1.0))
+        rng = random.Random()
+        name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
+
+        for obj in [o for o in list(coll.objects) if '_enginepod' in o.name]:
+            mesh = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            if mesh and mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+
+        wing_span = wing.dimensions.x  # full mirrored width; _generate_engine_pod only needs the single-side span for its x_local math
+        span_fracs = _engine_pod_span_fracs(rng, s)
+        for i, frac in enumerate(span_fracs):
+            pod = _generate_engine_pod(rng, name, f'enginepod{i}', s, mat_base, mat_glow, fuselage, wing, wing_span / 2.0, frac)
+            for c in list(pod.users_collection):
+                c.objects.unlink(pod)
+            coll.objects.link(pod)
+
+        self.report({'INFO'}, f"Rerolled {len(span_fracs)} engine pod(s)")
         return {'FINISHED'}
 
 
@@ -3715,6 +4023,7 @@ classes = (
     FIGHTERGEN_OT_reroll_subwing,
     FIGHTERGEN_OT_reroll_tail,
     FIGHTERGEN_OT_reroll_canopy,
+    FIGHTERGEN_OT_reroll_engine_pods,
     FIGHTERGEN_PT_panel,
 )
 
