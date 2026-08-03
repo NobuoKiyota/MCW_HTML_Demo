@@ -2784,6 +2784,11 @@ class FighterGenSettings(PropertyGroup):
     assemble_engine_pod_radius_min: FloatProperty(name="Pod Radius Min", default=0.16, min=0.02)
     assemble_engine_pod_radius_max: FloatProperty(name="Pod Radius Max", default=0.26, min=0.02)
 
+    assemble_wing_weapon_enable: BoolProperty(name="Include Wing Weapon", default=False,
+        description="Mounts a weapon (same random ranges as the Weapons category) on top of the wing, raycast-flush -- mirrored, so the same weapon appears on both wings")
+    assemble_wing_weapon_span_frac_min: FloatProperty(name="Weapon Position Min (frac of Span)", default=0.30, min=0.05, max=0.9)
+    assemble_wing_weapon_span_frac_max: FloatProperty(name="Weapon Position Max (frac of Span)", default=0.55, min=0.05, max=0.9)
+
     assemble_tail_enable: BoolProperty(name="Include Tail", default=True,
         description="Raycast-attaches a vertical/V-tail pair to the aft section of the fuselage")
     assemble_tail_y_frac_min: FloatProperty(name="Tail Attach Y Min", default=0.70, min=0.5, max=0.95)
@@ -3290,6 +3295,8 @@ class FIGHTERGEN_PT_panel(Panel):
             row = assemble_adv_box.row(align=True); row.prop(s, 'assemble_engine_pod_span_frac_min'); row.prop(s, 'assemble_engine_pod_span_frac_max')
             row = assemble_adv_box.row(align=True); row.prop(s, 'assemble_engine_pod_length_min'); row.prop(s, 'assemble_engine_pod_length_max')
             row = assemble_adv_box.row(align=True); row.prop(s, 'assemble_engine_pod_radius_min'); row.prop(s, 'assemble_engine_pod_radius_max')
+            assemble_adv_box.separator()
+            row = assemble_adv_box.row(align=True); row.prop(s, 'assemble_wing_weapon_span_frac_min'); row.prop(s, 'assemble_wing_weapon_span_frac_max')
 
         layout.operator('fightergen.generate_variants', icon='MOD_ARRAY')
 
@@ -3304,6 +3311,7 @@ class FIGHTERGEN_PT_panel(Panel):
         row.prop(s, 'assemble_aileron_enable')
         row = assemble_box.row(align=True)
         row.prop(s, 'assemble_engine_pod_enable')
+        row.prop(s, 'assemble_wing_weapon_enable')
         assemble_box.operator('fightergen.assemble_fighter', icon='MOD_BOOLEAN')
         row = assemble_box.row(align=True)
         row.operator('fightergen.reroll_main_wing', icon='FILE_REFRESH', text="Reroll Wing")
@@ -3311,7 +3319,9 @@ class FIGHTERGEN_PT_panel(Panel):
         row = assemble_box.row(align=True)
         row.operator('fightergen.reroll_tail', icon='FILE_REFRESH', text="Reroll Tail")
         row.operator('fightergen.reroll_canopy', icon='FILE_REFRESH', text="Reroll Canopy")
-        assemble_box.operator('fightergen.reroll_engine_pods', icon='FILE_REFRESH', text="Reroll Engine Pod(s)")
+        row = assemble_box.row(align=True)
+        row.operator('fightergen.reroll_engine_pods', icon='FILE_REFRESH', text="Reroll Engine Pod(s)")
+        row.operator('fightergen.reroll_wing_weapon', icon='FILE_REFRESH', text="Reroll Wing Weapon")
 
         detail_box = layout.box()
         detail_box.label(text="Detail Pass (applies to selected object(s) only)")
@@ -3623,6 +3633,68 @@ def _generate_engine_pod(rng, name_prefix, part_label, s, mat_base, mat_glow, fu
     return pod
 
 
+def sample_wing_topside(wing_obj, x_local, y_local, max_dist=50.0):
+    """Raycast in `wing_obj`'s own local space to find its TOP surface at a given
+    span/chord position. Approaches from far above traveling downward (-Z) so the
+    top is the first surface hit, instead of passing through it to the underside."""
+    direction = Vector((0.0, 0.0, -1.0))
+    origin = Vector((x_local, y_local, 0.0)) - direction * max_dist
+    success, hit_loc, hit_normal, hit_idx = wing_obj.ray_cast(origin, direction, distance=max_dist * 2)
+    if not success:
+        return None, None
+    return hit_loc, hit_normal
+
+
+def _generate_wing_weapon(rng, name_prefix, part_label, s, mat_base, mat_glow, fuselage_obj, parent_wing_obj, parent_span, span_frac):
+    """A weapon (Cannon/Gatling/Railgun, same random ranges as the standalone WEAPONS
+    category) mounted on TOP of parent_wing_obj at a given span fraction, raycast-
+    flush to the wing's real upper surface. Barrel stays aligned with the aircraft's
+    forward axis (world Y), not wing sweep. Mirrored around the fuselage centerline,
+    so the same weapon appears on both wings."""
+    length = _rr(rng, s.wp_len_min, s.wp_len_max)
+    radius = _rr(rng, s.wp_rad_min, s.wp_rad_max)
+    barrel_ratio = _rr(rng, s.wp_barrel_min, s.wp_barrel_max)
+
+    wp_type = s.wp_type
+    if wp_type == 'RANDOM':
+        wp_type = rng.choice(_WEAPON_TYPE_CHOICES)
+
+    if wp_type == 'CANNON':
+        template = build_cannon_template()
+        p = {'Length': length, 'Radius': radius, 'BarrelLength': barrel_ratio,
+             'MuzzleWidth': _rr(rng, s.wp_muzzle_min, s.wp_muzzle_max)}
+    elif wp_type == 'GATLING':
+        template = build_gatling_template()
+        p = {'Length': length, 'Radius': radius, 'BarrelLength': barrel_ratio}
+    else:
+        template = build_railgun_template()
+        p = {'Length': length, 'Radius': radius, 'BarrelLength': barrel_ratio}
+
+    weapon = _finish_gn_object(f"{name_prefix}_{part_label}_r", template, p, mat_base=mat_base, mat_glow=mat_glow)
+
+    x_local = -parent_span * span_frac
+    hit_local, _hit_normal = sample_wing_topside(parent_wing_obj, x_local, 0.0)
+    if hit_local is None:
+        hit_world = parent_wing_obj.matrix_world @ Vector((x_local, 0.0, 0.1))
+    else:
+        hit_world = parent_wing_obj.matrix_world @ hit_local
+
+    # Sit the weapon on top of the wing surface by its own radius plus a small gap,
+    # so it reads as flush-mounted on top rather than floating or clipping through.
+    weapon.location = hit_world + Vector((0.0, 0.0, radius + 0.02))
+    weapon.rotation_euler = (0.0, 0.0, 0.0)
+    weapon.scale = (1.0, 1.0, 1.0)
+
+    mirror_mod = weapon.modifiers.new("MirrorToLeft", 'MIRROR')
+    mirror_mod.use_axis[0] = True
+    mirror_mod.use_axis[1] = False
+    mirror_mod.use_axis[2] = False
+    mirror_mod.mirror_object = fuselage_obj
+    mirror_mod.use_clip = False
+
+    return weapon
+
+
 def _generate_tail_assembly(rng, name_prefix, s, mat_base, fuselage_obj, fuselage_length):
     """Raycast-attaches a tail pair to the aft hull section of fuselage_obj,
     scaled proportionally to fuselage length, with origin at X=0 for symmetric folding."""
@@ -3799,6 +3871,14 @@ class FIGHTERGEN_OT_assemble(Operator):
                 created.append(pod)
             engine_msg = f", {len(span_fracs)} engine pod(s)/wing"
 
+        weapon_msg = ""
+        if s.assemble_wing_weapon_enable:
+            mat_glow_wp = make_glow_material('FighterGen_Glow', (0.0, 1.0, 1.0, 1.0))
+            wp_span_frac = _rr(rng, s.assemble_wing_weapon_span_frac_min, s.assemble_wing_weapon_span_frac_max)
+            wing_weapon = _generate_wing_weapon(rng, name, 'wing_weapon', s, mat_base, mat_glow_wp, fuselage, wing, wing_span, wp_span_frac)
+            created.append(wing_weapon)
+            weapon_msg = ", wing weapon"
+
         for obj in created:
             for c in list(obj.users_collection):
                 c.objects.unlink(obj)
@@ -3809,7 +3889,7 @@ class FIGHTERGEN_OT_assemble(Operator):
             obj.select_set(True)
         bpy.context.view_layer.objects.active = fuselage
 
-        self.report({'INFO'}, f"Assembled full ship (length={fuselage_length:.2f}{subwing_msg}{aileron_msg}{tail_msg}{canopy_msg}{engine_msg})")
+        self.report({'INFO'}, f"Assembled full ship (length={fuselage_length:.2f}{subwing_msg}{aileron_msg}{tail_msg}{canopy_msg}{engine_msg}{weapon_msg})")
         return {'FINISHED'}
 
 
@@ -3909,6 +3989,46 @@ class FIGHTERGEN_OT_reroll_engine_pods(Operator):
             coll.objects.link(pod)
 
         self.report({'INFO'}, f"Rerolled {len(span_fracs)} engine pod(s)")
+        return {'FINISHED'}
+
+
+class FIGHTERGEN_OT_reroll_wing_weapon(Operator):
+    bl_idname = "fightergen.reroll_wing_weapon"
+    bl_label = "Reroll Wing Weapon Only"
+    bl_description = "Keep current assembly and generate a fresh wing-mounted weapon"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        s = context.scene.fightergen_settings
+        coll = bpy.data.collections.get(ASSEMBLY_COLLECTION)
+        fuselage = _find_assembly_fuselage(coll)
+        if not fuselage:
+            self.report({'ERROR'}, "No assembly fuselage found in FighterGen_Assembly collection")
+            return {'CANCELLED'}
+        wing = None
+        for obj in coll.objects:
+            if obj.name.endswith('_wing_r'):
+                wing = obj
+                break
+        if not wing:
+            self.report({'ERROR'}, "No main wing found in FighterGen_Assembly collection")
+            return {'CANCELLED'}
+
+        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
+        mat_glow = make_glow_material('FighterGen_Glow', (0.0, 1.0, 1.0, 1.0))
+        rng = random.Random()
+        name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
+
+        _remove_assembly_objects_by_suffix(coll, fuselage, '_wing_weapon_r')
+
+        wing_span = wing.dimensions.x / 2.0  # full mirrored width -> single-side span for x_local math
+        wp_span_frac = _rr(rng, s.assemble_wing_weapon_span_frac_min, s.assemble_wing_weapon_span_frac_max)
+        weapon = _generate_wing_weapon(rng, name, 'wing_weapon', s, mat_base, mat_glow, fuselage, wing, wing_span, wp_span_frac)
+        for c in list(weapon.users_collection):
+            c.objects.unlink(weapon)
+        coll.objects.link(weapon)
+
+        self.report({'INFO'}, "Rerolled wing weapon")
         return {'FINISHED'}
 
 
@@ -4024,6 +4144,7 @@ classes = (
     FIGHTERGEN_OT_reroll_tail,
     FIGHTERGEN_OT_reroll_canopy,
     FIGHTERGEN_OT_reroll_engine_pods,
+    FIGHTERGEN_OT_reroll_wing_weapon,
     FIGHTERGEN_PT_panel,
 )
 
