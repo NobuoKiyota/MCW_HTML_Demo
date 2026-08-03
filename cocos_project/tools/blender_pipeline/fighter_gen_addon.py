@@ -2483,6 +2483,85 @@ def add_panel_grooves(obj, length, ref_radius, ref_height_ratio, groove_center_y
         bpy.data.objects.remove(cutter, do_unlink=True)
 
 
+def _sample_surface_along(obj, origin_xyz, direction, max_dist=50.0):
+    """Generic version of sample_wing_topside/underside/trailing_edge's pattern:
+    raycast in `obj`'s own local space, approaching from far along -direction and
+    travelling toward +direction, so the first surface hit is genuinely the one
+    facing that direction (not the far side, passed straight through)."""
+    direction = Vector(direction).normalized()
+    origin = Vector(origin_xyz) - direction * max_dist
+    success, hit_loc, hit_normal, hit_idx = obj.ray_cast(origin, direction, distance=max_dist * 2)
+    if not success:
+        return None, None
+    return hit_loc, hit_normal
+
+
+def add_wing_panel_grooves(obj, span, span_axis, chord_ref, rng, count_range=(1, 3), width_range=(0.008, 0.02)):
+    """Cuts a few chordwise groove lines into the wing/tail's outer skin at random
+    span positions -- the wing/tail analog of add_panel_grooves' lengthwise fuselage
+    scratches. Each groove's depth position is found by raycasting the part's own
+    real surface (same philosophy as the wing/aileron/engine-pod attachments)
+    instead of guessing a fixed thickness offset, since chord and thickness both
+    vary continuously along the span. `span_axis` is 'X' for wings or 'Z' for tails
+    (their own span axis); the probe direction is chosen to match whichever axis is
+    actually "thickness" for that template (Z for wings, X for tails, per
+    build_wings_template/build_tails_template's shared-recipe axis swap).
+
+    Called right after bevel and before the Mirror/finishing-modifier stack exists
+    (see _generate_wing_pair/_generate_tail_assembly), so this raycasts the object's
+    real single-sided pre-mirror geometry, which sits at POSITIVE local span-axis
+    values (0 or RootOffset up to +Span) per the current build_wings_template/
+    build_tails_template -- unlike code that runs AFTER the Mirror modifier exists
+    (aileron/engine-pod/wing-weapon attachment), where a negative span position also
+    resolves to a real (mirrored) surface. Verified empirically by reading the raw
+    stored mesh + raycasting both signs rather than assuming either."""
+    count = rng.randint(*sorted(count_range))
+    if count <= 0:
+        return
+    groove_len = chord_ref * 0.6
+
+    cutters = []
+    for i in range(count):
+        frac = rng.uniform(0.15, 0.85)
+        pos_on_span = span * frac
+        width = _rr(rng, width_range[0], width_range[1])
+
+        if span_axis == 'X':
+            probe_origin = (pos_on_span, 0.0, 0.0)
+            probe_dir = (0.0, 0.0, -1.0)  # approach from above -- thickness axis is Z
+        else:
+            probe_origin = (0.0, 0.0, pos_on_span)
+            probe_dir = (-1.0, 0.0, 0.0)  # approach from +X -- thickness axis is X
+
+        hit_local, _n = _sample_surface_along(obj, probe_origin, probe_dir)
+        if hit_local is None:
+            continue
+        # nudge slightly past the surface (along the probe direction) so the cutter
+        # actually overlaps the skin instead of just grazing its outer boundary
+        nudge = Vector(probe_dir).normalized() * (width * 0.3)
+        location = hit_local - nudge
+
+        bpy.ops.mesh.primitive_cylinder_add(radius=width, depth=groove_len, location=location)
+        cutter = bpy.context.active_object
+        cutter.rotation_euler = (math.radians(90), 0, 0)  # cylinder axis Z -> Y (chord)
+        cutter.name = f"{obj.name}_wpgroove_cutter_{i}"
+        cutters.append(cutter)
+
+    if not cutters:
+        return
+
+    bpy.context.view_layer.objects.active = obj
+    for cutter in cutters:
+        mod = obj.modifiers.new(f"Bool_{cutter.name}", 'BOOLEAN')
+        mod.operation = 'DIFFERENCE'
+        mod.object = cutter
+        mod.solver = 'EXACT'
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+
+    for cutter in cutters:
+        bpy.data.objects.remove(cutter, do_unlink=True)
+
+
 def add_optional_modifiers(obj, s, rng, long_axis='Y'):
     """Live (unapplied) finishing modifiers -- stay hand-editable in Blender's modifier
     stack. glTF export (export_apply=True) bakes them automatically at export time.
@@ -2729,6 +2808,10 @@ class FighterGenSettings(PropertyGroup):
     wing_sharp_min: FloatProperty(name='Airfoil Sharpness Min', default=0.7, min=0.1, max=3.0)
     wing_sharp_max: FloatProperty(name='Airfoil Sharpness Max', default=1.6, min=0.1, max=3.0)
     wing_subdiv: IntProperty(name='Subdivision', default=1, min=0, max=3)
+    wing_groove_count_min: IntProperty(name='Panel Lines Min', default=1, min=0, max=6)
+    wing_groove_count_max: IntProperty(name='Panel Lines Max', default=3, min=0, max=6)
+    wing_groove_width_min: FloatProperty(name='Panel Line Width Min', default=0.008, min=0.001)
+    wing_groove_width_max: FloatProperty(name='Panel Line Width Max', default=0.02, min=0.001)
 
     eng_len_min: FloatProperty(name='Length Min', default=0.8, min=0.1)
     eng_len_max: FloatProperty(name='Length Max', default=1.6, min=0.1)
@@ -3024,6 +3107,9 @@ def _generate_wing_or_tail_variant(rng, name, s, mat_base, is_tail):
     }
     obj = _finish_gn_object(name, template, p, mat_base=mat_base)
     _apply_bevel(obj, s)
+    add_wing_panel_grooves(obj, p['Span'], 'Z' if is_tail else 'X', p['RootChord'], rng,
+                            count_range=(s.wing_groove_count_min, s.wing_groove_count_max),
+                            width_range=(s.wing_groove_width_min, s.wing_groove_width_max))
     return obj
 
 
@@ -3408,6 +3494,8 @@ class FIGHTERGEN_PT_panel(Panel):
                 row = param_box.row(align=True); row.prop(s, 'wing_twist_min'); row.prop(s, 'wing_twist_max')
                 row = param_box.row(align=True); row.prop(s, 'wing_sharp_min'); row.prop(s, 'wing_sharp_max')
                 param_box.prop(s, 'wing_subdiv')
+                row = param_box.row(align=True); row.prop(s, 'wing_groove_count_min'); row.prop(s, 'wing_groove_count_max')
+                row = param_box.row(align=True); row.prop(s, 'wing_groove_width_min'); row.prop(s, 'wing_groove_width_max')
 
             elif s.part_type == 'ENGINES':
                 row = param_box.row(align=True); row.prop(s, 'eng_len_min'); row.prop(s, 'eng_len_max')
@@ -3593,6 +3681,9 @@ def _generate_wing_pair(rng, name_prefix, part_label, s, mat_base, fuselage_obj,
     }
     wing = _finish_gn_object(f"{name_prefix}_{part_label}_r", template, p, mat_base=mat_base)
     _apply_bevel(wing, s)
+    add_wing_panel_grooves(wing, p['Span'], 'X', p['RootChord'], rng,
+                            count_range=(s.wing_groove_count_min, s.wing_groove_count_max),
+                            width_range=(s.wing_groove_width_min, s.wing_groove_width_max))
     add_optional_modifiers(wing, s, rng, 'X')
 
     # Origin at (0, attach_y, 0) on the centerline so MirrorToLeft and Rotation Y fold symmetrically
@@ -3973,6 +4064,9 @@ def _generate_tail_assembly(rng, name_prefix, s, mat_base, fuselage_obj, fuselag
 
     tail = _finish_gn_object(f"{name_prefix}_tail_r", template, p, mat_base=mat_base)
     _apply_bevel(tail, s)
+    add_wing_panel_grooves(tail, tail_span, 'Z', tail_root, rng,
+                            count_range=(s.wing_groove_count_min, s.wing_groove_count_max),
+                            width_range=(s.wing_groove_width_min, s.wing_groove_width_max))
     add_optional_modifiers(tail, s, rng, 'Z')  # tails span along Z (build_tails_template), not X like wings
 
     # Origin at X=0 on the centerline so MirrorToLeft and Rotation Y fold symmetrically
