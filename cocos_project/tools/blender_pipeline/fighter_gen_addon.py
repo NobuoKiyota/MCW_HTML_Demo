@@ -3165,6 +3165,76 @@ class FIGHTERGEN_OT_apply_detail_pass(Operator):
         return {'FINISHED'}
 
 
+class FIGHTERGEN_OT_add_whole_ship_lattice(Operator):
+    bl_idname = "fightergen.add_whole_ship_lattice"
+    bl_label = "Add Whole-Ship Lattice"
+    bl_description = ("Wraps every selected mesh part in a shared Lattice sized to their combined bounding "
+                       "box and adds a Lattice modifier to each -- editing the lattice's control points "
+                       "(Edit Mode) then reshapes the whole ship as one silhouette (stretch/taper/bend/twist) "
+                       "while each part keeps its own generated detail intact")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        s = context.scene.fightergen_settings
+        parts = [o for o in context.selected_objects if o.type == 'MESH']
+        if not parts:
+            coll = bpy.data.collections.get(ASSEMBLY_COLLECTION)
+            if coll is not None:
+                parts = [o for o in coll.objects if o.type == 'MESH']
+        if not parts:
+            self.report({'WARNING'}, "No mesh objects selected (and no FighterGen_Assembly to fall back to).")
+            return {'CANCELLED'}
+
+        depsgraph = context.evaluated_depsgraph_get()
+        corners = []
+        for obj in parts:
+            obj_eval = obj.evaluated_get(depsgraph)
+            for c in obj_eval.bound_box:
+                corners.append(obj_eval.matrix_world @ Vector(c))
+        xs = [c.x for c in corners]; ys = [c.y for c in corners]; zs = [c.z for c in corners]
+        center = Vector(((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, (min(zs) + max(zs)) / 2))
+        half_size = Vector((max(xs) - min(xs), max(ys) - min(ys), max(zs) - min(zs))) * (1.08 / 2.0)
+        half_size = Vector((max(half_size.x, 0.05), max(half_size.y, 0.05), max(half_size.z, 0.05)))
+
+        base_name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
+        lat_name = f"{base_name}_ship_lattice"
+        if lat_name in bpy.data.objects:
+            old = bpy.data.objects[lat_name]
+            old_data = old.data
+            bpy.data.objects.remove(old, do_unlink=True)
+            if old_data and old_data.users == 0:
+                bpy.data.lattices.remove(old_data)
+
+        lat_data = bpy.data.lattices.new(lat_name + "_data")
+        lat_data.points_u = 3  # X: left/right span
+        lat_data.points_v = 5  # Y: fore/aft length -- extra resolution for tapering/bending along the hull
+        lat_data.points_w = 3  # Z: up/down
+        lat_obj = bpy.data.objects.new(lat_name, lat_data)
+        lat_obj.location = center
+        # A lattice's native point coordinates are spaced 1 unit apart centered on the
+        # origin, so their extent scales with point COUNT -- e.g. 5 points span -2..+2,
+        # not -1..+1 like 3 points does. Divide by that native half-extent per axis so
+        # the lattice's actual world-space bounding box matches half_size regardless of
+        # how many control points each axis has (verified empirically; assuming a fixed
+        # -1..1 range regardless of point count was wrong and made Y-axis edits barely
+        # move the wrapped geometry).
+        native_half = Vector(((lat_data.points_u - 1) / 2.0, (lat_data.points_v - 1) / 2.0, (lat_data.points_w - 1) / 2.0))
+        lat_obj.scale = Vector((half_size.x / native_half.x, half_size.y / native_half.y, half_size.z / native_half.z))
+        coll = bpy.data.collections.get(ASSEMBLY_COLLECTION) or context.collection
+        coll.objects.link(lat_obj)
+
+        for obj in parts:
+            mod = obj.modifiers.new("WholeShipLattice", 'LATTICE')
+            mod.object = lat_obj
+
+        bpy.ops.object.select_all(action='DESELECT')
+        lat_obj.select_set(True)
+        context.view_layer.objects.active = lat_obj
+
+        self.report({'INFO'}, f"Added '{lat_name}' around {len(parts)} part(s) -- enter Edit Mode on it to reshape the whole ship")
+        return {'FINISHED'}
+
+
 class FIGHTERGEN_PT_panel(Panel):
     bl_label = "Fighter Part Generator"
     bl_idname = "FIGHTERGEN_PT_panel"
@@ -3339,6 +3409,11 @@ class FIGHTERGEN_PT_panel(Panel):
         row.prop(s, 'use_wireframe_detail')
         row.prop(s, 'wireframe_thickness'); row.prop(s, 'wireframe_offset')
         detail_box.operator('fightergen.apply_detail_pass', icon='MOD_REMESH')
+
+        lattice_box = layout.box()
+        lattice_box.label(text="Whole-Ship Reshape")
+        lattice_box.label(text="Select the parts to wrap (or leave none for the whole Assembly)", icon='INFO')
+        lattice_box.operator('fightergen.add_whole_ship_lattice', icon='MOD_LATTICE')
 
         export_box = layout.box()
         export_box.label(text="Export")
@@ -4196,6 +4271,7 @@ classes = (
     FIGHTERGEN_OT_generate,
     FIGHTERGEN_OT_export_selected,
     FIGHTERGEN_OT_apply_detail_pass,
+    FIGHTERGEN_OT_add_whole_ship_lattice,
     FIGHTERGEN_OT_assemble,
     FIGHTERGEN_OT_reroll_wing,
     FIGHTERGEN_OT_reroll_subwing,
