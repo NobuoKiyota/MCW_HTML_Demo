@@ -1,0 +1,6 @@
+.ignore/
+*.ignore
+cocos_project/.ignore
+node_modules/
+dist/
+.DS_Store
