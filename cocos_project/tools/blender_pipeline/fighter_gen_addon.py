@@ -661,21 +661,31 @@ def build_wings_template():
     n_sep.location = (-600, -100)
     links.new(n_pos.outputs['Position'], n_sep.inputs['Vector'])
 
-    # --- span axis (X, 0..1) ---
-    n_x_offset = nodes.new('ShaderNodeMath')
-    n_x_offset.location = (-450, -50)
-    n_x_offset.operation = 'ADD'
-    links.new(n_sep.outputs['X'], n_x_offset.inputs[0])
-    n_x_offset.inputs[1].default_value = 0.5
-
+    # --- span axis (X, -0.5..+0.5 of cube -> -Span/2..+Span/2 centered at origin) ---
+    # This generates BOTH left and right halves in a single object so
+    # Rotation Y on this object folds both sides symmetrically (no Mirror needed).
     n_new_x_val = nodes.new('ShaderNodeMath')
-    n_new_x_val.location = (-250, -50)
+    n_new_x_val.location = (-450, -50)
     n_new_x_val.operation = 'MULTIPLY'
-    links.new(n_x_offset.outputs['Value'], n_new_x_val.inputs[0])
+    links.new(n_sep.outputs['X'], n_new_x_val.inputs[0])
     links.new(n_in.outputs['Span'], n_new_x_val.inputs[1])
 
+    # x_offset for downstream nodes that need normalized 0..1 span position:
+    # Use ABS(X)/Span as approximate normalized span distance from center for
+    # chord/airfoil calculations (root=0 at center, tip=1 at each end)
+    n_abs_x = nodes.new('ShaderNodeMath')
+    n_abs_x.location = (-250, -50)
+    n_abs_x.operation = 'ABSOLUTE'
+    links.new(n_sep.outputs['X'], n_abs_x.inputs[0])
+
+    n_x_offset = nodes.new('ShaderNodeMath')
+    n_x_offset.location = (-50, -50)
+    n_x_offset.operation = 'MULTIPLY'
+    links.new(n_abs_x.outputs['Value'], n_x_offset.inputs[0])
+    n_x_offset.inputs[1].default_value = 2.0  # scale: ABS(X)*2 so range [0,1] (cube X goes -0.5..+0.5)
+
     n_new_x = nodes.new('ShaderNodeMath')
-    n_new_x.location = (-50, -50)
+    n_new_x.location = (100, -50)
     n_new_x.operation = 'MULTIPLY'
     n_new_x.inputs[1].default_value = 1.0
     links.new(n_new_x_val.outputs['Value'], n_new_x.inputs[0])
@@ -912,27 +922,27 @@ def build_wings_template():
     n_dih_tan.operation = 'TANGENT'
     links.new(n_dih_rad.outputs['Value'], n_dih_tan.inputs[0])
 
+    # Use ABS of span position so both left and right wings dihedral upward
+    n_abs_x_val = nodes.new('ShaderNodeMath')
+    n_abs_x_val.location = (1750, -1200)
+    n_abs_x_val.operation = 'ABSOLUTE'
+    links.new(n_new_x_val.outputs['Value'], n_abs_x_val.inputs[0])
+
     n_dihedral_offset = nodes.new('ShaderNodeMath')
-    n_dihedral_offset.location = (1800, -1200)
+    n_dihedral_offset.location = (1900, -1200)
     n_dihedral_offset.operation = 'MULTIPLY'
-    links.new(n_new_x_val.outputs['Value'], n_dihedral_offset.inputs[0])
+    links.new(n_abs_x_val.outputs['Value'], n_dihedral_offset.inputs[0])
     links.new(n_dih_tan.outputs['Value'], n_dihedral_offset.inputs[1])
 
     n_new_z = nodes.new('ShaderNodeMath')
-    n_new_z.location = (1950, -1200)
+    n_new_z.location = (2050, -1200)
     n_new_z.operation = 'ADD'
     links.new(n_new_z_flat.outputs['Value'], n_new_z.inputs[0])
     links.new(n_dihedral_offset.outputs['Value'], n_new_z.inputs[1])
 
-    n_root_offset_x = nodes.new('ShaderNodeMath')
-    n_root_offset_x.location = (1100, 200)
-    n_root_offset_x.operation = 'ADD'
-    links.new(n_new_x.outputs['Value'], n_root_offset_x.inputs[0])
-    links.new(n_in.outputs['RootOffset'], n_root_offset_x.inputs[1])
-
     n_comb = nodes.new('ShaderNodeCombineXYZ')
     n_comb.location = (1300, 200)
-    links.new(n_root_offset_x.outputs['Value'], n_comb.inputs['X'])
+    links.new(n_new_x.outputs['Value'], n_comb.inputs['X'])
     links.new(n_new_y.outputs['Value'], n_comb.inputs['Y'])
     links.new(n_new_z.outputs['Value'], n_comb.inputs['Z'])
 
@@ -3099,23 +3109,18 @@ def _generate_wing_pair(rng, name_prefix, part_label, s, mat_base, fuselage_obj,
         'AirfoilSharpness': _rr(rng, s.wing_sharp_min, s.wing_sharp_max),
         'LeadingEdgeMid': rng.uniform(0.0, 0.5),
         'TrailingEdgeMid': rng.uniform(0.0, 0.5),
-        'RootOffset': root_x,
+        'RootOffset': 0.0,  # Not used: template now generates both sides symmetrically
         'Subdivision': s.wing_subdiv,
     }
     wing = _finish_gn_object(f"{name_prefix}_{part_label}_r", template, p, mat_base=mat_base)
     _apply_bevel(wing, s)
     add_optional_modifiers(wing, s, rng, 'X')
 
-    # Origin at (0, attach_y, 0) on the centerline so MirrorToLeft and Rotation Y fold symmetrically
+    # Origin at (0, attach_y, 0) on centerline.
+    # Template generates BOTH left+right wings symmetrically in a single mesh,
+    # so Rotation Y on this object folds both sides like a folding wing.
     wing.location = (0.0, attach_y, 0.0)
     wing.scale = (1.0, 1.0, 1.0)
-
-    mirror_mod = wing.modifiers.new("MirrorToLeft", 'MIRROR')
-    mirror_mod.use_axis[0] = True
-    mirror_mod.use_axis[1] = False
-    mirror_mod.use_axis[2] = False
-    mirror_mod.mirror_object = fuselage_obj
-    mirror_mod.use_clip = False
 
     return wing, attach_y, p['Span']
 
