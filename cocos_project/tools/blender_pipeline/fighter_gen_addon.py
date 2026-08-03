@@ -14,7 +14,7 @@ import math
 import random
 from bpy.props import FloatProperty, IntProperty, StringProperty, BoolProperty, EnumProperty, PointerProperty
 from bpy.types import PropertyGroup, Operator, Panel
-from mathutils import Vector
+from mathutils import Vector, Matrix, Euler
 
 FUSELAGE_TEMPLATE = "GN_Fuselage_Template"
 WINGS_TEMPLATE = "GN_Wings_Template"
@@ -3082,20 +3082,18 @@ def _generate_sub_wing(rng, name_prefix, s, mat_base, fuselage_obj, fuselage_len
 
 def sample_wing_trailing_edge(wing_obj, x_local, max_dist=50.0):
     """Raycast in `wing_obj`'s own local space (post-modifiers, so Twist/Taper/Bevel are
-    accounted for) to find its trailing-edge surface at span position x_local. Same
-    "sample the real surface instead of guessing" approach as sample_hull_offset, one
-    level down the fuselage -> wing -> aileron attachment chain. Returns a local-space
-    Vector, or None if the ray missed.
-    The trailing edge sits at more-negative local Y (see build_wings_template: rear_edge_y
-    is built from a NEGATED RootChord/TipChord term), so approach from far -Y traveling
-    toward +Y -- that way the trailing edge is the first surface the ray hits, instead of
-    passing straight through it to hit the leading edge on the far side."""
+    accounted for) to find its trailing-edge surface at span position x_local.
+    Returns (hit_loc, hit_normal) or (None, None) if the ray missed.
+    Tries multiple Z-offsets to handle strong Twist/Dihedral where Z=0 ray might miss the mesh."""
     direction = Vector((0.0, 1.0, 0.0))
-    origin = Vector((x_local, 0.0, 0.0)) - direction * max_dist
-    success, hit_loc, hit_normal, hit_idx = wing_obj.ray_cast(origin, direction, distance=max_dist * 2)
-    if not success:
-        return None
-    return hit_loc
+    # Try Z offsets: 0, +0.2*span, -0.2*span, +0.5*span, -0.5*span if needed
+    z_offsets = [0.0, 0.1, -0.1, 0.3, -0.3, 0.6, -0.6]
+    for z_off in z_offsets:
+        origin = Vector((x_local, 0.0, z_off)) - direction * max_dist
+        success, hit_loc, hit_normal, hit_idx = wing_obj.ray_cast(origin, direction, distance=max_dist * 2)
+        if success:
+            return hit_loc, hit_normal
+    return None, None
 
 
 def _generate_aileron(rng, name_prefix, part_label, s, mat_base, fuselage_obj, parent_wing_obj, parent_span):
@@ -3124,41 +3122,76 @@ def _generate_aileron(rng, name_prefix, part_label, s, mat_base, fuselage_obj, p
     _apply_bevel(aileron, s)
     add_optional_modifiers(aileron, s, rng, 'X')
 
-    # The wing GN template negates X internally (see build_wings_template's n_new_x), so a
-    # wing object's own local mesh spans X from 0 (root) to -Span (tip), not +Span -- the
-    # +X "outward" direction only appears after the wing object's own scale.x=-1 flip.
+    # Target position along span
     span_frac = _rr(rng, s.assemble_aileron_span_frac_min, s.assemble_aileron_span_frac_max)
-    x_local = -parent_span * span_frac
-    hit_local = sample_wing_trailing_edge(parent_wing_obj, x_local)
-    if hit_local is None:
-        hit_local = Vector((x_local, -parent_span * 0.2, 0.0))  # fallback: rough guess
-    hit_world = parent_wing_obj.matrix_world @ hit_local
+    x_center = -parent_span * span_frac
 
-    # Sample a second point slightly further outboard to get the trailing edge's tangent
-    # direction in world space (Sweep/Twist/Dihedral all tilt it away from the wing's
-    # root chord line), so the aileron sits ALONG the edge instead of at a fixed generic
-    # angle that only happens to line up for an unswept wing.
+    # Multi-point sampling along the trailing edge around x_center
     delta = max(parent_span * 0.04, 0.02)
-    x_local2 = x_local - delta
-    hit_local2 = sample_wing_trailing_edge(parent_wing_obj, x_local2)
-    if hit_local2 is None:
-        x_local2 = x_local + delta
-        hit_local2 = sample_wing_trailing_edge(parent_wing_obj, x_local2)
+    sample_offsets = [0.0, -delta, delta, -2.0 * delta, 2.0 * delta]
+    hits = []  # list of (x_local, hit_loc_world, hit_norm_world)
 
-    if hit_local2 is not None:
-        hit_world2 = parent_wing_obj.matrix_world @ hit_local2
-        tangent = hit_world2 - hit_world
-        if x_local2 < x_local:
-            tangent = -tangent  # keep tangent pointing outboard regardless of which side we sampled
-        if tangent.length > 1e-6:
-            angle_z = math.atan2(tangent.y, tangent.x)
+    for off in sample_offsets:
+        x_loc = x_center + off
+        # Clamp within valid wing span [-parent_span * 0.98, -parent_span * 0.02]
+        x_loc_clamped = max(min(x_loc, -parent_span * 0.02), -parent_span * 0.98)
+        hit_loc, hit_norm = sample_wing_trailing_edge(parent_wing_obj, x_loc_clamped)
+        if hit_loc is not None:
+            w_loc = parent_wing_obj.matrix_world @ hit_loc
+            w_norm = (parent_wing_obj.matrix_world.to_3x3() @ hit_norm).normalized()
+            hits.append((x_loc_clamped, w_loc, w_norm))
+
+    if hits:
+        # Sort by span position (most inboard to most outboard, i.e. x_local near 0 to near -parent_span)
+        hits.sort(key=lambda item: item[0], reverse=True)  # since x is negative, reverse=True puts inboard (e.g. -0.2) first, outboard (e.g. -0.8) second
+        
+        # Primary position is the hit closest to center
+        main_hit = min(hits, key=lambda item: abs(item[0] - x_center))
+        hit_world = main_hit[1]
+
+        # Calculate tangent along trailing edge (outboard direction: from inboard hit to outboard hit)
+        if len(hits) >= 2:
+            inboard_pt = hits[0][1]
+            outboard_pt = hits[-1][1]
+            tangent = (outboard_pt - inboard_pt)
+            if tangent.length < 1e-6:
+                tangent = (parent_wing_obj.matrix_world.to_3x3() @ Vector((-1.0, 0.0, 0.0))).normalized()
+            else:
+                tangent = tangent.normalized()
         else:
-            angle_z = 0.0
+            tangent = (parent_wing_obj.matrix_world.to_3x3() @ Vector((-1.0, 0.0, 0.0))).normalized()
+
+        # Average normal
+        avg_normal = Vector((0.0, 0.0, 0.0))
+        for h in hits:
+            avg_normal += h[2]
+        if avg_normal.length > 1e-6:
+            normal = avg_normal.normalized()
+        else:
+            normal = (parent_wing_obj.matrix_world.to_3x3() @ Vector((0.0, 0.0, 1.0))).normalized()
+
+        # Construct full 3D orthonormal basis:
+        # X = tangent (outboard along trailing edge)
+        # Z = normal (perpendicular to wing surface)
+        # Y = normal.cross(tangent) (forward along wing chord)
+        chord_vec = normal.cross(tangent)
+        if chord_vec.length > 1e-6:
+            chord_vec = chord_vec.normalized()
+            # Re-orthonormalize normal
+            normal = tangent.cross(chord_vec).normalized()
+            rot_mat = Matrix((tangent, chord_vec, normal)).transposed()
+            aileron_rot = rot_mat.to_euler()
+        else:
+            angle_z = math.atan2(tangent.y, tangent.x)
+            aileron_rot = Euler((0.0, 0.0, angle_z))
     else:
-        angle_z = 0.0
+        # Fallback if all raycasts failed: align roughly with wing world transform
+        hit_local = Vector((x_center, -parent_span * 0.2, 0.0))
+        hit_world = parent_wing_obj.matrix_world @ hit_local
+        aileron_rot = parent_wing_obj.matrix_world.to_euler()
 
     aileron.location = hit_world
-    aileron.rotation_euler = (0.0, 0.0, angle_z)
+    aileron.rotation_euler = aileron_rot
     aileron.scale.x = -1.0
 
     mirror_mod = aileron.modifiers.new("MirrorToLeft", 'MIRROR')
