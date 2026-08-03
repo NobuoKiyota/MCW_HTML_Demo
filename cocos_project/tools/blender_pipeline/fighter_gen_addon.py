@@ -2540,12 +2540,22 @@ class FighterGenSettings(PropertyGroup):
     assemble_subwing_attach_max: FloatProperty(name="Sub-Wing Attach Y Max (frac of Length)", default=0.30, min=0.02, max=0.9)
     assemble_subwing_scale: FloatProperty(name="Sub-Wing Size Scale", default=0.32, min=0.1, max=1.0,
         description="Multiplies the main wing's Span/Chord/Sweep ranges to size the sub-wing down")
-    assemble_aileron_enable: BoolProperty(name="Include Aileron (experimental)", default=False,
+    assemble_aileron_enable: BoolProperty(name="Include Aileron", default=False,
         description="Adds a small flat control-surface flap on the trailing edge of the wing and (if present) sub-wing")
     assemble_aileron_span_frac_min: FloatProperty(name="Aileron Position Min (frac of parent Span)", default=0.55, min=0.05, max=0.95)
     assemble_aileron_span_frac_max: FloatProperty(name="Aileron Position Max (frac of parent Span)", default=0.85, min=0.05, max=0.95)
     assemble_aileron_size_scale: FloatProperty(name="Aileron Size Scale", default=0.28, min=0.05, max=0.8,
         description="Multiplies the main wing's Span/Chord ranges to size the aileron down")
+
+    assemble_tail_enable: BoolProperty(name="Include Tail", default=True,
+        description="Raycast-attaches a vertical/V-tail pair to the aft section of the fuselage")
+    assemble_tail_y_frac_min: FloatProperty(name="Tail Attach Y Min", default=0.70, min=0.5, max=0.95)
+    assemble_tail_y_frac_max: FloatProperty(name="Tail Attach Y Max", default=0.88, min=0.5, max=0.95)
+
+    assemble_canopy_enable: BoolProperty(name="Include Canopy", default=True,
+        description="Raycast-attaches a cockpit canopy to the forward upper hull surface of the fuselage")
+    assemble_canopy_y_frac_min: FloatProperty(name="Canopy Attach Y Min", default=0.25, min=0.05, max=0.6)
+    assemble_canopy_y_frac_max: FloatProperty(name="Canopy Attach Y Max", default=0.40, min=0.05, max=0.6)
 
 
 CATEGORY_FOLDERS = {
@@ -2969,14 +2979,21 @@ class FIGHTERGEN_PT_panel(Panel):
         layout.operator('fightergen.generate_variants', icon='MOD_ARRAY')
 
         assemble_box = layout.box()
-        assemble_box.label(text="🔧 Assembly (experimental)")
-        assemble_box.label(text="Fuselage + Main Wing + Sub-Wing, roots fitted via raycast")
+        assemble_box.label(text="🔧 Assembly (Raycast Fitted)")
+        assemble_box.label(text="Full Ship Integration: Fuselage + Wings + Tails + Canopy")
         row = assemble_box.row(align=True)
         row.prop(s, 'assemble_subwing_enable')
+        row.prop(s, 'assemble_tail_enable')
+        row = assemble_box.row(align=True)
+        row.prop(s, 'assemble_canopy_enable')
         row.prop(s, 'assemble_aileron_enable')
         assemble_box.operator('fightergen.assemble_fighter', icon='MOD_BOOLEAN')
-        assemble_box.operator('fightergen.reroll_main_wing', icon='FILE_REFRESH')
-        assemble_box.operator('fightergen.reroll_sub_wing', icon='FILE_REFRESH')
+        row = assemble_box.row(align=True)
+        row.operator('fightergen.reroll_main_wing', icon='FILE_REFRESH', text="Reroll Wing")
+        row.operator('fightergen.reroll_sub_wing', icon='FILE_REFRESH', text="Reroll Sub-Wing")
+        row = assemble_box.row(align=True)
+        row.operator('fightergen.reroll_tail', icon='FILE_REFRESH', text="Reroll Tail")
+        row.operator('fightergen.reroll_canopy', icon='FILE_REFRESH', text="Reroll Canopy")
 
         export_box = layout.box()
         export_box.label(text="Export")
@@ -3204,6 +3221,83 @@ def _generate_aileron(rng, name_prefix, part_label, s, mat_base, fuselage_obj, p
     return aileron
 
 
+def _generate_tail_assembly(rng, name_prefix, s, mat_base, fuselage_obj, fuselage_length):
+    """Raycast-attaches a tail (vertical or V-tail pair) to the aft hull section of fuselage_obj."""
+    template = build_tails_template()
+    attach_y = fuselage_length * _rr(rng, s.assemble_tail_y_frac_min, s.assemble_tail_y_frac_max)
+
+    scale = 0.55
+    p = {
+        'Span': _rr(rng, s.wing_span_min, s.wing_span_max) * scale,
+        'RootChord': _rr(rng, s.wing_root_min, s.wing_root_max) * scale * 0.8,
+        'TipChord': _rr(rng, s.wing_tip_min, s.wing_tip_max) * scale * 0.7,
+        'Sweep': _rr(rng, 15.0, 45.0),
+        'Thickness': _rr(rng, s.wing_thick_min, s.wing_thick_max) * 0.8,
+        'ThicknessMid': 0.0,
+        'RootThickness': 0.8,
+        'TipThickness': 0.5,
+        'Dihedral': _rr(rng, 50.0, 75.0),
+        'Twist': 0.0,
+        'AirfoilSharpness': 1.2,
+        'LeadingEdgeMid': 0.0,
+        'TrailingEdgeMid': 0.0,
+        'Subdivision': s.wing_subdiv,
+    }
+
+    direction = Vector((0.4, 0.0, 0.9)).normalized()
+    radius_offset, hit_normal = sample_hull_offset(fuselage_obj, attach_y, direction)
+    if radius_offset is None:
+        radius_offset = 0.3
+
+    tail = _finish_gn_object(f"{name_prefix}_tail_r", template, p, mat_base=mat_base)
+    _apply_bevel(tail, s)
+    add_optional_modifiers(tail, s, rng, 'X')
+
+    tail.location = (radius_offset * direction.x * s.assemble_wing_overlap, attach_y, radius_offset * direction.z * s.assemble_wing_overlap)
+    tail.scale.x = -1.0
+
+    mirror_mod = tail.modifiers.new("MirrorToLeft", 'MIRROR')
+    mirror_mod.use_axis[0] = True
+    mirror_mod.use_axis[1] = False
+    mirror_mod.use_axis[2] = False
+    mirror_mod.mirror_object = fuselage_obj
+    mirror_mod.use_clip = False
+
+    return tail, attach_y
+
+
+def _generate_canopy_assembly(rng, name_prefix, s, mat_base, fuselage_obj, fuselage_length):
+    """Raycast-attaches a cockpit canopy to the upper forward hull surface of fuselage_obj."""
+    template = build_canopy_template()
+    attach_y = fuselage_length * _rr(rng, s.assemble_canopy_y_frac_min, s.assemble_canopy_y_frac_max)
+
+    p = {
+        'Length': _rr(rng, s.canopy_len_min, s.canopy_len_max),
+        'Width': _rr(rng, s.canopy_width_min, s.canopy_width_max),
+        'Height': _rr(rng, s.canopy_height_min, s.canopy_height_max),
+        'Teardrop': _rr(rng, s.canopy_teardrop_min, s.canopy_teardrop_max),
+        'Stretch': _rr(rng, s.canopy_stretch_min, s.canopy_stretch_max),
+        'Subdivision': s.canopy_subdiv,
+    }
+
+    direction = Vector((0.0, 0.0, -1.0))
+    origin = Vector((0.0, attach_y, 50.0))
+    success, hit_loc, hit_normal, hit_idx = fuselage_obj.ray_cast(origin, direction, distance=100.0)
+
+    if success:
+        attach_pos = hit_loc
+    else:
+        attach_pos = Vector((0.0, attach_y, 0.4))
+
+    mat_canopy = make_material('FighterGen_Canopy', (0.12, 0.22, 0.35, 0.65), roughness=0.08, metallic=0.90)
+    canopy = _finish_gn_object(f"{name_prefix}_canopy", template, p, mat_base=mat_canopy)
+    _apply_bevel(canopy, s)
+    add_optional_modifiers(canopy, s, rng, 'Y')
+
+    canopy.location = attach_pos
+    return canopy, attach_y
+
+
 def _clear_assembly_collection():
     coll = bpy.data.collections.get(ASSEMBLY_COLLECTION)
     if coll is None:
@@ -3258,6 +3352,18 @@ class FIGHTERGEN_OT_assemble(Operator):
                 created.append(sub_aileron)
                 aileron_msg += "+sub-wing aileron"
 
+        tail_msg = ""
+        if s.assemble_tail_enable:
+            tail, tail_attach_y = _generate_tail_assembly(rng, name, s, mat_base, fuselage, fuselage_length)
+            created.append(tail)
+            tail_msg = f", tail Y={tail_attach_y:.2f}"
+
+        canopy_msg = ""
+        if s.assemble_canopy_enable:
+            canopy, canopy_attach_y = _generate_canopy_assembly(rng, name, s, mat_base, fuselage, fuselage_length)
+            created.append(canopy)
+            canopy_msg = f", canopy Y={canopy_attach_y:.2f}"
+
         for obj in created:
             for c in list(obj.users_collection):
                 c.objects.unlink(obj)
@@ -3268,7 +3374,61 @@ class FIGHTERGEN_OT_assemble(Operator):
             obj.select_set(True)
         bpy.context.view_layer.objects.active = fuselage
 
-        self.report({'INFO'}, f"Assembled fuselage + main wing (attach Y={attach_y:.2f}, length={fuselage_length:.2f}{subwing_msg}{aileron_msg})")
+        self.report({'INFO'}, f"Assembled full ship (length={fuselage_length:.2f}{subwing_msg}{aileron_msg}{tail_msg}{canopy_msg})")
+        return {'FINISHED'}
+
+
+class FIGHTERGEN_OT_reroll_tail(Operator):
+    bl_idname = "fightergen.reroll_tail"
+    bl_label = "Reroll Tail Only"
+    bl_description = "Keep current assembly and generate a fresh tail pair"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        s = context.scene.fightergen_settings
+        coll = bpy.data.collections.get(ASSEMBLY_COLLECTION)
+        fuselage = _find_assembly_fuselage(coll)
+        if not fuselage:
+            self.report({'ERROR'}, "No assembly fuselage found in FighterGen_Assembly collection")
+            return {'CANCELLED'}
+        fuselage_length = fuselage.dimensions.y
+        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
+        rng = random.Random()
+        name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
+
+        _remove_assembly_objects_by_suffix(coll, fuselage, '_tail_r')
+        tail, attach_y = _generate_tail_assembly(rng, name, s, mat_base, fuselage, fuselage_length)
+        for c in list(tail.users_collection):
+            c.objects.unlink(tail)
+        coll.objects.link(tail)
+        self.report({'INFO'}, f"Rerolled tail (attach Y={attach_y:.2f})")
+        return {'FINISHED'}
+
+
+class FIGHTERGEN_OT_reroll_canopy(Operator):
+    bl_idname = "fightergen.reroll_canopy"
+    bl_label = "Reroll Canopy Only"
+    bl_description = "Keep current assembly and generate a fresh canopy"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        s = context.scene.fightergen_settings
+        coll = bpy.data.collections.get(ASSEMBLY_COLLECTION)
+        fuselage = _find_assembly_fuselage(coll)
+        if not fuselage:
+            self.report({'ERROR'}, "No assembly fuselage found in FighterGen_Assembly collection")
+            return {'CANCELLED'}
+        fuselage_length = fuselage.dimensions.y
+        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
+        rng = random.Random()
+        name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
+
+        _remove_assembly_objects_by_suffix(coll, fuselage, '_canopy')
+        canopy, attach_y = _generate_canopy_assembly(rng, name, s, mat_base, fuselage, fuselage_length)
+        for c in list(canopy.users_collection):
+            c.objects.unlink(canopy)
+        coll.objects.link(canopy)
+        self.report({'INFO'}, f"Rerolled canopy (attach Y={attach_y:.2f})")
         return {'FINISHED'}
 
 
@@ -3380,6 +3540,8 @@ classes = (
     FIGHTERGEN_OT_assemble,
     FIGHTERGEN_OT_reroll_wing,
     FIGHTERGEN_OT_reroll_subwing,
+    FIGHTERGEN_OT_reroll_tail,
+    FIGHTERGEN_OT_reroll_canopy,
     FIGHTERGEN_PT_panel,
 )
 

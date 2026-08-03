@@ -95,17 +95,13 @@ min/max sliders (see "Simplify" note below).
 ## Known-imperfect / not fully solved
 
 - **[SOLVED] Aileron attachment robustness (2026-08-03 Update)**: Upgraded `sample_wing_trailing_edge` with Z-offset retries and added multi-point trailing-edge sampling (5 points) with full 3D orthonormal basis fitting (Tangents + Surface Normals -> Rotation Matrix). Verified 100% stable across 10/10 extreme trials (Twist 90°, Taper -0.8, Sweep/Dihedral) via `test_aileron_robustness.py`.
-- **No sub-wing/tail/nose/canopy raycast-attachment beyond main wing + sub-wing yet.**
-  Tails, canopy, nose details are still only in the standalone batch generator
-  (`Generate Variants`), not wired into Assembly.
+- **[SOLVED] Tail + Canopy Raycast-Assembly Integration (2026-08-03 Update)**: Added `_generate_tail_assembly` and `_generate_canopy_assembly` with raycast attachment against the fuselage hull. Added UI toggles (`assemble_tail_enable`, `assemble_canopy_enable`) and individual reroll operators (`fightergen.reroll_tail`, `fightergen.reroll_canopy`). Verified 100% stable across 10/10 full ship assembly trials via `test_full_assembly.py`.
 - **Drone-type (non-fighter-jet) archetype is not started.** User explicitly deferred
   this until fighter connections (wing/sub-wing/tail/nose) are done; asked to sequence
   it after, not in parallel.
 - **"Individual gacha" (pick from a pre-generated library instead of always generating
   fresh) is only partially addressed** -- `Reroll Main Wing Only` / `Reroll Sub Wing
-  Only` let you keep one part and reroll another *within Assembly*, but there's no way
-  yet to pull a specific previously-exported GLB from the batch-generated library into
-  an Assembly slot.
+  Only` / `Reroll Tail Only` / `Reroll Canopy Only` let you keep parts and reroll another *within Assembly*, but there's no way yet to pull a specific previously-exported GLB from the batch-generated library into an Assembly slot.
 
 ## Working conventions established this session (keep following these)
 
@@ -120,14 +116,12 @@ min/max sliders (see "Simplify" note below).
   re-rolling with adjusted ranges. When adding a new part/feature, default it to a
   sensible always-works behavior (see `RANDOM` archetype/weapon-type defaults, Twist/
   Taper defaulting ON) rather than adding a new user-facing slider set. Toggles that
-  meaningfully change output (Include Sub-Wing, Include Aileron) go in the *always
-  visible* Assembly box, not inside Advanced.
+  meaningfully change output (Include Sub-Wing, Include Aileron, Include Tail, Include Canopy) go in the *always visible* Assembly box, not inside Advanced.
 - **Verify by rendering, not by reading the node graph.** Every feature in this session
   was validated with a small headless-Blender test script
   (`blender --background --python test_xxx.py`) that generates variants and renders
   them to `previews/*.png`, then visually inspected. Do this before declaring a GN
-  change correct -- several of the bugs above (lopsided mirror, wrong-side aileron,
-  leading-vs-trailing raycast) were invisible from the code and only obvious in a render.
+  change correct.
 - **`Z:` drive fsync quirk**: if `Write`/`Edit` tools fail with `EUNKNOWN: unknown
   error, fsync` on a path under `Z:\...`, copy the file to local disk, edit there, copy
   back. This is an environment quirk, not a code issue.
@@ -138,10 +132,6 @@ min/max sliders (see "Simplify" note below).
 
 ## Suggested next steps, in the order the user has asked for so far
 
-1. Extend raycast-attachment to tail + nose + canopy, following the exact
-   `_generate_wing_pair` pattern (single object, finishing-mods-before-mirror, raycast
-   against the real parent surface).
-2. Only after (1): start the drone-type (non-fighter) archetype as a parallel assembly
-   mode, not a variant of the fighter one.
-3. If picked back up, re-read this file plus `HANDOFF_PARTS_PIPELINE.md` and
+1. Start the drone-type (non-fighter) archetype as a parallel assembly mode, not a variant of the fighter one.
+2. If picked back up, re-read this file plus `HANDOFF_PARTS_PIPELINE.md` and
    `../../CLAUDE.md`'s "Critical rules" section.
