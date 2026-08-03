@@ -25,6 +25,7 @@ CANNON_TEMPLATE = "GN_Cannon_Template"
 GATLING_TEMPLATE = "GN_Gatling_Template"
 RAILGUN_TEMPLATE = "GN_Railgun_Template"
 VARIANT_COLLECTION = "FighterGen_Variants"
+ASSEMBLY_COLLECTION = "FighterGen_Assembly"
 RADIUS_CURVE_NODE_NAME = "RadiusCurveNode"
 HEIGHT_CURVE_NODE_NAME = "HeightCurveNode"
 
@@ -82,6 +83,7 @@ def build_fuselage_template():
     group.inputs.new('NodeSocketFloat', 'RadiusCeiling')
     group.inputs.new('NodeSocketFloat', 'HeightFloor')
     group.inputs.new('NodeSocketFloat', 'HeightCeiling')
+    group.inputs.new('NodeSocketFloat', 'VerticalPinch')
     group.inputs.new('NodeSocketInt', 'CrossSectionSides')
     group.inputs.new('NodeSocketInt', 'Subdivision')
     group.inputs.new('NodeSocketMaterial', 'Material')
@@ -178,11 +180,45 @@ def build_fuselage_template():
     links.new(n_sep.outputs['Z'], n_new_z.inputs[0])
     links.new(n_height_map.outputs['Result'], n_new_z.inputs[1])
 
+    # Vertical pinch: instead of a perfectly symmetric ellipse (equal +Z/-Z radius from a
+    # fixed centerline -- the "4-way even" look), scale the top half and bottom half of
+    # the cross-section by different amounts so the silhouette narrows toward a flat/sharp
+    # edge on one side instead of bulging evenly all around. sign(local Z) picks which
+    # half a vertex is on; +1 grows that half, -1 shrinks it (toward a flat edge at 0).
+    n_vp_sign = nodes.new('ShaderNodeMath')
+    n_vp_sign.location = (450, -800)
+    n_vp_sign.operation = 'SIGN'
+    links.new(n_sep.outputs['Z'], n_vp_sign.inputs[0])
+
+    n_vp_term = nodes.new('ShaderNodeMath')
+    n_vp_term.location = (650, -800)
+    n_vp_term.operation = 'MULTIPLY'
+    links.new(n_vp_sign.outputs['Value'], n_vp_term.inputs[0])
+    links.new(n_in.outputs['VerticalPinch'], n_vp_term.inputs[1])
+
+    n_vp_scale = nodes.new('ShaderNodeMath')
+    n_vp_scale.location = (850, -800)
+    n_vp_scale.operation = 'ADD'
+    n_vp_scale.inputs[0].default_value = 1.0
+    links.new(n_vp_term.outputs['Value'], n_vp_scale.inputs[1])
+
+    n_vp_scale_clamped = nodes.new('ShaderNodeMath')
+    n_vp_scale_clamped.location = (1050, -800)
+    n_vp_scale_clamped.operation = 'MAXIMUM'
+    n_vp_scale_clamped.inputs[1].default_value = 0.0
+    links.new(n_vp_scale.outputs['Value'], n_vp_scale_clamped.inputs[0])
+
+    n_new_z_asym = nodes.new('ShaderNodeMath')
+    n_new_z_asym.location = (650, -650)
+    n_new_z_asym.operation = 'MULTIPLY'
+    links.new(n_new_z.outputs['Value'], n_new_z_asym.inputs[0])
+    links.new(n_vp_scale_clamped.outputs['Value'], n_new_z_asym.inputs[1])
+
     n_recombine = nodes.new('ShaderNodeCombineXYZ')
-    n_recombine.location = (650, -650)
+    n_recombine.location = (850, -650)
     links.new(n_sep.outputs['X'], n_recombine.inputs['X'])
     links.new(n_sep.outputs['Y'], n_recombine.inputs['Y'])
-    links.new(n_new_z.outputs['Value'], n_recombine.inputs['Z'])
+    links.new(n_new_z_asym.outputs['Value'], n_recombine.inputs['Z'])
 
     n_setpos = nodes.new('GeometryNodeSetPosition')
     n_setpos.location = (150, 0)
@@ -221,6 +257,8 @@ def build_tails_template():
     group.inputs.new('NodeSocketFloat', 'Span')
     group.inputs.new('NodeSocketFloat', 'Thickness')
     group.inputs.new('NodeSocketFloat', 'ThicknessMid')
+    group.inputs.new('NodeSocketFloat', 'RootThickness')
+    group.inputs.new('NodeSocketFloat', 'TipThickness')
     group.inputs.new('NodeSocketFloat', 'RootChord')
     group.inputs.new('NodeSocketFloat', 'TipChord')
     group.inputs.new('NodeSocketFloat', 'Sweep')
@@ -426,23 +464,32 @@ def build_tails_template():
     links.new(n_term_mid_z_2.outputs['Value'], n_thick_mid.inputs[0])
     links.new(n_in.outputs['ThicknessMid'], n_thick_mid.inputs[1])
 
-    n_thick_tip = nodes.new('ShaderNodeMath')
-    n_thick_tip.location = (350, -1400)
-    n_thick_tip.operation = 'MULTIPLY'
-    links.new(n_z_sq.outputs['Value'], n_thick_tip.inputs[0])
-    n_thick_tip.inputs[1].default_value = 0.05
+    # root-to-tip thickness taper: linear blend between RootThickness (z=0) and
+    # TipThickness (z=1), so the balance is user-adjustable/reversible instead of
+    # a fixed root-biased curve.
+    n_root_thick_term = nodes.new('ShaderNodeMath')
+    n_root_thick_term.location = (350, -1400)
+    n_root_thick_term.operation = 'MULTIPLY'
+    links.new(n_1_minus_z.outputs['Value'], n_root_thick_term.inputs[0])
+    links.new(n_in.outputs['RootThickness'], n_root_thick_term.inputs[1])
+
+    n_tip_thick_term = nodes.new('ShaderNodeMath')
+    n_tip_thick_term.location = (350, -1500)
+    n_tip_thick_term.operation = 'MULTIPLY'
+    links.new(n_z_offset.outputs['Value'], n_tip_thick_term.inputs[0])
+    links.new(n_in.outputs['TipThickness'], n_tip_thick_term.inputs[1])
 
     n_thick_profile_temp = nodes.new('ShaderNodeMath')
     n_thick_profile_temp.location = (550, -1250)
     n_thick_profile_temp.operation = 'ADD'
-    links.new(n_1_minus_z_sq.outputs['Value'], n_thick_profile_temp.inputs[0])
-    links.new(n_thick_mid.outputs['Value'], n_thick_profile_temp.inputs[1])
+    links.new(n_root_thick_term.outputs['Value'], n_thick_profile_temp.inputs[0])
+    links.new(n_tip_thick_term.outputs['Value'], n_thick_profile_temp.inputs[1])
 
     n_thick_profile = nodes.new('ShaderNodeMath')
     n_thick_profile.location = (750, -1250)
     n_thick_profile.operation = 'ADD'
     links.new(n_thick_profile_temp.outputs['Value'], n_thick_profile.inputs[0])
-    links.new(n_thick_tip.outputs['Value'], n_thick_profile.inputs[1])
+    links.new(n_thick_mid.outputs['Value'], n_thick_profile.inputs[1])
 
     n_x_thick = nodes.new('ShaderNodeMath')
     n_x_thick.location = (900, -1250)
@@ -560,6 +607,8 @@ def build_wings_template():
     group.inputs.new('NodeSocketFloat', 'Span')
     group.inputs.new('NodeSocketFloat', 'Thickness')
     group.inputs.new('NodeSocketFloat', 'ThicknessMid')
+    group.inputs.new('NodeSocketFloat', 'RootThickness')
+    group.inputs.new('NodeSocketFloat', 'TipThickness')
     group.inputs.new('NodeSocketFloat', 'RootChord')
     group.inputs.new('NodeSocketFloat', 'TipChord')
     group.inputs.new('NodeSocketFloat', 'Sweep')
@@ -771,23 +820,32 @@ def build_wings_template():
     links.new(n_term_mid_x_2.outputs['Value'], n_thick_mid.inputs[0])
     links.new(n_in.outputs['ThicknessMid'], n_thick_mid.inputs[1])
 
-    n_thick_tip = nodes.new('ShaderNodeMath')
-    n_thick_tip.location = (350, -1400)
-    n_thick_tip.operation = 'MULTIPLY'
-    links.new(n_x_sq.outputs['Value'], n_thick_tip.inputs[0])
-    n_thick_tip.inputs[1].default_value = 0.05
+    # root-to-tip thickness taper: linear blend between RootThickness (x=0) and
+    # TipThickness (x=1), so the balance is user-adjustable/reversible instead of
+    # a fixed root-biased curve.
+    n_root_thick_term = nodes.new('ShaderNodeMath')
+    n_root_thick_term.location = (350, -1400)
+    n_root_thick_term.operation = 'MULTIPLY'
+    links.new(n_1_minus_x.outputs['Value'], n_root_thick_term.inputs[0])
+    links.new(n_in.outputs['RootThickness'], n_root_thick_term.inputs[1])
+
+    n_tip_thick_term = nodes.new('ShaderNodeMath')
+    n_tip_thick_term.location = (350, -1500)
+    n_tip_thick_term.operation = 'MULTIPLY'
+    links.new(n_x_offset.outputs['Value'], n_tip_thick_term.inputs[0])
+    links.new(n_in.outputs['TipThickness'], n_tip_thick_term.inputs[1])
 
     n_thick_profile_temp = nodes.new('ShaderNodeMath')
     n_thick_profile_temp.location = (550, -1250)
     n_thick_profile_temp.operation = 'ADD'
-    links.new(n_1_minus_x_sq.outputs['Value'], n_thick_profile_temp.inputs[0])
-    links.new(n_thick_mid.outputs['Value'], n_thick_profile_temp.inputs[1])
+    links.new(n_root_thick_term.outputs['Value'], n_thick_profile_temp.inputs[0])
+    links.new(n_tip_thick_term.outputs['Value'], n_thick_profile_temp.inputs[1])
 
     n_thick_profile = nodes.new('ShaderNodeMath')
     n_thick_profile.location = (750, -1250)
     n_thick_profile.operation = 'ADD'
     links.new(n_thick_profile_temp.outputs['Value'], n_thick_profile.inputs[0])
-    links.new(n_thick_tip.outputs['Value'], n_thick_profile.inputs[1])
+    links.new(n_thick_mid.outputs['Value'], n_thick_profile.inputs[1])
 
     n_z_thick = nodes.new('ShaderNodeMath')
     n_z_thick.location = (900, -1250)
@@ -2124,18 +2182,66 @@ def _resolve_handle_type(profile_style, rng):
     return rng.choice(['VECTOR', 'AUTO_CLAMPED'])
 
 
-def specialize_fuselage_group_for_variant(template_group, rng, radius_point_count, height_point_count, profile_style):
-    """Copy the fuselage template so this variant can carry its own randomized curve shapes."""
+# Fixed control-point/handle layouts for the non-organic archetypes. Unlike the random
+# walk above, these use a SMALL number of straight-line (VECTOR) points on purpose --
+# more points + smooth handles is what produced the uneven "vegetable" look the organic
+# mode can fall into. Only a small jitter is applied per variant, so the silhouette
+# family stays clean and mechanical instead of drifting back into noise.
+_ARCHETYPE_PROFILE_BASE = {
+    'WEDGE': (
+        [(0.0, 0.05), (1.0, 1.0)],
+        ['VECTOR', 'VECTOR'],
+    ),
+    'CYLINDER': (
+        [(0.0, 0.2), (0.14, 0.95), (0.86, 0.95), (1.0, 0.2)],
+        ['AUTO_CLAMPED', 'VECTOR', 'VECTOR', 'AUTO_CLAMPED'],
+    ),
+    'TRAPEZOID': (
+        [(0.0, 0.35), (0.25, 0.9), (0.75, 0.9), (1.0, 0.55)],
+        ['VECTOR', 'VECTOR', 'VECTOR', 'VECTOR'],
+    ),
+    'DIAMOND': (
+        [(0.0, 0.05), (0.5, 1.0), (1.0, 0.05)],
+        ['VECTOR', 'VECTOR', 'VECTOR'],
+    ),
+}
+
+
+def _archetype_profile_points(rng, archetype, jitter=0.05):
+    entry = _ARCHETYPE_PROFILE_BASE.get(archetype)
+    if entry is None:
+        return None, None
+    base_points, handles = entry
+    n = len(base_points)
+    points = []
+    for i, (x, y) in enumerate(base_points):
+        if i == 0 or i == n - 1:
+            xj = x
+        else:
+            xj = min(0.97, max(0.03, x + rng.uniform(-jitter, jitter)))
+        yj = min(1.0, max(0.02, y + rng.uniform(-jitter, jitter)))
+        points.append((xj, yj))
+    return points, list(handles)
+
+
+def specialize_fuselage_group_for_variant(template_group, rng, radius_point_count, height_point_count,
+                                           profile_style, archetype='ORGANIC'):
+    """Copy the fuselage template so this variant can carry its own curve shapes."""
     g = template_group.copy()
 
-    body_handle = _resolve_handle_type(profile_style, rng)
-    radius_points = _random_radius_points(rng, radius_point_count)
-    radius_handles = ['VECTOR', 'VECTOR'] + [body_handle] * (len(radius_points) - 2)
+    radius_points, radius_handles = _archetype_profile_points(rng, archetype)
+    if radius_points is None:
+        body_handle = _resolve_handle_type(profile_style, rng)
+        radius_points = _random_radius_points(rng, radius_point_count)
+        radius_handles = ['VECTOR', 'VECTOR'] + [body_handle] * (len(radius_points) - 2)
     _set_curve_points(g.nodes[RADIUS_CURVE_NODE_NAME], radius_points, radius_handles)
 
-    height_points = _random_height_points(rng, height_point_count)
-    height_handle = _resolve_handle_type(profile_style, rng)
-    _set_curve_points(g.nodes[HEIGHT_CURVE_NODE_NAME], height_points, [height_handle] * len(height_points))
+    height_points, height_handles = _archetype_profile_points(rng, archetype)
+    if height_points is None:
+        height_points = _random_height_points(rng, height_point_count)
+        height_handle = _resolve_handle_type(profile_style, rng)
+        height_handles = [height_handle] * len(height_points)
+    _set_curve_points(g.nodes[HEIGHT_CURVE_NODE_NAME], height_points, height_handles)
 
     return g
 
@@ -2172,9 +2278,12 @@ def add_panel_grooves(obj, length, ref_radius, ref_height_ratio, groove_center_y
         bpy.data.objects.remove(cutter, do_unlink=True)
 
 
-def add_optional_modifiers(obj, s):
+def add_optional_modifiers(obj, s, rng, long_axis='Y'):
     """Live (unapplied) finishing modifiers -- stay hand-editable in Blender's modifier
-    stack. glTF export (export_apply=True) bakes them automatically at export time."""
+    stack. glTF export (export_apply=True) bakes them automatically at export time.
+    `long_axis` is the object's own "length" axis (Y for fuselage/engines/canopy/weapons,
+    X for wings, Z for tails) so Twist/Taper/Bend deform along the right direction instead
+    of squashing the cross-section."""
     if s.use_remesh:
         mod = obj.modifiers.new("Remesh", 'REMESH')
         mod.mode = 'SMOOTH'
@@ -2190,6 +2299,22 @@ def add_optional_modifiers(obj, s):
         mod.deform_method = 'BEND'
         mod.deform_axis = 'Z'
         mod.angle = math.radians(s.bend_angle_deg)
+
+    # Twist/Taper: smooth, mathematical deformations (not per-vertex noise), so they
+    # sharpen/dynamize the silhouette without reintroducing the "vegetable" bumpiness of
+    # heavy randomization. Randomized per variant (unlike Bend's single fixed angle above)
+    # since these are meant to feed variety straight into random generation.
+    if s.use_twist:
+        mod = obj.modifiers.new("SimpleDeformTwist", 'SIMPLE_DEFORM')
+        mod.deform_method = 'TWIST'
+        mod.deform_axis = long_axis
+        mod.angle = math.radians(_rr(rng, s.twist_angle_min, s.twist_angle_max))
+
+    if s.use_taper:
+        mod = obj.modifiers.new("SimpleDeformTaper", 'SIMPLE_DEFORM')
+        mod.deform_method = 'TAPER'
+        mod.deform_axis = long_axis
+        mod.factor = _rr(rng, s.taper_factor_min, s.taper_factor_max)
 
 
 def make_material(name, base_color, metallic, roughness=0.4):
@@ -2274,6 +2399,10 @@ class FighterGenSettings(PropertyGroup):
     random_seed: IntProperty(name='Random Seed', default=0)
     variant_count: IntProperty(name='Variant Count', default=6, min=1, max=64)
     name_prefix: StringProperty(name='Name Prefix', default='part')
+    show_advanced: BoolProperty(
+        name='Show Advanced Parameters', default=False,
+        description="Fine-grained random-range sliders -- usually not needed since generated objects are hand-edited directly afterward",
+    )
     spacing: FloatProperty(name='Grid Spacing', default=1.0, min=0.2, max=5.0)
     export_glb: BoolProperty(name='Export GLB on Generate', default=False)
     export_dir: StringProperty(
@@ -2284,6 +2413,19 @@ class FighterGenSettings(PropertyGroup):
 
     length_min: FloatProperty(name='Length Min', default=3.0, min=0.1)
     length_max: FloatProperty(name='Length Max', default=4.6, min=0.1)
+    fuselage_archetype: EnumProperty(
+        name='Fuselage Archetype',
+        items=[
+            ('RANDOM', "Random (pick per variant)", "Picks a different archetype below for each generated variant"),
+            ('ORGANIC', "Organic (Random)", "Bounded random-walk silhouette -- most variety, can look uneven at high point counts"),
+            ('WEDGE', "Wedge / Triangle", "Straight monotonic taper, pointed nose to a blunt tail -- clean dart/cone silhouette"),
+            ('CYLINDER', "Cylinder / Round", "Near-constant radius with short rounded end caps -- clean tube/capsule silhouette"),
+            ('TRAPEZOID', "Trapezoid", "Flat mid-section with blunt (non-pointed) ramps at both ends -- boxy, mechanical silhouette"),
+            ('DIAMOND', "Diamond", "Symmetric taper to a point at both ends via a wide midsection -- clean spindle silhouette"),
+        ],
+        default='RANDOM',
+        description="Non-Organic options use a small fixed set of straight-line control points instead of full random-walk noise, so raising point count/curviness elsewhere won't make them bumpy",
+    )
     profile_style: EnumProperty(name='Profile Style', items=[('LINEAR', 'Linear', ''), ('SMOOTH', 'Smooth', ''), ('MIXED', 'Mixed', '')], default='MIXED')
     radius_point_count: IntProperty(name='Radius Points', default=5, min=3)
     radius_floor: FloatProperty(name='Radius Floor', default=0.04, min=0.0)
@@ -2291,6 +2433,9 @@ class FighterGenSettings(PropertyGroup):
     height_point_count: IntProperty(name='Height Points', default=3, min=2)
     height_floor: FloatProperty(name='Height Ratio Floor', default=0.45, min=0.05, max=1.0)
     height_ceiling: FloatProperty(name='Height Ratio Ceiling', default=0.9, min=0.05, max=1.0)
+    fuse_vpinch_min: FloatProperty(name='Vertical Pinch Min', default=-0.55, min=-0.95, max=0.95,
+        description='Shrinks/grows the top vs. bottom half of the cross-section independently, instead of an even radial ellipse. Negative = flatten bottom (belly), positive = flatten top')
+    fuse_vpinch_max: FloatProperty(name='Vertical Pinch Max', default=0.55, min=-0.95, max=0.95)
     sides_min: IntProperty(name='Sides Min', default=5, min=3, max=32)
     sides_max: IntProperty(name='Sides Max', default=10, min=3, max=32)
     fuse_subdiv: IntProperty(name='Subdivision', default=1, min=0, max=3)
@@ -2305,10 +2450,16 @@ class FighterGenSettings(PropertyGroup):
     wing_tip_max: FloatProperty(name='Tip Chord Max', default=0.5, min=0.05)
     wing_sweep_min: FloatProperty(name='Sweep Min', default=0.1, min=-2.0)
     wing_sweep_max: FloatProperty(name='Sweep Max', default=1.2, min=-2.0)
-    wing_thick_min: FloatProperty(name='Thickness Min', default=0.04, min=0.005)
-    wing_thick_max: FloatProperty(name='Thickness Max', default=0.12, min=0.005)
-    wing_thick_mid_min: FloatProperty(name='Mid-Thick Min', default=0.3, min=0.0, max=2.0)
-    wing_thick_mid_max: FloatProperty(name='Mid-Thick Max', default=0.65, min=0.0, max=2.0)
+    wing_thick_min: FloatProperty(name='Thickness Min', default=0.07, min=0.005)
+    wing_thick_max: FloatProperty(name='Thickness Max', default=0.20, min=0.005)
+    wing_thick_mid_min: FloatProperty(name='Mid-Thick Min', default=0.45, min=0.0, max=2.0)
+    wing_thick_mid_max: FloatProperty(name='Mid-Thick Max', default=0.85, min=0.0, max=2.0)
+    wing_root_thick_min: FloatProperty(name='Root Thickness Min', default=0.8, min=0.0, max=2.0,
+        description='Thickness scale at the fuselage-side root. Higher than Tip = thick root/thin tip')
+    wing_root_thick_max: FloatProperty(name='Root Thickness Max', default=1.3, min=0.0, max=2.0)
+    wing_tip_thick_min: FloatProperty(name='Tip Thickness Min', default=0.15, min=0.0, max=2.0,
+        description='Thickness scale at the wingtip. Higher than Root = thin root/thick tip')
+    wing_tip_thick_max: FloatProperty(name='Tip Thickness Max', default=0.4, min=0.0, max=2.0)
     wing_dihedral_min: FloatProperty(name='Dihedral Min', default=-0.2, min=-2.0, max=2.0)
     wing_dihedral_max: FloatProperty(name='Dihedral Max', default=0.4, min=-2.0, max=2.0)
     wing_twist_min: FloatProperty(name='Twist Min (rad)', default=-0.1, min=-1.5, max=1.5)
@@ -2343,7 +2494,7 @@ class FighterGenSettings(PropertyGroup):
     canopy_stretch_max: FloatProperty(name='Stretch Max', default=0.4, min=-2.0, max=2.0)
     canopy_subdiv: IntProperty(name='Subdivision', default=2, min=0, max=4)
 
-    wp_type: EnumProperty(name='Weapon Type', items=[('CANNON', 'Heavy Cannon', 'Artillery / heavy shell gun'), ('GATLING', 'Machine Gun / Gatling', 'Rapid fire jacketed gun'), ('RAILGUN', 'Electromagnetic Railgun', 'Plasma core dual accelerator')], default='CANNON')
+    wp_type: EnumProperty(name='Weapon Type', items=[('RANDOM', 'Random (pick per variant)', 'Picks a different weapon type for each generated variant'), ('CANNON', 'Heavy Cannon', 'Artillery / heavy shell gun'), ('GATLING', 'Machine Gun / Gatling', 'Rapid fire jacketed gun'), ('RAILGUN', 'Electromagnetic Railgun', 'Plasma core dual accelerator')], default='RANDOM')
     wp_len_min: FloatProperty(name='Weapon Length Min', default=0.9, min=0.1)
     wp_len_max: FloatProperty(name='Weapon Length Max', default=1.7, min=0.1)
     wp_rad_min: FloatProperty(name='Weapon Radius Min', default=0.08, min=0.02)
@@ -2370,7 +2521,31 @@ class FighterGenSettings(PropertyGroup):
     solidify_thickness: FloatProperty(name="Solidify Thickness", default=0.02, min=-1.0, max=1.0)
     use_bend: BoolProperty(name="Simple Deform (Bend)", default=False)
     bend_angle_deg: FloatProperty(name="Bend Z Angle (deg)", default=0.0, min=-180.0, max=180.0)
+    use_twist: BoolProperty(name="Simple Deform (Twist)", default=True,
+        description="Randomized per-variant twist along the part's long axis -- dynamic, edgy silhouette without adding mesh noise")
+    twist_angle_min: FloatProperty(name="Twist Angle Min (deg)", default=-35.0, min=-180.0, max=180.0)
+    twist_angle_max: FloatProperty(name="Twist Angle Max (deg)", default=35.0, min=-180.0, max=180.0)
+    use_taper: BoolProperty(name="Simple Deform (Taper)", default=True,
+        description="Randomized per-variant taper along the part's long axis -- sharpens one end without adding mesh noise")
+    taper_factor_min: FloatProperty(name="Taper Factor Min", default=-0.45, min=-1.0, max=1.0)
+    taper_factor_max: FloatProperty(name="Taper Factor Max", default=0.45, min=-1.0, max=1.0)
     metallic: FloatProperty(name="Metallic", default=0.8, min=0.0, max=1.0)
+
+    assemble_wing_attach_min: FloatProperty(name="Wing Attach Y Min (frac of Length)", default=0.45, min=0.05, max=0.95)
+    assemble_wing_attach_max: FloatProperty(name="Wing Attach Y Max (frac of Length)", default=0.62, min=0.05, max=0.95)
+    assemble_wing_overlap: FloatProperty(name="Wing Root Overlap", default=0.85, min=0.5, max=1.05)
+    assemble_subwing_enable: BoolProperty(name="Include Sub-Wing (Canard)", default=True,
+        description="Adds a smaller second wing pair further forward, using the same random ranges as the main wing scaled down")
+    assemble_subwing_attach_min: FloatProperty(name="Sub-Wing Attach Y Min (frac of Length)", default=0.16, min=0.02, max=0.9)
+    assemble_subwing_attach_max: FloatProperty(name="Sub-Wing Attach Y Max (frac of Length)", default=0.30, min=0.02, max=0.9)
+    assemble_subwing_scale: FloatProperty(name="Sub-Wing Size Scale", default=0.32, min=0.1, max=1.0,
+        description="Multiplies the main wing's Span/Chord/Sweep ranges to size the sub-wing down")
+    assemble_aileron_enable: BoolProperty(name="Include Aileron (experimental)", default=False,
+        description="Adds a small flat control-surface flap on the trailing edge of the wing and (if present) sub-wing")
+    assemble_aileron_span_frac_min: FloatProperty(name="Aileron Position Min (frac of parent Span)", default=0.55, min=0.05, max=0.95)
+    assemble_aileron_span_frac_max: FloatProperty(name="Aileron Position Max (frac of parent Span)", default=0.85, min=0.05, max=0.95)
+    assemble_aileron_size_scale: FloatProperty(name="Aileron Size Scale", default=0.28, min=0.05, max=0.8,
+        description="Multiplies the main wing's Span/Chord ranges to size the aileron down")
 
 
 CATEGORY_FOLDERS = {
@@ -2415,10 +2590,16 @@ def _finish_gn_object(name, template, socket_values, mat_base=None, mat_glow=Non
     return obj
 
 
+_FUSELAGE_ARCHETYPE_CHOICES = ['ORGANIC', 'WEDGE', 'CYLINDER', 'TRAPEZOID', 'DIAMOND']
+
+
 def _generate_fuselage_variant(rng, name, s, mat_base):
     template = build_fuselage_template()
+    archetype = s.fuselage_archetype
+    if archetype == 'RANDOM':
+        archetype = rng.choice(_FUSELAGE_ARCHETYPE_CHOICES)
     variant_group = specialize_fuselage_group_for_variant(
-        template, rng, s.radius_point_count, s.height_point_count, s.profile_style
+        template, rng, s.radius_point_count, s.height_point_count, s.profile_style, archetype
     )
 
     p = {
@@ -2427,6 +2608,7 @@ def _generate_fuselage_variant(rng, name, s, mat_base):
         'RadiusCeiling': s.radius_ceiling,
         'HeightFloor': s.height_floor,
         'HeightCeiling': s.height_ceiling,
+        'VerticalPinch': _rr(rng, s.fuse_vpinch_min, s.fuse_vpinch_max),
         'CrossSectionSides': rng.randint(*sorted((s.sides_min, s.sides_max))),
         'Subdivision': s.fuse_subdiv,
     }
@@ -2466,6 +2648,8 @@ def _generate_wing_or_tail_variant(rng, name, s, mat_base, is_tail):
         'Sweep': _rr(rng, s.wing_sweep_min, s.wing_sweep_max),
         'Thickness': _rr(rng, s.wing_thick_min, s.wing_thick_max),
         'ThicknessMid': _rr(rng, s.wing_thick_mid_min, s.wing_thick_mid_max),
+        'RootThickness': _rr(rng, s.wing_root_thick_min, s.wing_root_thick_max),
+        'TipThickness': _rr(rng, s.wing_tip_thick_min, s.wing_tip_thick_max),
         'Dihedral': _rr(rng, s.wing_dihedral_min, s.wing_dihedral_max),
         'Twist': _rr(rng, s.wing_twist_min, s.wing_twist_max),
         'AirfoilSharpness': _rr(rng, s.wing_sharp_min, s.wing_sharp_max),
@@ -2513,16 +2697,23 @@ def _generate_canopy_variant(rng, name, s, mat_base):
     return _finish_gn_object(name, template, p, mat_base=mat_base)
 
 
+_WEAPON_TYPE_CHOICES = ['CANNON', 'GATLING', 'RAILGUN']
+
+
 def _generate_weapon_variant(rng, name, s, mat_base, mat_glow):
     length = _rr(rng, s.wp_len_min, s.wp_len_max)
     radius = _rr(rng, s.wp_rad_min, s.wp_rad_max)
     barrel_ratio = _rr(rng, s.wp_barrel_min, s.wp_barrel_max)
 
-    if s.wp_type == 'CANNON':
+    wp_type = s.wp_type
+    if wp_type == 'RANDOM':
+        wp_type = rng.choice(_WEAPON_TYPE_CHOICES)
+
+    if wp_type == 'CANNON':
         template = build_cannon_template()
         p = {'Length': length, 'Radius': radius, 'BarrelLength': barrel_ratio,
              'MuzzleWidth': _rr(rng, s.wp_muzzle_min, s.wp_muzzle_max)}
-    elif s.wp_type == 'GATLING':
+    elif wp_type == 'GATLING':
         template = build_gatling_template()
         p = {'Length': length, 'Radius': radius, 'BarrelLength': barrel_ratio}
     else:
@@ -2588,7 +2779,8 @@ class FIGHTERGEN_OT_generate(Operator):
             else:
                 continue
 
-            add_optional_modifiers(obj, s)
+            long_axis = {'WINGS': 'X', 'TAILS': 'Z'}.get(part, 'Y')
+            add_optional_modifiers(obj, s, rng, long_axis)
 
             row, col = divmod(i, cols)
             obj.location = (col * x_step, row * y_step, 0.0)
@@ -2667,81 +2859,124 @@ class FIGHTERGEN_PT_panel(Panel):
         box.prop(s, 'spacing')
         box.prop(s, 'random_seed')
 
-        param_box = layout.box()
-        param_box.label(text=f"{s.part_type.title()} Options (Random Range)")
-
+        # Coarse "what kind of thing" pickers stay visible and default to Random --
+        # everything else is fine-tuning that's rarely touched (hand-edit the
+        # generated object directly instead), so it's tucked behind Advanced below.
         if s.part_type == 'FUSELAGE':
-            row = param_box.row(align=True); row.prop(s, 'length_min'); row.prop(s, 'length_max')
-            param_box.prop(s, 'profile_style')
-            param_box.prop(s, 'radius_point_count')
-            row = param_box.row(align=True); row.prop(s, 'radius_floor'); row.prop(s, 'radius_ceiling')
-            param_box.prop(s, 'height_point_count')
-            row = param_box.row(align=True); row.prop(s, 'height_floor'); row.prop(s, 'height_ceiling')
-            row = param_box.row(align=True); row.prop(s, 'sides_min'); row.prop(s, 'sides_max')
-            param_box.prop(s, 'fuse_subdiv')
-
-            groove_box = layout.box()
-            groove_box.label(text="Panel lines (Fuselage Only)")
-            row = groove_box.row(align=True); row.prop(s, 'groove_count_min'); row.prop(s, 'groove_count_max')
-            row = groove_box.row(align=True); row.prop(s, 'groove_spread_deg_min'); row.prop(s, 'groove_spread_deg_max')
-            row = groove_box.row(align=True); row.prop(s, 'groove_center_deg_min'); row.prop(s, 'groove_center_deg_max')
-            row = groove_box.row(align=True); row.prop(s, 'groove_width_min'); row.prop(s, 'groove_width_max')
-            row = groove_box.row(align=True); row.prop(s, 'groove_y_frac_min'); row.prop(s, 'groove_y_frac_max')
-
-        elif s.part_type in ('WINGS', 'TAILS'):
-            row = param_box.row(align=True); row.prop(s, 'wing_span_min'); row.prop(s, 'wing_span_max')
-            row = param_box.row(align=True); row.prop(s, 'wing_root_min'); row.prop(s, 'wing_root_max')
-            row = param_box.row(align=True); row.prop(s, 'wing_tip_min'); row.prop(s, 'wing_tip_max')
-            row = param_box.row(align=True); row.prop(s, 'wing_sweep_min'); row.prop(s, 'wing_sweep_max')
-            row = param_box.row(align=True); row.prop(s, 'wing_thick_min'); row.prop(s, 'wing_thick_max')
-            row = param_box.row(align=True); row.prop(s, 'wing_thick_mid_min'); row.prop(s, 'wing_thick_mid_max')
-            row = param_box.row(align=True); row.prop(s, 'wing_dihedral_min'); row.prop(s, 'wing_dihedral_max')
-            row = param_box.row(align=True); row.prop(s, 'wing_twist_min'); row.prop(s, 'wing_twist_max')
-            row = param_box.row(align=True); row.prop(s, 'wing_sharp_min'); row.prop(s, 'wing_sharp_max')
-            param_box.prop(s, 'wing_subdiv')
-
-        elif s.part_type == 'ENGINES':
-            row = param_box.row(align=True); row.prop(s, 'eng_len_min'); row.prop(s, 'eng_len_max')
-            row = param_box.row(align=True); row.prop(s, 'eng_rad_min'); row.prop(s, 'eng_rad_max')
-            row = param_box.row(align=True); row.prop(s, 'eng_ex_min'); row.prop(s, 'eng_ex_max')
-            row = param_box.row(align=True); row.prop(s, 'eng_roundness_min'); row.prop(s, 'eng_roundness_max')
-            row = param_box.row(align=True); row.prop(s, 'eng_stripes_min'); row.prop(s, 'eng_stripes_max')
-            row = param_box.row(align=True); row.prop(s, 'eng_twist_min'); row.prop(s, 'eng_twist_max')
-            param_box.prop(s, 'eng_subdiv')
-
-        elif s.part_type == 'CANOPY':
-            row = param_box.row(align=True); row.prop(s, 'canopy_len_min'); row.prop(s, 'canopy_len_max')
-            row = param_box.row(align=True); row.prop(s, 'canopy_width_min'); row.prop(s, 'canopy_width_max')
-            row = param_box.row(align=True); row.prop(s, 'canopy_height_min'); row.prop(s, 'canopy_height_max')
-            row = param_box.row(align=True); row.prop(s, 'canopy_teardrop_min'); row.prop(s, 'canopy_teardrop_max')
-            row = param_box.row(align=True); row.prop(s, 'canopy_stretch_min'); row.prop(s, 'canopy_stretch_max')
-            param_box.prop(s, 'canopy_subdiv')
-
+            box.prop(s, 'fuselage_archetype')
         elif s.part_type == 'WEAPONS':
-            param_box.prop(s, 'wp_type')
-            row = param_box.row(align=True); row.prop(s, 'wp_len_min'); row.prop(s, 'wp_len_max')
-            row = param_box.row(align=True); row.prop(s, 'wp_rad_min'); row.prop(s, 'wp_rad_max')
-            row = param_box.row(align=True); row.prop(s, 'wp_barrel_min'); row.prop(s, 'wp_barrel_max')
-            if s.wp_type == 'CANNON':
-                row = param_box.row(align=True); row.prop(s, 'wp_muzzle_min'); row.prop(s, 'wp_muzzle_max')
-
-        if s.part_type in ('FUSELAGE', 'WINGS', 'TAILS', 'ENGINES'):
-            post_box = layout.box()
-            post_box.label(text="Bevel Modifiers")
-            post_box.prop(s, 'bevel_width')
-            post_box.prop(s, 'bevel_angle_deg')
-
-        finish_box = layout.box()
-        finish_box.label(text="Finishing Modifiers (live, hand-editable after Generate)")
-        row = finish_box.row(align=True); row.prop(s, 'use_remesh'); row.prop(s, 'remesh_octree_depth')
-        row = finish_box.row(align=True); row.prop(s, 'use_solidify'); row.prop(s, 'solidify_thickness')
-        row = finish_box.row(align=True); row.prop(s, 'use_bend'); row.prop(s, 'bend_angle_deg')
+            box.prop(s, 'wp_type')
 
         mat_box = layout.box()
         mat_box.label(text="Material")
         mat_box.prop(s, 'metallic')
 
+        adv_box = layout.box()
+        row = adv_box.row()
+        row.prop(s, 'show_advanced', icon='TRIA_DOWN' if s.show_advanced else 'TRIA_RIGHT', icon_only=True, emboss=False)
+        row.label(text="Advanced Parameters (random ranges, rarely needed)")
+
+        if s.show_advanced:
+            param_box = adv_box.box()
+            param_box.label(text=f"{s.part_type.title()} Options (Random Range)")
+
+            if s.part_type == 'FUSELAGE':
+                row = param_box.row(align=True); row.prop(s, 'length_min'); row.prop(s, 'length_max')
+                sub = param_box.column()
+                sub.enabled = (s.fuselage_archetype == 'ORGANIC')
+                sub.prop(s, 'profile_style')
+                sub.prop(s, 'radius_point_count')
+                sub.prop(s, 'height_point_count')
+                row = param_box.row(align=True); row.prop(s, 'radius_floor'); row.prop(s, 'radius_ceiling')
+                row = param_box.row(align=True); row.prop(s, 'height_floor'); row.prop(s, 'height_ceiling')
+                row = param_box.row(align=True); row.prop(s, 'fuse_vpinch_min'); row.prop(s, 'fuse_vpinch_max')
+                row = param_box.row(align=True); row.prop(s, 'sides_min'); row.prop(s, 'sides_max')
+                param_box.prop(s, 'fuse_subdiv')
+
+                groove_box = adv_box.box()
+                groove_box.label(text="Panel lines (Fuselage Only)")
+                row = groove_box.row(align=True); row.prop(s, 'groove_count_min'); row.prop(s, 'groove_count_max')
+                row = groove_box.row(align=True); row.prop(s, 'groove_spread_deg_min'); row.prop(s, 'groove_spread_deg_max')
+                row = groove_box.row(align=True); row.prop(s, 'groove_center_deg_min'); row.prop(s, 'groove_center_deg_max')
+                row = groove_box.row(align=True); row.prop(s, 'groove_width_min'); row.prop(s, 'groove_width_max')
+                row = groove_box.row(align=True); row.prop(s, 'groove_y_frac_min'); row.prop(s, 'groove_y_frac_max')
+
+            elif s.part_type in ('WINGS', 'TAILS'):
+                row = param_box.row(align=True); row.prop(s, 'wing_span_min'); row.prop(s, 'wing_span_max')
+                row = param_box.row(align=True); row.prop(s, 'wing_root_min'); row.prop(s, 'wing_root_max')
+                row = param_box.row(align=True); row.prop(s, 'wing_tip_min'); row.prop(s, 'wing_tip_max')
+                row = param_box.row(align=True); row.prop(s, 'wing_sweep_min'); row.prop(s, 'wing_sweep_max')
+                row = param_box.row(align=True); row.prop(s, 'wing_thick_min'); row.prop(s, 'wing_thick_max')
+                row = param_box.row(align=True); row.prop(s, 'wing_thick_mid_min'); row.prop(s, 'wing_thick_mid_max')
+                row = param_box.row(align=True); row.prop(s, 'wing_root_thick_min'); row.prop(s, 'wing_root_thick_max')
+                row = param_box.row(align=True); row.prop(s, 'wing_tip_thick_min'); row.prop(s, 'wing_tip_thick_max')
+                row = param_box.row(align=True); row.prop(s, 'wing_dihedral_min'); row.prop(s, 'wing_dihedral_max')
+                row = param_box.row(align=True); row.prop(s, 'wing_twist_min'); row.prop(s, 'wing_twist_max')
+                row = param_box.row(align=True); row.prop(s, 'wing_sharp_min'); row.prop(s, 'wing_sharp_max')
+                param_box.prop(s, 'wing_subdiv')
+
+            elif s.part_type == 'ENGINES':
+                row = param_box.row(align=True); row.prop(s, 'eng_len_min'); row.prop(s, 'eng_len_max')
+                row = param_box.row(align=True); row.prop(s, 'eng_rad_min'); row.prop(s, 'eng_rad_max')
+                row = param_box.row(align=True); row.prop(s, 'eng_ex_min'); row.prop(s, 'eng_ex_max')
+                row = param_box.row(align=True); row.prop(s, 'eng_roundness_min'); row.prop(s, 'eng_roundness_max')
+                row = param_box.row(align=True); row.prop(s, 'eng_stripes_min'); row.prop(s, 'eng_stripes_max')
+                row = param_box.row(align=True); row.prop(s, 'eng_twist_min'); row.prop(s, 'eng_twist_max')
+                param_box.prop(s, 'eng_subdiv')
+
+            elif s.part_type == 'CANOPY':
+                row = param_box.row(align=True); row.prop(s, 'canopy_len_min'); row.prop(s, 'canopy_len_max')
+                row = param_box.row(align=True); row.prop(s, 'canopy_width_min'); row.prop(s, 'canopy_width_max')
+                row = param_box.row(align=True); row.prop(s, 'canopy_height_min'); row.prop(s, 'canopy_height_max')
+                row = param_box.row(align=True); row.prop(s, 'canopy_teardrop_min'); row.prop(s, 'canopy_teardrop_max')
+                row = param_box.row(align=True); row.prop(s, 'canopy_stretch_min'); row.prop(s, 'canopy_stretch_max')
+                param_box.prop(s, 'canopy_subdiv')
+
+            elif s.part_type == 'WEAPONS':
+                row = param_box.row(align=True); row.prop(s, 'wp_len_min'); row.prop(s, 'wp_len_max')
+                row = param_box.row(align=True); row.prop(s, 'wp_rad_min'); row.prop(s, 'wp_rad_max')
+                row = param_box.row(align=True); row.prop(s, 'wp_barrel_min'); row.prop(s, 'wp_barrel_max')
+                if s.wp_type in ('CANNON', 'RANDOM'):
+                    row = param_box.row(align=True); row.prop(s, 'wp_muzzle_min'); row.prop(s, 'wp_muzzle_max')
+
+            if s.part_type in ('FUSELAGE', 'WINGS', 'TAILS', 'ENGINES'):
+                post_box = adv_box.box()
+                post_box.label(text="Bevel Modifiers")
+                post_box.prop(s, 'bevel_width')
+                post_box.prop(s, 'bevel_angle_deg')
+
+            finish_box = adv_box.box()
+            finish_box.label(text="Finishing Modifiers (live, hand-editable after Generate)")
+            row = finish_box.row(align=True); row.prop(s, 'use_remesh'); row.prop(s, 'remesh_octree_depth')
+            row = finish_box.row(align=True); row.prop(s, 'use_solidify'); row.prop(s, 'solidify_thickness')
+            row = finish_box.row(align=True); row.prop(s, 'use_bend'); row.prop(s, 'bend_angle_deg')
+            finish_box.prop(s, 'use_twist')
+            row = finish_box.row(align=True); row.prop(s, 'twist_angle_min'); row.prop(s, 'twist_angle_max')
+            finish_box.prop(s, 'use_taper')
+            row = finish_box.row(align=True); row.prop(s, 'taper_factor_min'); row.prop(s, 'taper_factor_max')
+
+            assemble_adv_box = adv_box.box()
+            assemble_adv_box.label(text="Assembly wing-attach range")
+            row = assemble_adv_box.row(align=True); row.prop(s, 'assemble_wing_attach_min'); row.prop(s, 'assemble_wing_attach_max')
+            assemble_adv_box.prop(s, 'assemble_wing_overlap')
+            assemble_adv_box.separator()
+            row = assemble_adv_box.row(align=True); row.prop(s, 'assemble_subwing_attach_min'); row.prop(s, 'assemble_subwing_attach_max')
+            assemble_adv_box.prop(s, 'assemble_subwing_scale')
+            assemble_adv_box.separator()
+            row = assemble_adv_box.row(align=True); row.prop(s, 'assemble_aileron_span_frac_min'); row.prop(s, 'assemble_aileron_span_frac_max')
+            assemble_adv_box.prop(s, 'assemble_aileron_size_scale')
+
         layout.operator('fightergen.generate_variants', icon='MOD_ARRAY')
+
+        assemble_box = layout.box()
+        assemble_box.label(text="🔧 Assembly (experimental)")
+        assemble_box.label(text="Fuselage + Main Wing + Sub-Wing, roots fitted via raycast")
+        row = assemble_box.row(align=True)
+        row.prop(s, 'assemble_subwing_enable')
+        row.prop(s, 'assemble_aileron_enable')
+        assemble_box.operator('fightergen.assemble_fighter', icon='MOD_BOOLEAN')
+        assemble_box.operator('fightergen.reroll_main_wing', icon='FILE_REFRESH')
+        assemble_box.operator('fightergen.reroll_sub_wing', icon='FILE_REFRESH')
 
         export_box = layout.box()
         export_box.label(text="Export")
@@ -2750,10 +2985,368 @@ class FIGHTERGEN_PT_panel(Panel):
         export_box.operator('fightergen.export_selected', icon='EXPORT')
 
 
+# ---------------------------------------------------------------------------
+# Assembly: fuselage + main wing, joined by geometry instead of a generic
+# bounding-box guess. The fuselage's actual hull surface is sampled by
+# raycasting in its own local space, so the wing root always sits flush
+# against the real hull regardless of how the randomized profile came out.
+# ---------------------------------------------------------------------------
+
+def sample_hull_offset(obj, y, direction, max_dist=50.0):
+    """Raycast in `obj`'s own local space to find how far its surface is from the
+    centerline (0, y, 0) along `direction`. Returns (offset_distance, hit_normal),
+    or (None, None) if the ray missed (e.g. y outside the object's extent)."""
+    direction = direction.normalized()
+    origin = Vector((0.0, y, 0.0)) - direction * max_dist
+    success, hit_loc, hit_normal, hit_idx = obj.ray_cast(origin, direction, distance=max_dist * 2)
+    if not success:
+        return None, None
+    offset = (hit_loc - Vector((0.0, y, 0.0))).length
+    return offset, hit_normal
+
+
+def _generate_wing_pair(rng, name_prefix, part_label, s, mat_base, fuselage_obj, fuselage_length,
+                         attach_min, attach_max, size_scale=1.0, sweep_floor_frac=0.0):
+    """Builds ONE wing GN part on the +X side, anchored to the fuselage's actual raycasted
+    hull surface, then adds a live Mirror modifier (mirrored around the fuselage object's
+    own origin, i.e. the true centerline) so the left half is not a separate baked copy --
+    it is generated by the modifier every time the mesh or the transform of this single
+    object changes. Finishing modifiers (Remesh/Solidify/Bend/Twist/Taper) are applied
+    BEFORE the Mirror modifier is added, to this single (pre-mirror) side only: Twist and
+    Taper deform based on the current mesh's own bounding box, and that box is only
+    centered on the true mirror plane if computed before mirroring -- doing it after
+    made the two sides look lopsided instead of true mirror images.
+    `size_scale` multiplies span/chord/sweep so a smaller companion (e.g. a sub-wing)
+    can reuse the exact same random ranges as the main wing, just scaled down.
+    `sweep_floor_frac` (0..1) raises the sampled Sweep's lower bound to that fraction of
+    wing_sweep_max -- without it, a sub-wing occasionally draws a near-parallel/low-sweep
+    angle close to the main wing's own, which reads as two redundant, overlapping blades
+    instead of a distinct swept-back canard."""
+    template = build_wings_template()
+    sweep_raw = _rr(rng, s.wing_sweep_min, s.wing_sweep_max)
+    if sweep_floor_frac > 0.0:
+        sweep_raw = max(sweep_raw, s.wing_sweep_max * sweep_floor_frac)
+    p = {
+        'Span': _rr(rng, s.wing_span_min, s.wing_span_max) * size_scale,
+        'RootChord': _rr(rng, s.wing_root_min, s.wing_root_max) * size_scale,
+        'TipChord': _rr(rng, s.wing_tip_min, s.wing_tip_max) * size_scale,
+        'Sweep': sweep_raw * size_scale,
+        'Thickness': _rr(rng, s.wing_thick_min, s.wing_thick_max),
+        'ThicknessMid': _rr(rng, s.wing_thick_mid_min, s.wing_thick_mid_max),
+        'RootThickness': _rr(rng, s.wing_root_thick_min, s.wing_root_thick_max),
+        'TipThickness': _rr(rng, s.wing_tip_thick_min, s.wing_tip_thick_max),
+        'Dihedral': _rr(rng, s.wing_dihedral_min, s.wing_dihedral_max),
+        'Twist': _rr(rng, s.wing_twist_min, s.wing_twist_max),
+        'AirfoilSharpness': _rr(rng, s.wing_sharp_min, s.wing_sharp_max),
+        'LeadingEdgeMid': rng.uniform(0.0, 0.5),
+        'TrailingEdgeMid': rng.uniform(0.0, 0.5),
+        'Subdivision': s.wing_subdiv,
+    }
+    wing = _finish_gn_object(f"{name_prefix}_{part_label}_r", template, p, mat_base=mat_base)
+    _apply_bevel(wing, s)
+    add_optional_modifiers(wing, s, rng, 'X')
+
+    attach_frac = _rr(rng, attach_min, attach_max)
+    attach_y = fuselage_length * attach_frac
+    radius_x, _normal = sample_hull_offset(fuselage_obj, attach_y, Vector((1.0, 0.0, 0.0)))
+    if radius_x is None:
+        # Fallback for the rare miss (e.g. attach_y landed exactly on the nose tip):
+        # fall back to a small nominal offset rather than failing the whole generation.
+        radius_x = 0.25 * size_scale
+
+    root_x = radius_x * s.assemble_wing_overlap
+
+    wing.location = (root_x, attach_y, 0.0)
+    wing.scale.x = -1.0  # mirrors the wing so its tip extends outward (+X)
+
+    mirror_mod = wing.modifiers.new("MirrorToLeft", 'MIRROR')
+    mirror_mod.use_axis[0] = True
+    mirror_mod.use_axis[1] = False
+    mirror_mod.use_axis[2] = False
+    mirror_mod.mirror_object = fuselage_obj  # mirror around the fuselage's own origin (true centerline), not this wing's own origin
+    mirror_mod.use_clip = False
+
+    return wing, attach_y, p['Span']
+
+
+def _generate_main_wing(rng, name_prefix, s, mat_base, fuselage_obj, fuselage_length):
+    return _generate_wing_pair(rng, name_prefix, 'wing', s, mat_base, fuselage_obj, fuselage_length,
+                                s.assemble_wing_attach_min, s.assemble_wing_attach_max, size_scale=1.0)
+
+
+def _generate_sub_wing(rng, name_prefix, s, mat_base, fuselage_obj, fuselage_length):
+    return _generate_wing_pair(rng, name_prefix, 'subwing', s, mat_base, fuselage_obj, fuselage_length,
+                                s.assemble_subwing_attach_min, s.assemble_subwing_attach_max,
+                                size_scale=s.assemble_subwing_scale, sweep_floor_frac=0.6)
+
+
+def sample_wing_trailing_edge(wing_obj, x_local, max_dist=50.0):
+    """Raycast in `wing_obj`'s own local space (post-modifiers, so Twist/Taper/Bevel are
+    accounted for) to find its trailing-edge surface at span position x_local. Same
+    "sample the real surface instead of guessing" approach as sample_hull_offset, one
+    level down the fuselage -> wing -> aileron attachment chain. Returns a local-space
+    Vector, or None if the ray missed.
+    The trailing edge sits at more-negative local Y (see build_wings_template: rear_edge_y
+    is built from a NEGATED RootChord/TipChord term), so approach from far -Y traveling
+    toward +Y -- that way the trailing edge is the first surface the ray hits, instead of
+    passing straight through it to hit the leading edge on the far side."""
+    direction = Vector((0.0, 1.0, 0.0))
+    origin = Vector((x_local, 0.0, 0.0)) - direction * max_dist
+    success, hit_loc, hit_normal, hit_idx = wing_obj.ray_cast(origin, direction, distance=max_dist * 2)
+    if not success:
+        return None
+    return hit_loc
+
+
+def _generate_aileron(rng, name_prefix, part_label, s, mat_base, fuselage_obj, parent_wing_obj, parent_span):
+    """Small flat control-surface flap mounted on `parent_wing_obj`'s trailing edge,
+    raycasted against the parent's own (already twisted/tapered) evaluated surface.
+    Mirrored around the fuselage centerline exactly like the wing/sub-wing themselves."""
+    template = build_wings_template()
+    scale = s.assemble_aileron_size_scale
+    p = {
+        'Span': _rr(rng, s.wing_span_min, s.wing_span_max) * scale,
+        'RootChord': _rr(rng, s.wing_root_min, s.wing_root_max) * scale,
+        'TipChord': _rr(rng, s.wing_tip_min, s.wing_tip_max) * scale,
+        'Sweep': 0.0,
+        'Thickness': _rr(rng, s.wing_thick_min, s.wing_thick_max) * 0.6,
+        'ThicknessMid': 0.0,
+        'RootThickness': 0.6,
+        'TipThickness': 0.6,
+        'Dihedral': 0.0,
+        'Twist': 0.0,
+        'AirfoilSharpness': 1.2,
+        'LeadingEdgeMid': 0.0,
+        'TrailingEdgeMid': 0.0,
+        'Subdivision': s.wing_subdiv,
+    }
+    aileron = _finish_gn_object(f"{name_prefix}_{part_label}_r", template, p, mat_base=mat_base)
+    _apply_bevel(aileron, s)
+    add_optional_modifiers(aileron, s, rng, 'X')
+
+    # The wing GN template negates X internally (see build_wings_template's n_new_x), so a
+    # wing object's own local mesh spans X from 0 (root) to -Span (tip), not +Span -- the
+    # +X "outward" direction only appears after the wing object's own scale.x=-1 flip.
+    span_frac = _rr(rng, s.assemble_aileron_span_frac_min, s.assemble_aileron_span_frac_max)
+    x_local = -parent_span * span_frac
+    hit_local = sample_wing_trailing_edge(parent_wing_obj, x_local)
+    if hit_local is None:
+        hit_local = Vector((x_local, -parent_span * 0.2, 0.0))  # fallback: rough guess
+    hit_world = parent_wing_obj.matrix_world @ hit_local
+
+    # Sample a second point slightly further outboard to get the trailing edge's tangent
+    # direction in world space (Sweep/Twist/Dihedral all tilt it away from the wing's
+    # root chord line), so the aileron sits ALONG the edge instead of at a fixed generic
+    # angle that only happens to line up for an unswept wing.
+    delta = max(parent_span * 0.04, 0.02)
+    x_local2 = x_local - delta
+    hit_local2 = sample_wing_trailing_edge(parent_wing_obj, x_local2)
+    if hit_local2 is None:
+        x_local2 = x_local + delta
+        hit_local2 = sample_wing_trailing_edge(parent_wing_obj, x_local2)
+
+    if hit_local2 is not None:
+        hit_world2 = parent_wing_obj.matrix_world @ hit_local2
+        tangent = hit_world2 - hit_world
+        if x_local2 < x_local:
+            tangent = -tangent  # keep tangent pointing outboard regardless of which side we sampled
+        if tangent.length > 1e-6:
+            angle_z = math.atan2(tangent.y, tangent.x)
+        else:
+            angle_z = 0.0
+    else:
+        angle_z = 0.0
+
+    aileron.location = hit_world
+    aileron.rotation_euler = (0.0, 0.0, angle_z)
+    aileron.scale.x = -1.0
+
+    mirror_mod = aileron.modifiers.new("MirrorToLeft", 'MIRROR')
+    mirror_mod.use_axis[0] = True
+    mirror_mod.use_axis[1] = False
+    mirror_mod.use_axis[2] = False
+    mirror_mod.mirror_object = fuselage_obj
+    mirror_mod.use_clip = False
+
+    return aileron
+
+
+def _clear_assembly_collection():
+    coll = bpy.data.collections.get(ASSEMBLY_COLLECTION)
+    if coll is None:
+        coll = bpy.data.collections.new(ASSEMBLY_COLLECTION)
+        bpy.context.scene.collection.children.link(coll)
+        return coll
+    for obj in list(coll.objects):
+        mesh = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        if mesh and mesh.users == 0:
+            bpy.data.meshes.remove(mesh)
+    return coll
+
+
+class FIGHTERGEN_OT_assemble(Operator):
+    bl_idname = "fightergen.assemble_fighter"
+    bl_label = "Assemble Fighter (Fuselage + Main Wing)"
+    bl_description = "Generate a fuselage and a main wing pair whose root is fitted to the actual hull surface (raycast), not a generic offset guess"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        s = context.scene.fightergen_settings
+        rng = random.Random(s.random_seed if s.random_seed != 0 else None)
+        coll = _clear_assembly_collection()
+
+        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
+
+        name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
+        fuselage = _generate_fuselage_variant(rng, f"{name}_fuselage", s, mat_base)
+        fuselage_length = fuselage.dimensions.y  # actual baked length, matches the GN Length input
+        add_optional_modifiers(fuselage, s, rng, 'Y')
+
+        # Wing/sub-wing finishing modifiers (Remesh/Solidify/Bend/Twist/Taper) are applied
+        # internally by _generate_wing_pair, before its Mirror modifier -- don't call
+        # add_optional_modifiers on them again here.
+        wing, attach_y, wing_span = _generate_main_wing(rng, name, s, mat_base, fuselage, fuselage_length)
+        created = [fuselage, wing]
+
+        subwing_msg = ""
+        if s.assemble_subwing_enable:
+            subwing, subwing_attach_y, subwing_span = _generate_sub_wing(rng, name, s, mat_base, fuselage, fuselage_length)
+            created.append(subwing)
+            subwing_msg = f", sub-wing Y={subwing_attach_y:.2f}"
+
+        aileron_msg = ""
+        if s.assemble_aileron_enable:
+            aileron = _generate_aileron(rng, name, 'wing_aileron', s, mat_base, fuselage, wing, wing_span)
+            created.append(aileron)
+            aileron_msg = ", wing aileron"
+            if s.assemble_subwing_enable:
+                sub_aileron = _generate_aileron(rng, name, 'subwing_aileron', s, mat_base, fuselage, subwing, subwing_span)
+                created.append(sub_aileron)
+                aileron_msg += "+sub-wing aileron"
+
+        for obj in created:
+            for c in list(obj.users_collection):
+                c.objects.unlink(obj)
+            coll.objects.link(obj)
+
+        bpy.ops.object.select_all(action='DESELECT')
+        for obj in created:
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = fuselage
+
+        self.report({'INFO'}, f"Assembled fuselage + main wing (attach Y={attach_y:.2f}, length={fuselage_length:.2f}{subwing_msg}{aileron_msg})")
+        return {'FINISHED'}
+
+
+def _find_assembly_fuselage(coll):
+    if coll is None:
+        return None
+    for obj in coll.objects:
+        if obj.name.endswith('_fuselage'):
+            return obj
+    return None
+
+
+def _remove_assembly_objects_by_suffix(coll, fuselage, suffix):
+    for obj in [o for o in list(coll.objects) if o is not fuselage and o.name.endswith(suffix)]:
+        mesh = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        if mesh and mesh.users == 0:
+            bpy.data.meshes.remove(mesh)
+
+
+class FIGHTERGEN_OT_reroll_wing(Operator):
+    bl_idname = "fightergen.reroll_main_wing"
+    bl_label = "Reroll Main Wing Only"
+    bl_description = ("Keep the current fuselage (and sub-wing, if any) from FighterGen_Assembly "
+                       "and generate a fresh main wing -- individual-part re-roll instead of rebuilding the whole ship")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        s = context.scene.fightergen_settings
+        coll = bpy.data.collections.get(ASSEMBLY_COLLECTION)
+        fuselage = _find_assembly_fuselage(coll)
+        if fuselage is None:
+            self.report({'ERROR'}, "No existing fuselage in FighterGen_Assembly. Run 'Assemble Fighter' first.")
+            return {'CANCELLED'}
+
+        rng = random.Random(s.random_seed if s.random_seed != 0 else None)
+        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
+
+        _remove_assembly_objects_by_suffix(coll, fuselage, '_wing_r')
+        had_aileron = any(o.name.endswith('_wing_aileron_r') for o in coll.objects)
+        _remove_assembly_objects_by_suffix(coll, fuselage, '_wing_aileron_r')
+
+        fuselage_length = fuselage.dimensions.y
+        name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
+        wing, attach_y, wing_span = _generate_main_wing(rng, name, s, mat_base, fuselage, fuselage_length)
+        new_objs = [wing]
+        if s.assemble_aileron_enable and had_aileron:
+            new_objs.append(_generate_aileron(rng, name, 'wing_aileron', s, mat_base, fuselage, wing, wing_span))
+
+        for obj in new_objs:
+            for c in list(obj.users_collection):
+                c.objects.unlink(obj)
+            coll.objects.link(obj)
+
+        bpy.ops.object.select_all(action='DESELECT')
+        wing.select_set(True)
+        bpy.context.view_layer.objects.active = wing
+
+        self.report({'INFO'}, f"Rerolled main wing on existing fuselage (attach Y={attach_y:.2f})")
+        return {'FINISHED'}
+
+
+class FIGHTERGEN_OT_reroll_subwing(Operator):
+    bl_idname = "fightergen.reroll_sub_wing"
+    bl_label = "Reroll Sub Wing Only"
+    bl_description = ("Keep the current fuselage (and main wing, if any) from FighterGen_Assembly "
+                       "and generate a fresh sub-wing -- individual-part re-roll instead of rebuilding the whole ship")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        s = context.scene.fightergen_settings
+        coll = bpy.data.collections.get(ASSEMBLY_COLLECTION)
+        fuselage = _find_assembly_fuselage(coll)
+        if fuselage is None:
+            self.report({'ERROR'}, "No existing fuselage in FighterGen_Assembly. Run 'Assemble Fighter' first.")
+            return {'CANCELLED'}
+
+        rng = random.Random(s.random_seed if s.random_seed != 0 else None)
+        mat_base = make_material('FighterGen_Base', (0.55, 0.58, 0.62, 1.0), s.metallic)
+
+        _remove_assembly_objects_by_suffix(coll, fuselage, '_subwing_r')
+        had_aileron = any(o.name.endswith('_subwing_aileron_r') for o in coll.objects)
+        _remove_assembly_objects_by_suffix(coll, fuselage, '_subwing_aileron_r')
+
+        fuselage_length = fuselage.dimensions.y
+        name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
+        subwing, attach_y, subwing_span = _generate_sub_wing(rng, name, s, mat_base, fuselage, fuselage_length)
+        new_objs = [subwing]
+        if s.assemble_aileron_enable and had_aileron:
+            new_objs.append(_generate_aileron(rng, name, 'subwing_aileron', s, mat_base, fuselage, subwing, subwing_span))
+
+        for obj in new_objs:
+            for c in list(obj.users_collection):
+                c.objects.unlink(obj)
+            coll.objects.link(obj)
+
+        bpy.ops.object.select_all(action='DESELECT')
+        subwing.select_set(True)
+        bpy.context.view_layer.objects.active = subwing
+
+        self.report({'INFO'}, f"Rerolled sub-wing on existing fuselage (attach Y={attach_y:.2f})")
+        return {'FINISHED'}
+
+
 classes = (
     FighterGenSettings,
     FIGHTERGEN_OT_generate,
     FIGHTERGEN_OT_export_selected,
+    FIGHTERGEN_OT_assemble,
+    FIGHTERGEN_OT_reroll_wing,
+    FIGHTERGEN_OT_reroll_subwing,
     FIGHTERGEN_PT_panel,
 )
 
