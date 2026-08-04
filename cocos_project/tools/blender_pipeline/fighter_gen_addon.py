@@ -3723,6 +3723,67 @@ def sample_hull_offset(obj, y, direction, max_dist=50.0):
     return offset, hit_normal
 
 
+# ---------------------------------------------------------------------------
+# Stable role-based naming for Assembly parts. Object names are
+# "{name_prefix}_{code}_{Label}[index]" (e.g. "myship_02_WingMain") -- the
+# {code}_ segment is the stable lookup key every reroll/find operator searches
+# for, so the user can freely rename the descriptive {Label} part by hand in
+# the Outliner (e.g. to "02_DeltaWing") without breaking which object each
+# operator treats as "the main wing". Never search by the full name or by the
+# old ad-hoc suffixes (e.g. '_wing_r') -- always go through _find_by_role /
+# _find_all_by_role / _remove_by_role below.
+# ---------------------------------------------------------------------------
+
+PART_ROLES = {
+    'fuselage': (1, 'Body'),
+    'wing': (2, 'WingMain'),
+    'subwing': (3, 'WingSub'),
+    'tail': (4, 'Tail'),
+    'canopy': (5, 'Canopy'),
+    'enginepod': (6, 'EnginePod'),
+    'wing_weapon': (7, 'WeaponWing'),
+    'wing_aileron': (8, 'AileronWing'),
+    'subwing_aileron': (9, 'AileronSub'),
+}
+
+
+def _role_tag(role):
+    code, _label = PART_ROLES[role]
+    return f"_{code:02d}_"
+
+
+def _part_name(name_prefix, role, index=None):
+    code, label = PART_ROLES[role]
+    idx = "" if index is None else str(index)
+    return f"{name_prefix}_{code:02d}_{label}{idx}"
+
+
+def _find_by_role(coll, role, exclude=None):
+    """First object whose name contains this role's stable numeric tag."""
+    if coll is None:
+        return None
+    tag = _role_tag(role)
+    for obj in coll.objects:
+        if obj is exclude:
+            continue
+        if tag in obj.name:
+            return obj
+    return None
+
+
+def _find_all_by_role(coll, role, exclude=None):
+    tag = _role_tag(role)
+    return [o for o in coll.objects if o is not exclude and tag in o.name]
+
+
+def _remove_by_role(coll, role, exclude=None):
+    for obj in _find_all_by_role(coll, role, exclude=exclude):
+        mesh = obj.data
+        bpy.data.objects.remove(obj, do_unlink=True)
+        if mesh and mesh.users == 0:
+            bpy.data.meshes.remove(mesh)
+
+
 def _generate_wing_pair(rng, name_prefix, part_label, s, mat_base, fuselage_obj, fuselage_length,
                          attach_min, attach_max, size_scale=1.0, sweep_floor_frac=0.0):
     """Builds ONE wing GN part on the +X side, anchored to the fuselage's actual raycasted
@@ -3769,7 +3830,7 @@ def _generate_wing_pair(rng, name_prefix, part_label, s, mat_base, fuselage_obj,
         'RootOffset': root_x,
         'Subdivision': s.wing_subdiv,
     }
-    wing = _finish_gn_object(f"{name_prefix}_{part_label}_r", template, p, mat_base=mat_base)
+    wing = _finish_gn_object(_part_name(name_prefix, part_label), template, p, mat_base=mat_base)
     _apply_bevel(wing, s)
     add_wing_panel_grooves(wing, p['Span'], 'X', p['RootChord'], rng,
                             count_range=(s.wing_groove_count_min, s.wing_groove_count_max),
@@ -3839,7 +3900,7 @@ def _generate_aileron(rng, name_prefix, part_label, s, mat_base, fuselage_obj, p
         'TrailingEdgeMid': 0.0,
         'Subdivision': s.wing_subdiv,
     }
-    aileron = _finish_gn_object(f"{name_prefix}_{part_label}_r", template, p, mat_base=mat_base)
+    aileron = _finish_gn_object(_part_name(name_prefix, part_label), template, p, mat_base=mat_base)
     _apply_bevel(aileron, s)
     add_optional_modifiers(aileron, s, rng, 'X')
 
@@ -3950,13 +4011,14 @@ def _engine_pod_span_fracs(rng, s):
     return [rng.uniform(lo, mid), rng.uniform(mid, hi)]
 
 
-def _generate_engine_pod(rng, name_prefix, part_label, s, mat_base, mat_glow, fuselage_obj, parent_wing_obj, parent_span, span_frac):
+def _generate_engine_pod(rng, name_prefix, index, s, mat_base, mat_glow, fuselage_obj, parent_wing_obj, parent_span, span_frac):
     """A plain cylindrical jet nacelle hung under parent_wing_obj at a given span
     fraction, raycast-attached flush to the wing's real underside (not a guessed
     offset). Its own Length axis stays aligned with the aircraft's forward direction
     (world Y) rather than following wing sweep -- engines point forward, not along
     whatever angle the wing happens to be swept at. Mirrored around the fuselage
-    centerline like the wing itself."""
+    centerline like the wing itself. `index` (0, 1, ...) distinguishes multiple pods
+    per wing (assemble_engine_pod_count) in the object name."""
     template = build_jet_nacelle_template()
     length = _rr(rng, s.assemble_engine_pod_length_min, s.assemble_engine_pod_length_max)
     radius = _rr(rng, s.assemble_engine_pod_radius_min, s.assemble_engine_pod_radius_max)
@@ -3966,7 +4028,7 @@ def _generate_engine_pod(rng, name_prefix, part_label, s, mat_base, mat_glow, fu
         'ExhaustRadius': radius * _rr(rng, 0.6, 0.85),
         'Sides': 14,
     }
-    pod = _finish_gn_object(f"{name_prefix}_{part_label}_r", template, p, mat_base=mat_base, mat_glow=mat_glow)
+    pod = _finish_gn_object(_part_name(name_prefix, 'enginepod', index=index), template, p, mat_base=mat_base, mat_glow=mat_glow)
 
     x_local = -parent_span * span_frac
     # Sample near mid-chord (y_local=0 in the wing's own chord-centered space)
@@ -4087,7 +4149,7 @@ def _generate_wing_weapon(rng, name_prefix, part_label, s, mat_base, mat_glow, f
         template = build_railgun_template()
         p = {'Length': length, 'Radius': radius, 'BarrelLength': barrel_ratio}
 
-    weapon = _finish_gn_object(f"{name_prefix}_{part_label}_r", template, p, mat_base=mat_base, mat_glow=mat_glow)
+    weapon = _finish_gn_object(_part_name(name_prefix, part_label), template, p, mat_base=mat_base, mat_glow=mat_glow)
 
     x_local = -parent_span * span_frac
     hit_local, _hit_normal = sample_wing_topside(parent_wing_obj, x_local, 0.0)
@@ -4152,7 +4214,7 @@ def _generate_tail_assembly(rng, name_prefix, s, mat_base, fuselage_obj, fuselag
         'Subdivision': s.wing_subdiv,
     }
 
-    tail = _finish_gn_object(f"{name_prefix}_tail_r", template, p, mat_base=mat_base)
+    tail = _finish_gn_object(_part_name(name_prefix, 'tail'), template, p, mat_base=mat_base)
     _apply_bevel(tail, s)
     add_wing_panel_grooves(tail, tail_span, 'Z', tail_root, rng,
                             count_range=(s.wing_groove_count_min, s.wing_groove_count_max),
@@ -4207,7 +4269,7 @@ def _generate_canopy_assembly(rng, name_prefix, s, mat_base, fuselage_obj, fusel
         attach_pos = Vector((0.0, attach_y, 0.35))
 
     mat_canopy = make_material('FighterGen_Canopy', (0.12, 0.22, 0.35, 0.65), roughness=0.08, metallic=0.90)
-    canopy = _finish_gn_object(f"{name_prefix}_canopy", template, p, mat_base=mat_canopy)
+    canopy = _finish_gn_object(_part_name(name_prefix, 'canopy'), template, p, mat_base=mat_canopy)
     _apply_bevel(canopy, s)
     add_optional_modifiers(canopy, s, rng, 'Y')
 
@@ -4244,7 +4306,7 @@ class FIGHTERGEN_OT_assemble(Operator):
         mat_base = make_material('FighterGen_Base', tuple(s.primary_color), s.metallic)
 
         name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
-        fuselage = _generate_fuselage_variant(rng, f"{name}_fuselage", s, mat_base)
+        fuselage = _generate_fuselage_variant(rng, _part_name(name, 'fuselage'), s, mat_base)
         fuselage_length = fuselage.dimensions.y  # actual baked length, matches the GN Length input
         add_optional_modifiers(fuselage, s, rng, 'Y')
 
@@ -4287,7 +4349,7 @@ class FIGHTERGEN_OT_assemble(Operator):
             mat_glow = make_glow_material('FighterGen_Glow', tuple(s.accent_glow_color))
             span_fracs = _engine_pod_span_fracs(rng, s)
             for i, frac in enumerate(span_fracs):
-                pod = _generate_engine_pod(rng, name, f'enginepod{i}', s, mat_base, mat_glow, fuselage, wing, wing_span, frac)
+                pod = _generate_engine_pod(rng, name, i, s, mat_base, mat_glow, fuselage, wing, wing_span, frac)
                 created.append(pod)
             engine_msg = f", {len(span_fracs)} engine pod(s)/wing"
 
@@ -4334,7 +4396,7 @@ class FIGHTERGEN_OT_reroll_tail(Operator):
         rng = random.Random()
         name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
 
-        _remove_assembly_objects_by_suffix(coll, fuselage, '_tail_r')
+        _remove_by_role(coll, 'tail', exclude=fuselage)
         tail, attach_y = _generate_tail_assembly(rng, name, s, mat_base, fuselage, fuselage_length)
         for c in list(tail.users_collection):
             c.objects.unlink(tail)
@@ -4363,7 +4425,7 @@ class FIGHTERGEN_OT_reroll_canopy(Operator):
         rng = random.Random()
         name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
 
-        _remove_assembly_objects_by_suffix(coll, fuselage, '_canopy')
+        _remove_by_role(coll, 'canopy', exclude=fuselage)
         canopy, attach_y = _generate_canopy_assembly(rng, name, s, mat_base, fuselage, fuselage_length)
         for c in list(canopy.users_collection):
             c.objects.unlink(canopy)
@@ -4387,11 +4449,7 @@ class FIGHTERGEN_OT_reroll_engine_pods(Operator):
         if not fuselage:
             self.report({'ERROR'}, "No assembly fuselage found in FighterGen_Assembly collection")
             return {'CANCELLED'}
-        wing = None
-        for obj in coll.objects:
-            if obj.name.endswith('_wing_r'):
-                wing = obj
-                break
+        wing = _find_by_role(coll, 'wing')
         if not wing:
             self.report({'ERROR'}, "No main wing found in FighterGen_Assembly collection")
             return {'CANCELLED'}
@@ -4401,16 +4459,12 @@ class FIGHTERGEN_OT_reroll_engine_pods(Operator):
         rng = random.Random()
         name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
 
-        for obj in [o for o in list(coll.objects) if '_enginepod' in o.name]:
-            mesh = obj.data
-            bpy.data.objects.remove(obj, do_unlink=True)
-            if mesh and mesh.users == 0:
-                bpy.data.meshes.remove(mesh)
+        _remove_by_role(coll, 'enginepod')
 
         wing_span = wing.dimensions.x  # full mirrored width; _generate_engine_pod only needs the single-side span for its x_local math
         span_fracs = _engine_pod_span_fracs(rng, s)
         for i, frac in enumerate(span_fracs):
-            pod = _generate_engine_pod(rng, name, f'enginepod{i}', s, mat_base, mat_glow, fuselage, wing, wing_span / 2.0, frac)
+            pod = _generate_engine_pod(rng, name, i, s, mat_base, mat_glow, fuselage, wing, wing_span / 2.0, frac)
             for c in list(pod.users_collection):
                 c.objects.unlink(pod)
             coll.objects.link(pod)
@@ -4435,11 +4489,7 @@ class FIGHTERGEN_OT_reroll_wing_weapon(Operator):
         if not fuselage:
             self.report({'ERROR'}, "No assembly fuselage found in FighterGen_Assembly collection")
             return {'CANCELLED'}
-        wing = None
-        for obj in coll.objects:
-            if obj.name.endswith('_wing_r'):
-                wing = obj
-                break
+        wing = _find_by_role(coll, 'wing')
         if not wing:
             self.report({'ERROR'}, "No main wing found in FighterGen_Assembly collection")
             return {'CANCELLED'}
@@ -4449,7 +4499,7 @@ class FIGHTERGEN_OT_reroll_wing_weapon(Operator):
         rng = random.Random()
         name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
 
-        _remove_assembly_objects_by_suffix(coll, fuselage, '_wing_weapon_r')
+        _remove_by_role(coll, 'wing_weapon', exclude=fuselage)
 
         wing_span = wing.dimensions.x / 2.0  # full mirrored width -> single-side span for x_local math
         wp_span_frac = _rr(rng, s.assemble_wing_weapon_span_frac_min, s.assemble_wing_weapon_span_frac_max)
@@ -4466,20 +4516,8 @@ class FIGHTERGEN_OT_reroll_wing_weapon(Operator):
 
 
 def _find_assembly_fuselage(coll):
-    if coll is None:
-        return None
-    for obj in coll.objects:
-        if obj.name.endswith('_fuselage'):
-            return obj
-    return None
-
-
-def _remove_assembly_objects_by_suffix(coll, fuselage, suffix):
-    for obj in [o for o in list(coll.objects) if o is not fuselage and o.name.endswith(suffix)]:
-        mesh = obj.data
-        bpy.data.objects.remove(obj, do_unlink=True)
-        if mesh and mesh.users == 0:
-            bpy.data.meshes.remove(mesh)
+    """Kept as a thin wrapper (many call sites) around the role-based lookup."""
+    return _find_by_role(coll, 'fuselage')
 
 
 class FIGHTERGEN_OT_reroll_wing(Operator):
@@ -4500,9 +4538,9 @@ class FIGHTERGEN_OT_reroll_wing(Operator):
         rng = random.Random(s.random_seed if s.random_seed != 0 else None)
         mat_base = make_material('FighterGen_Base', tuple(s.primary_color), s.metallic)
 
-        _remove_assembly_objects_by_suffix(coll, fuselage, '_wing_r')
-        had_aileron = any(o.name.endswith('_wing_aileron_r') for o in coll.objects)
-        _remove_assembly_objects_by_suffix(coll, fuselage, '_wing_aileron_r')
+        _remove_by_role(coll, 'wing', exclude=fuselage)
+        had_aileron = bool(_find_by_role(coll, 'wing_aileron'))
+        _remove_by_role(coll, 'wing_aileron', exclude=fuselage)
 
         fuselage_length = fuselage.dimensions.y
         name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
@@ -4545,9 +4583,9 @@ class FIGHTERGEN_OT_reroll_subwing(Operator):
         rng = random.Random(s.random_seed if s.random_seed != 0 else None)
         mat_base = make_material('FighterGen_Base', tuple(s.primary_color), s.metallic)
 
-        _remove_assembly_objects_by_suffix(coll, fuselage, '_subwing_r')
-        had_aileron = any(o.name.endswith('_subwing_aileron_r') for o in coll.objects)
-        _remove_assembly_objects_by_suffix(coll, fuselage, '_subwing_aileron_r')
+        _remove_by_role(coll, 'subwing', exclude=fuselage)
+        had_aileron = bool(_find_by_role(coll, 'subwing_aileron'))
+        _remove_by_role(coll, 'subwing_aileron', exclude=fuselage)
 
         fuselage_length = fuselage.dimensions.y
         name = s.name_prefix if s.name_prefix and s.name_prefix != 'part' else 'assembly'
