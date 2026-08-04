@@ -1,5 +1,6 @@
 import { _decorator, Component, Node, Label, director, Button, Graphics, Color, BlockInputEvents, UITransform, Size, LabelOutline, Layers } from 'cc';
 import { GameManager } from './GameManager';
+import { VideoBackground } from './VideoBackground';
 import { DataManager } from './DataManager';
 import { OptionsUI } from './OptionsUI';
 import { SoundManager } from './SoundManager';
@@ -18,6 +19,7 @@ export class HomeUI extends Component {
     public sessionStatsLabel: Label = null;
 
     start() {
+        this.setupVideoBackground();
         this.refreshUI();
 
         // Apply Layout
@@ -384,5 +386,22 @@ export class HomeUI extends Component {
         const btn = btnNode.addComponent(Button);
         btn.transition = Button.Transition.SCALE;
         btnNode.on(Button.EventType.CLICK, onClick, this);
+    }
+
+    private videoBG = new VideoBackground();
+
+    private setupVideoBackground() {
+        // "HomeUi"(this.node) の親がプレハブの実質ルート(=シーンCanvas直下に追加されるノード)
+        const parentNode = this.node.parent || this.node;
+        const homeBG = parentNode.getChildByName("HomeBG");
+        this.videoBG.setup(parentNode, "VideoBGSpriteNode", "Movies/BGV_Home", homeBG);
+    }
+
+    update(dt: number) {
+        this.videoBG.updateFrame();
+    }
+
+    onDestroy() {
+        this.videoBG.destroy();
     }
 }

@@ -1,9 +1,12 @@
 {
   "ver": "1.0.2",
   "importer": "particle",
-  "imported": false,
+  "imported": true,
   "uuid": "ffa0f245-a693-4b76-91c2-a8549effeb07",
-  "files": [],
+  "files": [
+    ".json",
+    ".plist"
+  ],
   "subMetas": {},
   "userData": {
     "totalParticles": 50,
@@ -98,6 +101,6 @@
     "endRadiusVar": 0,
     "rotatePerS": 0,
     "rotatePerSVar": 0,
-    "spriteFrameUuid": ""
+    "spriteFrameUuid": "effcb643-60cf-412e-acee-d48ba83c37cb@f9941"
   }
 }

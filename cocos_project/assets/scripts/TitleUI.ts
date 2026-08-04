@@ -2,11 +2,14 @@ import { _decorator, Component, Node, game, director } from 'cc';
 import { GameManager } from './GameManager';
 import { OptionsUI } from './OptionsUI';
 import { SoundManager } from './SoundManager';
+import { VideoBackground } from './VideoBackground';
 
 const { ccclass, property } = _decorator;
 
 @ccclass('TitleUI')
 export class TitleUI extends Component {
+
+    private videoBG = new VideoBackground();
 
     /**
      * Homeボタンクリック（ホーム画面へ遷移）
@@ -14,6 +17,12 @@ export class TitleUI extends Component {
     start() {
         // SideBar visibility is now managed by UIManager.resolveReferences
         // and GameManager.switchContent based on State.
+
+        // "TitleUI"(this.node) は "NewTitleNode" の子 -> その親がプレハブの実質ルート
+        // (=シーンCanvas直下に追加されるノード)。NewTitleNode 自体は装飾一式をまとめた
+        // ラッパーでローカルオフセットを持つため、そこを親にすると背景がズレる。
+        const prefabRoot = (this.node.parent && this.node.parent.parent) || this.node.parent || this.node;
+        this.videoBG.setup(prefabRoot, "VideoBGSpriteNode", "Movies/BGV_TItle", null);
 
         // Apply Layout to Buttons
         // Assuming structure: Canvas -> TitleUI -> Buttons or similar
@@ -24,6 +33,14 @@ export class TitleUI extends Component {
 
         // Register button click events
         this.registerButtonEvents();
+    }
+
+    update(dt: number) {
+        this.videoBG.updateFrame();
+    }
+
+    onDestroy() {
+        this.videoBG.destroy();
     }
 
     private registerButtonEvents() {

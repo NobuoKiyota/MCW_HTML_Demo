@@ -268,7 +268,7 @@ export class GameManager extends Component implements IGameManager {
             // completely. Space should read as black behind them; UI screens keep the
             // existing blue (BackgroundCamera has nothing to draw on UI screens, so this
             // clear color is effectively the whole screen's backdrop there too).
-            this.bgCamera.clearColor = isIngame ? new Color(0, 0, 0, 255) : new Color(0, 0, 255, 255);
+            this.bgCamera.clearColor = new Color(0, 0, 0, 0);
             this.bgCamera.priority = 0;
             this.bgCamera.node.active = true;
             this.bgCamera.enabled = true;
