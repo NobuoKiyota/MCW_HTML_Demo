@@ -6,6 +6,22 @@ import GUI from 'lil-gui';
 import { SymmetricManager } from './SymmetricManager';
 import { FighterGenerator, FighterType } from './FighterGenerator';
 
+interface FighterSnapshot {
+  selectedParts: Record<string, string>;
+  materialsConfig: {
+    primaryColor: string;
+    secondaryColor: string;
+    canopyColor: string;
+    emissiveColor: string;
+  };
+  transforms: Array<{
+    name: string;
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: [number, number, number];
+  }>;
+}
+
 export class App {
   private canvas!: HTMLCanvasElement;
   private scene!: THREE.Scene;
@@ -51,6 +67,12 @@ export class App {
   private partCache: Map<string, THREE.Group> = new Map();
   private partsInventory: Record<string, string[]> = {};
   private selectedParts: Record<string, string> = {};
+
+  // Undo / Redo (スナップショット方式: パーツ選択・カラー・トランスフォームを丸ごと記録)
+  private undoStack: FighterSnapshot[] = [];
+  private redoStack: FighterSnapshot[] = [];
+  private pendingUndoSnapshot: FighterSnapshot | null = null;
+  private readonly maxUndoDepth = 50;
 
   // GUI関連
   private gui: GUI | null = null;
@@ -153,6 +175,22 @@ export class App {
    */
   private bindEvents(): void {
     window.addEventListener('resize', () => this.onWindowResize());
+
+    // --- Undo / Redo ショートカット (Ctrl+Z / Ctrl+Shift+Z, Ctrl+Y) ---
+    window.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (this.isViewerMode) return;
+      const target = e.target as HTMLElement | null;
+      // テキスト入力中（ファイル名欄など）はブラウザ標準のUndoを優先させる
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+      if (!(e.ctrlKey || e.metaKey)) return;
+      if (e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        this.undo();
+      } else if ((e.key.toLowerCase() === 'z' && e.shiftKey) || e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        this.redo();
+      }
+    });
 
     // --- 3Dキャンバスクリックでのパーツ選択 ---
     if (this.canvas) {
@@ -394,7 +432,9 @@ export class App {
     this.currentFighterType = type;
 
     // 初回・ランダム生成時は、インベントリから自動アセット選択
-    const categories = ['fuselage', 'nose', 'wings', 'engines', 'canopy', 'tails', 'weapons'];
+    // カテゴリは固定リストではなく、現在ロード済みのインベントリ（ドラッグ&ドロップ等で
+    // 追加された新規カテゴリを含む）から動的に取得する
+    const categories = Object.keys(this.partsInventory);
     categories.forEach(cat => {
       const files = this.partsInventory[cat] || [];
       if (files.length > 0) {
@@ -460,6 +500,20 @@ export class App {
     } else {
       this.selectedPartName = '';
     }
+  }
+
+  /**
+   * ドラッグ&ドロップの代わりにファイル選択ダイアログから .glb を選ばせる
+   */
+  private triggerBrowseForGLB(): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.glb,.gltf';
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (file) this.loadUserGLB(file);
+    });
+    input.click();
   }
 
   /**
@@ -635,7 +689,11 @@ export class App {
     const model = this.glbViewerGroup.children[0];
     if (!model) return;
 
-    const category = this.viewerConfig.exportCategory;
+    const category = this.viewerConfig.exportCategory.trim();
+    if (!category) {
+      this.showStatus('Category cannot be empty (type an existing one or a new name).', 'error');
+      return;
+    }
     let filename = this.viewerConfig.exportFilename.trim();
     if (!filename) {
       this.showStatus('Filename cannot be empty.', 'error');
@@ -660,6 +718,8 @@ export class App {
           .then(async (res) => {
             if (res.ok) {
               this.showStatus(`Saved to parts/${category}/${filename}`, 'success');
+              // 新しいパーツ（新規カテゴリの可能性もある）を即座にドロップダウンへ反映
+              await this.refreshPartsInventory();
             } else {
               const errText = await res.text();
               this.showStatus(`Failed to save: ${errText}`, 'error');
@@ -676,6 +736,50 @@ export class App {
       },
       { binary: true }
     );
+  }
+
+  /**
+   * サーバーから最新のパーツ一覧を再取得し、新規追加分だけプリロードしてから
+   * partsInventory を更新する（ページリロードなしで新パーツをすぐ使えるように）
+   */
+  private async refreshPartsInventory(): Promise<void> {
+    try {
+      const response = await fetch('/api/list-parts');
+      if (!response.ok) return;
+      const inventory = await response.json();
+      this.partsInventory = inventory;
+
+      const loader = new GLTFLoader();
+      const promises: Promise<void>[] = [];
+      for (const cat in inventory) {
+        const files = inventory[cat] as string[];
+        for (const file of files) {
+          const key = `${cat}/${file}`;
+          if (this.partCache.has(key)) continue; // 既にロード済みならスキップ
+          const url = `/parts/${cat}/${file}`;
+          promises.push(
+            new Promise<void>((resolve) => {
+              loader.load(
+                url,
+                (gltf) => {
+                  this.partCache.set(key, gltf.scene);
+                  resolve();
+                },
+                undefined,
+                (err) => {
+                  console.error(`Failed to load GLB: ${url}`, err);
+                  resolve();
+                }
+              );
+            })
+          );
+        }
+      }
+      await Promise.all(promises);
+      this.generator.setPartCache(this.partCache);
+    } catch (err) {
+      console.error('[refreshPartsInventory] Error:', err);
+    }
   }
 
   /**
@@ -775,6 +879,166 @@ export class App {
   }
 
   /**
+   * 現在の状態（パーツ選択・カラー・各パーツのTransform）を丸ごとスナップショット化
+   */
+  private captureSnapshot(): FighterSnapshot {
+    return {
+      selectedParts: { ...this.selectedParts },
+      materialsConfig: { ...this.materialsConfig },
+      transforms: this.editableParts.map((p) => ({
+        name: p.name,
+        position: [p.position.x, p.position.y, p.position.z],
+        rotation: [p.rotation.x, p.rotation.y, p.rotation.z],
+        scale: [p.scale.x, p.scale.y, p.scale.z],
+      })),
+    };
+  }
+
+  /**
+   * スナップショットから状態を復元（構造が変わっていれば再生成してからTransformを再適用）
+   */
+  private restoreSnapshot(snap: FighterSnapshot): void {
+    this.selectedParts = { ...snap.selectedParts };
+    this.materialsConfig = { ...snap.materialsConfig };
+    // パーツ構成（selectedParts）を反映しつつ再組み立て。ランダム構造パラメータは据え置き。
+    this.generateFighter(this.currentFighterType, false);
+    snap.transforms.forEach((t) => {
+      const part = this.editableParts.find((p) => p.name === t.name);
+      if (part) {
+        part.position.set(...t.position);
+        part.rotation.set(...t.rotation);
+        part.scale.set(...t.scale);
+      }
+    });
+    this.updateMaterials();
+    this.updateSelectionHighlight();
+    this.rebuildGUI();
+  }
+
+  /** Ctrl+Z */
+  public undo(): void {
+    if (this.undoStack.length === 0) {
+      this.showStatus('Nothing to undo.', '');
+      return;
+    }
+    this.redoStack.push(this.captureSnapshot());
+    const snap = this.undoStack.pop()!;
+    this.restoreSnapshot(snap);
+    this.showStatus(`Undo (${this.undoStack.length} more available)`, 'success');
+  }
+
+  /** Ctrl+Shift+Z / Ctrl+Y */
+  public redo(): void {
+    if (this.redoStack.length === 0) {
+      this.showStatus('Nothing to redo.', '');
+      return;
+    }
+    this.undoStack.push(this.captureSnapshot());
+    const snap = this.redoStack.pop()!;
+    this.restoreSnapshot(snap);
+    this.showStatus(`Redo (${this.redoStack.length} more available)`, 'success');
+  }
+
+  /**
+   * 変更が確定するたびUndoスタックへ「変更前」の状態を積む。
+   * lil-gui のコントローラーはドラッグ開始時点で既に値を書き換えてしまうため、
+   * pointerdown（操作開始）時点でスナップショットを取っておき、onFinishChange
+   * （操作完了）でそれをUndoスタックへコミットする2段構えにしている。
+   */
+  private armUndoCapture(controller: any): any {
+    controller.domElement.addEventListener(
+      'pointerdown',
+      () => {
+        if (!this.pendingUndoSnapshot) {
+          this.pendingUndoSnapshot = this.captureSnapshot();
+        }
+      },
+      { capture: true }
+    );
+    controller.onFinishChange(() => {
+      if (this.pendingUndoSnapshot) {
+        this.undoStack.push(this.pendingUndoSnapshot);
+        if (this.undoStack.length > this.maxUndoDepth) this.undoStack.shift();
+        this.redoStack.length = 0;
+        this.pendingUndoSnapshot = null;
+      }
+    });
+    return controller;
+  }
+
+  /**
+   * lil-gui の数値スライダーに Shift 押下時の微調整（ファイン）ドラッグを追加する。
+   * 素の <input type=range> はキー修飾に反応しないため、range 部分の上で
+   * pointerdown してからのドラッグ量をこちらで独自に処理し、Shift 中は
+   * 通常の 1/8 の感度で値を変化させる。数値入力欄は従来通りクリックして直接入力可能。
+   */
+  private addPreciseSlider(
+    folder: any,
+    obj: any,
+    key: string,
+    min: number,
+    max: number,
+    step: number,
+    label: string,
+    onChange?: () => void
+  ): any {
+    const controller = folder.add(obj, key, min, max, step).name(label);
+    if (onChange) controller.onChange(onChange);
+    this.armUndoCapture(controller);
+
+    // lil-gui のスライダーは <input type=range> ではなく独自の <div class="slider"> で、
+    // クリック位置へ絶対値ジャンプする挙動を素の mousedown リスナーで直接 .slider に
+    // 貼っている。同一要素に後から listener を足しても発火順（登録順）では追い越せない
+    // ため、1つ上の階層（controller.domElement）で capture フェーズで割り込み、
+    // stopPropagation で lil-gui 側の mousedown が .slider に届く前に止める。
+    const sliderEl = controller.domElement.querySelector('.slider') as HTMLElement | null;
+    if (sliderEl) {
+      let dragging = false;
+      let startX = 0;
+      let startValue = 0;
+      const pixelsForFullRange = 300; // ドラッグでスライダー全域を動かすのに要するpx換算の基準
+
+      const onPointerMove = (e: PointerEvent) => {
+        if (!dragging) return;
+        const dx = e.clientX - startX;
+        const range = max - min;
+        const sensitivity = e.shiftKey ? 1 / 8 : 1;
+        let value = startValue + (dx / pixelsForFullRange) * range * sensitivity;
+        value = Math.min(max, Math.max(min, value));
+        // step にスナップ
+        value = Math.round(value / step) * step;
+        controller.setValue(value);
+      };
+      const onPointerUp = () => {
+        if (!dragging) return;
+        dragging = false;
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+        controller._callOnFinishChange();
+      };
+
+      controller.domElement.addEventListener(
+        'mousedown',
+        (e: MouseEvent) => {
+          if (!(e.target as HTMLElement).closest('.slider')) return;
+          // 相対ドラッグ量だけで値を変化させる（Shift併用の微調整のため、
+          // ネイティブの「クリック位置へ即ジャンプ」挙動は止める）
+          e.preventDefault();
+          e.stopPropagation();
+          dragging = true;
+          startX = e.clientX;
+          startValue = obj[key];
+          window.addEventListener('pointermove', onPointerMove);
+          window.addEventListener('pointerup', onPointerUp);
+        },
+        { capture: true }
+      );
+    }
+
+    return controller;
+  }
+
+  /**
    * lil-gui の再構築
    */
   private rebuildGUI(): void {
@@ -795,7 +1059,11 @@ export class App {
       editFolder.add(this.viewerConfig, 'resetToOriginal').name('↩️ Undo (Reset to Original)');
 
       const exportFolder = this.gui.addFolder('💾 Export');
-      exportFolder.add(this.viewerConfig, 'exportCategory', ['fuselage', 'nose', 'wings', 'engines', 'canopy', 'tails', 'weapons']).name('Category');
+      // カテゴリは固定リストではなく自由入力 -- 既存のものを選んでも良いし、新しい名前を
+      // 打てばそのフォルダが新規カテゴリとして自動的に作られる
+      const existingCats = Object.keys(this.partsInventory).join(', ') || '(none yet)';
+      exportFolder.add(this.viewerConfig, 'exportCategory').name('Category (free text)');
+      exportFolder.add({ hint: `Existing: ${existingCats}` }, 'hint').name('').disable();
       exportFolder.add(this.viewerConfig, 'exportFilename').name('File name');
       exportFolder.add(this.viewerConfig, 'exportToLibrary').name('💾 Save to Parts Library');
       exportFolder.add(this.viewerConfig, 'downloadFixed').name('📥 Download GLB');
@@ -809,20 +1077,29 @@ export class App {
     // --- 通常の戦闘機組み立て用 GUI ---
     this.gui = new GUI({ title: '🛠️ Fighter Assembly' });
 
+    // --- 0. Undo / Redo (Ctrl+Z / Ctrl+Shift+Z も使用可) ---
+    const historyRow = this.gui.addFolder(`History (${this.undoStack.length} undo / ${this.redoStack.length} redo)`);
+    historyRow.add({ undo: () => this.undo() }, 'undo').name('↩️ Undo (Ctrl+Z)');
+    historyRow.add({ redo: () => this.redo() }, 'redo').name('↪️ Redo (Ctrl+Shift+Z)');
+
     // --- 1. アセット合成 (GLB選択) フォルダ ---
     const assetFolder = this.gui.addFolder('GLB Parts Inventory');
-    const categories = ['fuselage', 'nose', 'wings', 'engines', 'canopy', 'tails', 'weapons'];
-    
+    // カテゴリは固定リストではなく現在のインベントリから動的に取得（ドラッグ&ドロップで
+    // 追加した新規カテゴリもここに自動で並ぶ）
+    const categories = Object.keys(this.partsInventory);
+
     categories.forEach(cat => {
       const files = this.partsInventory[cat] || [];
       if (files.length > 0) {
-        const controller = assetFolder.add(this.selectedParts, cat, files)
-          .name(`${cat.toUpperCase()} model`)
-          .onChange(() => {
-            // 個別パーツの差し替えなので、機体全体の構造パラメータ（配色・カナード有無等）は据え置く
-            this.generateFighter(this.currentFighterType, false);
-            this.autoSelectPartForCategory(cat);
-          });
+        const controller = this.armUndoCapture(
+          assetFolder.add(this.selectedParts, cat, files)
+            .name(`${cat.toUpperCase()} model`)
+            .onChange(() => {
+              // 個別パーツの差し替えなので、機体全体の構造パラメータ（配色・カナード有無等）は据え置く
+              this.generateFighter(this.currentFighterType, false);
+              this.autoSelectPartForCategory(cat);
+            })
+        );
 
         // DOMの行全体をクリックした際も対応するパーツをアクティブターゲットに切り替え
         const rowDom = controller.domElement.parentElement;
@@ -838,18 +1115,28 @@ export class App {
       }
     });
 
+    const addPartFolder = this.gui.addFolder('➕ Add New Part');
+    addPartFolder.add({ browse: () => this.triggerBrowseForGLB() }, 'browse').name('📂 Browse for .glb...');
+    addPartFolder.add({ info: 'or just drag & drop a .glb anywhere on the page' }, 'info').name('').disable();
+
     // --- 2. カラーマテリアル (Global) フォルダ ---
     const colorFolder = this.gui.addFolder('Global Colors');
-    colorFolder.addColor(this.materialsConfig, 'primaryColor')
-      .name('Fuselage color')
-      .onChange(() => this.updateMaterials());
-    colorFolder.addColor(this.materialsConfig, 'secondaryColor')
-      .name('Wing color')
-      .onChange(() => this.updateMaterials());
-    colorFolder.addColor(this.materialsConfig, 'canopyColor')
-      .name('Canopy glass')
-      .onChange(() => this.updateMaterials());
-    colorFolder.addColor(this.materialsConfig, 'emissiveColor')
+    this.armUndoCapture(
+      colorFolder.addColor(this.materialsConfig, 'primaryColor')
+        .name('Fuselage color')
+        .onChange(() => this.updateMaterials())
+    );
+    this.armUndoCapture(
+      colorFolder.addColor(this.materialsConfig, 'secondaryColor')
+        .name('Wing color')
+        .onChange(() => this.updateMaterials())
+    );
+    this.armUndoCapture(
+      colorFolder.addColor(this.materialsConfig, 'canopyColor')
+        .name('Canopy glass')
+        .onChange(() => this.updateMaterials())
+    );
+    this.armUndoCapture(colorFolder.addColor(this.materialsConfig, 'emissiveColor'))
       .name('Engine flame')
       .onChange(() => this.updateMaterials());
 
@@ -981,55 +1268,24 @@ export class App {
     const baseName = SymmetricManager.getBaseName(part.name);
     const isSymmetric = part.name.endsWith('_L');
 
+    const syncIfSymmetric = () => {
+      if (isSymmetric) this.symmetricManager.sync(baseName);
+    };
+
+    // Shift を押しながらドラッグすると 1/8 の感度でファイン調整できる（addPreciseSlider参照）
     const posMax = 5;
-    this.currentPartFolder.add(part.position, 'x', isSymmetric ? -posMax : 0, isSymmetric ? 0 : 0, 0.01)
-      .name('Offset X')
-      .onChange(() => {
-        if (isSymmetric) this.symmetricManager.sync(baseName);
-      });
-    this.currentPartFolder.add(part.position, 'y', -posMax, posMax, 0.01)
-      .name('Offset Y')
-      .onChange(() => {
-        if (isSymmetric) this.symmetricManager.sync(baseName);
-      });
-    this.currentPartFolder.add(part.position, 'z', -posMax, posMax, 0.01)
-      .name('Offset Z')
-      .onChange(() => {
-        if (isSymmetric) this.symmetricManager.sync(baseName);
-      });
+    this.addPreciseSlider(this.currentPartFolder, part.position, 'x', isSymmetric ? -posMax : 0, isSymmetric ? 0 : 0, 0.01, 'Offset X', syncIfSymmetric);
+    this.addPreciseSlider(this.currentPartFolder, part.position, 'y', -posMax, posMax, 0.01, 'Offset Y', syncIfSymmetric);
+    this.addPreciseSlider(this.currentPartFolder, part.position, 'z', -posMax, posMax, 0.01, 'Offset Z', syncIfSymmetric);
 
     const rotMax = Math.PI;
-    this.currentPartFolder.add(part.rotation, 'x', -rotMax, rotMax, 0.01)
-      .name('Rotate X (Pitch)')
-      .onChange(() => {
-        if (isSymmetric) this.symmetricManager.sync(baseName);
-      });
-    this.currentPartFolder.add(part.rotation, 'y', -rotMax, rotMax, 0.01)
-      .name('Rotate Y (Yaw)')
-      .onChange(() => {
-        if (isSymmetric) this.symmetricManager.sync(baseName);
-      });
-    this.currentPartFolder.add(part.rotation, 'z', -rotMax, rotMax, 0.01)
-      .name('Rotate Z (Roll)')
-      .onChange(() => {
-        if (isSymmetric) this.symmetricManager.sync(baseName);
-      });
+    this.addPreciseSlider(this.currentPartFolder, part.rotation, 'x', -rotMax, rotMax, 0.01, 'Rotate X (Pitch)', syncIfSymmetric);
+    this.addPreciseSlider(this.currentPartFolder, part.rotation, 'y', -rotMax, rotMax, 0.01, 'Rotate Y (Yaw)', syncIfSymmetric);
+    this.addPreciseSlider(this.currentPartFolder, part.rotation, 'z', -rotMax, rotMax, 0.01, 'Rotate Z (Roll)', syncIfSymmetric);
 
-    this.currentPartFolder.add(part.scale, 'x', 0.1, 4.0, 0.01)
-      .name('Scale X')
-      .onChange(() => {
-        if (isSymmetric) this.symmetricManager.sync(baseName);
-      });
-    this.currentPartFolder.add(part.scale, 'y', 0.1, 4.0, 0.01)
-      .name('Scale Y')
-      .onChange(() => {
-        if (isSymmetric) this.symmetricManager.sync(baseName);
-      });
-    this.currentPartFolder.add(part.scale, 'z', 0.1, 4.0, 0.01)
-      .name('Scale Z')
-      .onChange(() => {
-        if (isSymmetric) this.symmetricManager.sync(baseName);
-      });
+    this.addPreciseSlider(this.currentPartFolder, part.scale, 'x', 0.1, 4.0, 0.01, 'Scale X', syncIfSymmetric);
+    this.addPreciseSlider(this.currentPartFolder, part.scale, 'y', 0.1, 4.0, 0.01, 'Scale Y', syncIfSymmetric);
+    this.addPreciseSlider(this.currentPartFolder, part.scale, 'z', 0.1, 4.0, 0.01, 'Scale Z', syncIfSymmetric);
   }
 
   /**

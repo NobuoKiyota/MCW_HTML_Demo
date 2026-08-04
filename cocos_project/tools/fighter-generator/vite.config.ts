@@ -21,18 +21,30 @@ export default defineConfig({
           if (req.method === 'GET' && url.startsWith('/api/list-parts')) {
             try {
               const partsDir = path.resolve(__dirname, 'public/parts');
-              const categories = ['fuselage', 'nose', 'wings', 'engines', 'canopy', 'tails', 'weapons'];
+              // カテゴリは固定リストではなく public/parts/ 配下のサブフォルダを毎回動的に
+              // スキャンする -- ドラッグ&ドロップ等で新規カテゴリのフォルダが作られても
+              // サーバー側のコード変更なしに一覧へ反映される。既知のデフォルトカテゴリは
+              // 空でも一覧に出るよう保証だけしておく（初回ブートストラップ用）。
+              const defaultCategories = ['fuselage', 'nose', 'wings', 'engines', 'canopy', 'tails', 'weapons'];
               const result: Record<string, string[]> = {};
 
               if (!fs.existsSync(partsDir)) {
                 fs.mkdirSync(partsDir, { recursive: true });
               }
 
-              categories.forEach(cat => {
+              defaultCategories.forEach(cat => {
                 const catDir = path.join(partsDir, cat);
                 if (!fs.existsSync(catDir)) {
                   fs.mkdirSync(catDir, { recursive: true });
                 }
+              });
+
+              const discoveredCategories = fs.readdirSync(partsDir, { withFileTypes: true })
+                .filter(entry => entry.isDirectory())
+                .map(entry => entry.name);
+
+              discoveredCategories.forEach(cat => {
+                const catDir = path.join(partsDir, cat);
                 const files = fs.readdirSync(catDir)
                   .filter(f => f.endsWith('.glb'));
                 result[cat] = files;
