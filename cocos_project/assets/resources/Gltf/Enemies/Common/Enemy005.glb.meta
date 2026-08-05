@@ -1,0 +1,266 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "43ebe573-cb58-47f9-9f07-8f53d1dce554",
+  "files": [],
+  "subMetas": {
+    "b65f2": {
+      "importer": "gltf-mesh",
+      "uuid": "43ebe573-cb58-47f9-9f07-8f53d1dce554@b65f2",
+      "displayName": "",
+      "id": "b65f2",
+      "name": "assembly_01_Body_mesh.001.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 34760
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "23d8d": {
+      "importer": "gltf-material",
+      "uuid": "43ebe573-cb58-47f9-9f07-8f53d1dce554@23d8d",
+      "displayName": "",
+      "id": "23d8d",
+      "name": "FighterGen_Base.material",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f8d90": {
+      "importer": "gltf-material",
+      "uuid": "43ebe573-cb58-47f9-9f07-8f53d1dce554@f8d90",
+      "displayName": "",
+      "id": "f8d90",
+      "name": "FighterGen_Canopy.material",
+      "userData": {
+        "gltfIndex": 1
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "10be8": {
+      "importer": "gltf-scene",
+      "uuid": "43ebe573-cb58-47f9-9f07-8f53d1dce554@10be8",
+      "displayName": "",
+      "id": "10be8",
+      "name": "Enemy005.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageMetas": [],
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "assetFinder": {
+      "meshes": [
+        "43ebe573-cb58-47f9-9f07-8f53d1dce554@b65f2"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [
+        "43ebe573-cb58-47f9-9f07-8f53d1dce554@23d8d",
+        "43ebe573-cb58-47f9-9f07-8f53d1dce554@f8d90"
+      ],
+      "scenes": [
+        "43ebe573-cb58-47f9-9f07-8f53d1dce554@10be8"
+      ]
+    },
+    "materials": {
+      "43ebe573-cb58-47f9-9f07-8f53d1dce554@23d8d": {
+        "__type__": "cc.Material",
+        "_name": "",
+        "_objFlags": 0,
+        "__editorExtras__": {},
+        "_native": "",
+        "_effectAsset": {
+          "__uuid__": "fc0ce5f8-063d-42da-b13a-2fad25abb951",
+          "__expectedType__": "cc.EffectAsset"
+        },
+        "_techIdx": 0,
+        "_defines": [
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {},
+          {}
+        ],
+        "_states": [
+          {
+            "rasterizerState": {
+              "cullMode": 0
+            },
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          },
+          {
+            "rasterizerState": {},
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          },
+          {
+            "rasterizerState": {},
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          },
+          {
+            "rasterizerState": {},
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          },
+          {
+            "rasterizerState": {},
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          },
+          {
+            "rasterizerState": {},
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          },
+          {
+            "rasterizerState": {},
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          },
+          {
+            "rasterizerState": {},
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          }
+        ],
+        "_props": [
+          {
+            "mainColor": {
+              "__type__": "cc.Color",
+              "r": 32,
+              "g": 0,
+              "b": 0,
+              "a": 255
+            },
+            "albedoScale": {
+              "__type__": "cc.Vec3",
+              "x": 0.550000011920929,
+              "y": 0.5799999833106995,
+              "z": 0.6200000047683716
+            },
+            "alphaThreshold": 0.418,
+            "occlusion": 1,
+            "roughness": 0.659,
+            "metallic": 0.712,
+            "specularIntensity": 1,
+            "normalStrength": 1,
+            "anisotropyRotation": 0.0059,
+            "roughnessTRT": 0,
+            "offsetTRT": -0.5,
+            "IntensityTRT": 0.71,
+            "baseColorTRT": {
+              "__type__": "cc.Color",
+              "r": 163,
+              "g": 14,
+              "b": 14,
+              "a": 255
+            },
+            "baseColorTT": {
+              "__type__": "cc.Color",
+              "r": 240,
+              "g": 137,
+              "b": 48,
+              "a": 255
+            }
+          },
+          {
+            "mainColor": {
+              "__type__": "cc.Color",
+              "r": 119,
+              "g": 119,
+              "b": 119,
+              "a": 255
+            }
+          },
+          {},
+          {},
+          {},
+          {},
+          {},
+          {}
+        ]
+      }
+    }
+  }
+}
