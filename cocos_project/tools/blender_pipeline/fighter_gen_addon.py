@@ -10,6 +10,7 @@ bl_info = {
 
 import bpy
 import os
+import re
 import math
 import random
 from bpy.props import FloatProperty, IntProperty, StringProperty, BoolProperty, EnumProperty, PointerProperty, FloatVectorProperty
@@ -2952,7 +2953,7 @@ def export_assembly_glb(objs, filepath):
 class FighterGenSettings(PropertyGroup):
     part_type: EnumProperty(name='Part Type', items=[('FUSELAGE', 'Fuselage', 'Generate fuselage variants'), ('WINGS', 'Wings', 'Generate wing/canard variants'), ('ENGINES', 'Engines', 'Generate engine variants'), ('CANOPY', 'Canopy', 'Generate canopy glass variants'), ('TAILS', 'Tails', 'Generate vertical tail variants'), ('WEAPONS', 'Weapons', 'Generate weapon pod variants')], default='FUSELAGE')
     random_seed: IntProperty(name='Random Seed', default=0)
-    variant_count: IntProperty(name='Variant Count', default=6, min=1, max=64)
+    variant_count: IntProperty(name='Variant Count', default=1, min=1, max=64)
     name_prefix: StringProperty(name='Name Prefix', default='part')
     show_advanced: BoolProperty(
         name='Show Advanced Parameters', default=False,
@@ -3427,73 +3428,133 @@ def _clear_variant_collection():
     return coll
 
 
+def _get_or_create_variant_collection():
+    coll = bpy.data.collections.get(VARIANT_COLLECTION)
+    if coll is None:
+        coll = bpy.data.collections.new(VARIANT_COLLECTION)
+        bpy.context.scene.collection.children.link(coll)
+    return coll
+
+
+def _next_variant_index(coll, name_prefix):
+    """Next free numeric suffix for name_prefix within coll, so 'Add More' continues
+    numbering instead of colliding with (or overwriting) what's already there."""
+    pattern = re.compile(re.escape(name_prefix) + r"_(\d+)$")
+    max_idx = -1
+    for obj in coll.objects:
+        m = pattern.match(obj.name)
+        if m:
+            max_idx = max(max_idx, int(m.group(1)))
+    return max_idx + 1
+
+
+def _next_grid_y_offset(coll, y_step):
+    """Y offset so a freshly-added batch's own little grid starts in an empty row
+    below everything already in the collection, instead of overlapping it."""
+    if not coll.objects:
+        return 0.0
+    return max(obj.location.y for obj in coll.objects) + y_step
+
+
+def _run_variant_generation(context, coll, start_index, y_offset):
+    """Shared body for both 'Generate Base' (fresh collection, start_index=0) and 'Add
+    More' (existing collection, start_index/y_offset continue after what's there) --
+    generates s.variant_count new parts into coll starting at start_index, laid out as
+    their own compact grid beginning at y_offset."""
+    s = context.scene.fightergen_settings
+    rng = random.Random(s.random_seed if s.random_seed != 0 else None)
+
+    part = s.part_type
+    cat_lower = CATEGORY_FOLDERS[part]
+
+    mat_base = make_material('FighterGen_Base', tuple(s.primary_color), s.metallic)
+    mat_glow = None
+    if part in ('WEAPONS', 'ENGINES'):
+        mat_glow = make_glow_material('FighterGen_Glow', tuple(s.accent_glow_color))
+
+    cols = max(1, math.ceil(math.sqrt(s.variant_count)))
+    x_step = 2.0 * s.spacing
+    y_step = 4.0 * s.spacing
+
+    exported = []
+    for i in range(s.variant_count):
+        name = f"{s.name_prefix}_{start_index + i:02d}"
+
+        if part == 'FUSELAGE':
+            obj = _generate_fuselage_variant(rng, name, s, mat_base)
+        elif part == 'WINGS':
+            obj = _generate_wing_or_tail_variant(rng, name, s, mat_base, is_tail=False)
+        elif part == 'TAILS':
+            obj = _generate_wing_or_tail_variant(rng, name, s, mat_base, is_tail=True)
+        elif part == 'ENGINES':
+            obj = _generate_engine_variant(rng, name, s, mat_base, mat_glow)
+        elif part == 'CANOPY':
+            obj = _generate_canopy_variant(rng, name, s, mat_base)
+        elif part == 'WEAPONS':
+            obj = _generate_weapon_variant(rng, name, s, mat_base, mat_glow)
+        else:
+            continue
+
+        long_axis = {'WINGS': 'X', 'TAILS': 'Z'}.get(part, 'Y')
+        add_optional_modifiers(obj, s, rng, long_axis)
+
+        row, col = divmod(i, cols)
+        obj.location = (col * x_step, row * y_step + y_offset, 0.0)
+        for c in list(obj.users_collection):
+            c.objects.unlink(obj)
+        coll.objects.link(obj)
+
+        if s.export_glb:
+            export_folder = os.path.join(bpy.path.abspath(s.export_dir), cat_lower)
+            os.makedirs(export_folder, exist_ok=True)
+            filepath = os.path.join(export_folder, name + '.glb')
+            export_object_glb(obj, filepath)
+            exported.append(filepath)
+
+    bpy.data.orphans_purge(do_local_ids=True, do_recursive=True)
+
+    bpy.ops.object.select_all(action='DESELECT')
+    for obj in coll.objects:
+        obj.select_set(True)
+    if coll.objects:
+        bpy.context.view_layer.objects.active = coll.objects[0]
+
+    return cat_lower, exported
+
+
 class FIGHTERGEN_OT_generate(Operator):
     bl_idname = "fightergen.generate_variants"
-    bl_label = "Generate Variants"
-    bl_description = "Generate batch of editable fighter parts with advanced modifiers"
+    bl_label = "Generate Base Variants"
+    bl_description = "Clear the variant collection and generate a fresh batch from scratch"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         s = context.scene.fightergen_settings
-        rng = random.Random(s.random_seed if s.random_seed != 0 else None)
         coll = _clear_variant_collection()
-
-        part = s.part_type
-        cat_lower = CATEGORY_FOLDERS[part]
-
-        mat_base = make_material('FighterGen_Base', tuple(s.primary_color), s.metallic)
-        mat_glow = None
-        if part in ('WEAPONS', 'ENGINES'):
-            mat_glow = make_glow_material('FighterGen_Glow', tuple(s.accent_glow_color))
-
-        cols = max(1, math.ceil(math.sqrt(s.variant_count)))
-        x_step = 2.0 * s.spacing
-        y_step = 4.0 * s.spacing
-
-        exported = []
-        for i in range(s.variant_count):
-            name = f"{s.name_prefix}_{i:02d}"
-
-            if part == 'FUSELAGE':
-                obj = _generate_fuselage_variant(rng, name, s, mat_base)
-            elif part == 'WINGS':
-                obj = _generate_wing_or_tail_variant(rng, name, s, mat_base, is_tail=False)
-            elif part == 'TAILS':
-                obj = _generate_wing_or_tail_variant(rng, name, s, mat_base, is_tail=True)
-            elif part == 'ENGINES':
-                obj = _generate_engine_variant(rng, name, s, mat_base, mat_glow)
-            elif part == 'CANOPY':
-                obj = _generate_canopy_variant(rng, name, s, mat_base)
-            elif part == 'WEAPONS':
-                obj = _generate_weapon_variant(rng, name, s, mat_base, mat_glow)
-            else:
-                continue
-
-            long_axis = {'WINGS': 'X', 'TAILS': 'Z'}.get(part, 'Y')
-            add_optional_modifiers(obj, s, rng, long_axis)
-
-            row, col = divmod(i, cols)
-            obj.location = (col * x_step, row * y_step, 0.0)
-            for c in list(obj.users_collection):
-                c.objects.unlink(obj)
-            coll.objects.link(obj)
-
-            if s.export_glb:
-                export_folder = os.path.join(bpy.path.abspath(s.export_dir), cat_lower)
-                os.makedirs(export_folder, exist_ok=True)
-                filepath = os.path.join(export_folder, name + '.glb')
-                export_object_glb(obj, filepath)
-                exported.append(filepath)
-
-        bpy.data.orphans_purge(do_local_ids=True, do_recursive=True)
-
-        bpy.ops.object.select_all(action='DESELECT')
-        for obj in coll.objects:
-            obj.select_set(True)
-        if coll.objects:
-            bpy.context.view_layer.objects.active = coll.objects[0]
+        cat_lower, exported = _run_variant_generation(context, coll, start_index=0, y_offset=0.0)
 
         msg = f"Generated {s.variant_count} {cat_lower} variant(s) (modifiers are alive!)"
+        if s.export_glb:
+            msg += f", exported {len(exported)} baked GLB(s)"
+        self.report({'INFO'}, msg)
+        return {'FINISHED'}
+
+
+class FIGHTERGEN_OT_generate_more(Operator):
+    bl_idname = "fightergen.generate_more_variants"
+    bl_label = "Add More Variants"
+    bl_description = ("Generate Variant Count more parts and append them to the existing "
+                       "variant collection instead of clearing it first")
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        s = context.scene.fightergen_settings
+        coll = _get_or_create_variant_collection()
+        start_index = _next_variant_index(coll, s.name_prefix)
+        y_offset = _next_grid_y_offset(coll, 4.0 * s.spacing)
+        cat_lower, exported = _run_variant_generation(context, coll, start_index, y_offset)
+
+        msg = f"Added {s.variant_count} more {cat_lower} variant(s) (total {len(coll.objects)})"
         if s.export_glb:
             msg += f", exported {len(exported)} baked GLB(s)"
         self.report({'INFO'}, msg)
@@ -3798,7 +3859,9 @@ class FIGHTERGEN_PT_panel(Panel):
             assemble_adv_box.separator()
             row = assemble_adv_box.row(align=True); row.prop(s, 'assemble_wing_weapon_span_frac_min'); row.prop(s, 'assemble_wing_weapon_span_frac_max')
 
-        layout.operator('fightergen.generate_variants', icon='MOD_ARRAY')
+        gen_row = layout.row(align=True)
+        gen_row.operator('fightergen.generate_variants', icon='MOD_ARRAY')
+        gen_row.operator('fightergen.generate_more_variants', icon='ADD')
 
         assemble_box = layout.box()
         assemble_box.label(text="🔧 Assembly (Raycast Fitted)")
@@ -4766,6 +4829,7 @@ class FIGHTERGEN_OT_reroll_subwing(Operator):
 classes = (
     FighterGenSettings,
     FIGHTERGEN_OT_generate,
+    FIGHTERGEN_OT_generate_more,
     FIGHTERGEN_OT_export_selected,
     FIGHTERGEN_OT_export_assembly_cocos,
     FIGHTERGEN_OT_apply_detail_pass,
