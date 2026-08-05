@@ -28,21 +28,65 @@ from mathutils import Vector, Matrix, Euler
 # the real <cocos_project> checkout -- walking up two levels from the copy lands inside
 # Blender's own install, not the project. install_addon.ps1 also drops a small sidecar
 # text file next to the copy recording the real source folder it copied from; if that
-# marker is present we trust it instead of the copy's own location. Nothing
-# machine-specific is hardcoded in this .py itself, so the source file stays portable.
-_ADDON_DIR = os.path.dirname(os.path.abspath(__file__))
-_SOURCE_ROOT_MARKER = os.path.join(_ADDON_DIR, "fighter_gen_addon.source_root.txt")
-if os.path.isfile(_SOURCE_ROOT_MARKER):
+# marker is present we trust it instead of the copy's own location.
+#
+# The office machine has the checkout under Z:\ and the home machine under F:\ (same
+# mapped/subst-drive trick, different letter) -- a marker written on one machine is
+# stale garbage on the other. So none of this is trusted blindly: every candidate is
+# validated against the actual folder shape (assets/ and tools/blender_pipeline/ both
+# present) before use, and if the marker's own drive letter doesn't check out, every
+# other drive letter is retried with the same sub-path before giving up. Nothing
+# machine-specific is hardcoded in this .py itself, so the source file stays portable,
+# and a bad guess never raises -- it just falls back to a harmless default folder that
+# can be retyped by hand in the addon's own UI fields.
+def _looks_like_cocos_project(path):
+    return (
+        os.path.isdir(os.path.join(path, "assets"))
+        and os.path.isdir(os.path.join(path, "tools", "blender_pipeline"))
+    )
+
+
+def _resolve_addon_dir():
+    naive_dir = os.path.dirname(os.path.abspath(__file__))
+    naive_project_dir = os.path.abspath(os.path.join(naive_dir, "..", ".."))
+    if _looks_like_cocos_project(naive_project_dir):
+        return naive_dir
+
+    marker_path = os.path.join(naive_dir, "fighter_gen_addon.source_root.txt")
+    if not os.path.isfile(marker_path):
+        return naive_dir  # nothing more to go on -- harmless wrong default
+
     try:
         # utf-8-sig: PowerShell's Set-Content -Encoding utf8 writes a BOM, which plain
-        # utf-8 would leave as an invisible leading character and silently break the
-        # isdir() check below.
-        with open(_SOURCE_ROOT_MARKER, "r", encoding="utf-8-sig") as _f:
-            _marker_dir = _f.read().strip()
-        if _marker_dir and os.path.isdir(_marker_dir):
-            _ADDON_DIR = _marker_dir
+        # utf-8 would leave as an invisible leading character and silently break every
+        # path check below.
+        with open(marker_path, "r", encoding="utf-8-sig") as f:
+            marker_dir = f.read().strip()
     except OSError:
-        pass
+        return naive_dir
+
+    if not marker_dir:
+        return naive_dir
+
+    marker_project_dir = os.path.abspath(os.path.join(marker_dir, "..", ".."))
+    if _looks_like_cocos_project(marker_project_dir):
+        return marker_dir
+
+    # Marker's own drive letter is stale (checkout moved to a different mapped drive
+    # since install) -- keep its sub-path but retry every other drive letter.
+    drive, tail = os.path.splitdrive(marker_dir)
+    if not drive or not tail:
+        return naive_dir
+    for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        candidate_dir = f"{letter}:{tail}"
+        candidate_project_dir = os.path.abspath(os.path.join(candidate_dir, "..", ".."))
+        if _looks_like_cocos_project(candidate_project_dir):
+            return candidate_dir
+
+    return naive_dir
+
+
+_ADDON_DIR = _resolve_addon_dir()
 _COCOS_PROJECT_DIR = os.path.abspath(os.path.join(_ADDON_DIR, "..", ".."))
 _DEFAULT_PARTS_EXPORT_DIR = os.path.join(_COCOS_PROJECT_DIR, "tools", "fighter-generator", "public", "parts")
 # assets/resources/Gltf/ が Cocos Creator 側で実際に使われている慣習パスなので、
