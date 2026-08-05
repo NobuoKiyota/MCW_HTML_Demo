@@ -36,6 +36,15 @@ foreach ($v in $versions) {
     $destFile = Join-Path $addonDestDir $addonFileName
     Copy-Item $sourcePath $destFile -Force
 
+    # The addon computes its export-folder defaults from its own __file__ location, but
+    # since we just COPIED it here, that would resolve to Blender's own addons folder
+    # instead of the real project checkout. Drop a sidecar file recording where this
+    # copy actually came from ($PSScriptRoot == tools/blender_pipeline in the real repo)
+    # so the addon can find the true project root regardless of which machine this runs
+    # on -- see the comment above _ADDON_DIR in fighter_gen_addon.py.
+    $sourceRootMarker = Join-Path $addonDestDir "fighter_gen_addon.source_root.txt"
+    Set-Content -Path $sourceRootMarker -Value $PSScriptRoot -NoNewline -Encoding utf8
+
     # Defensively clear any cached bytecode so Blender can't accidentally load a stale
     # compiled version (Python normally re-checks mtime and recompiles anyway, but this
     # removes any doubt).

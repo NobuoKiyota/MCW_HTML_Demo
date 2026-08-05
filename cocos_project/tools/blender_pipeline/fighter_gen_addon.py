@@ -21,7 +21,28 @@ from mathutils import Vector, Matrix, Euler
 # existed on the machine this addon was originally written on. This file always lives at
 # <cocos_project>/tools/blender_pipeline/fighter_gen_addon.py, so walk up two levels to
 # find <cocos_project> regardless of which machine or drive letter it's checked out to.
+#
+# install_addon.ps1 deploys by COPYING this file into Blender's own per-machine addons
+# folder, so at actual runtime __file__ points there (e.g.
+# C:\Users\<user>\AppData\Roaming\Blender Foundation\Blender\3.6\scripts\addons\), not at
+# the real <cocos_project> checkout -- walking up two levels from the copy lands inside
+# Blender's own install, not the project. install_addon.ps1 also drops a small sidecar
+# text file next to the copy recording the real source folder it copied from; if that
+# marker is present we trust it instead of the copy's own location. Nothing
+# machine-specific is hardcoded in this .py itself, so the source file stays portable.
 _ADDON_DIR = os.path.dirname(os.path.abspath(__file__))
+_SOURCE_ROOT_MARKER = os.path.join(_ADDON_DIR, "fighter_gen_addon.source_root.txt")
+if os.path.isfile(_SOURCE_ROOT_MARKER):
+    try:
+        # utf-8-sig: PowerShell's Set-Content -Encoding utf8 writes a BOM, which plain
+        # utf-8 would leave as an invisible leading character and silently break the
+        # isdir() check below.
+        with open(_SOURCE_ROOT_MARKER, "r", encoding="utf-8-sig") as _f:
+            _marker_dir = _f.read().strip()
+        if _marker_dir and os.path.isdir(_marker_dir):
+            _ADDON_DIR = _marker_dir
+    except OSError:
+        pass
 _COCOS_PROJECT_DIR = os.path.abspath(os.path.join(_ADDON_DIR, "..", ".."))
 _DEFAULT_PARTS_EXPORT_DIR = os.path.join(_COCOS_PROJECT_DIR, "tools", "fighter-generator", "public", "parts")
 # assets/resources/Gltf/ が Cocos Creator 側で実際に使われている慣習パスなので、
