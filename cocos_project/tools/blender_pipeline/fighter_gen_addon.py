@@ -165,6 +165,19 @@ def build_fuselage_template():
     group.inputs.new('NodeSocketFloat', 'HeightCeiling')
     group.inputs.new('NodeSocketFloat', 'VerticalPinch')
     group.inputs.new('NodeSocketInt', 'CrossSectionSides')
+    # Cross-section ring shaping -- all default to true no-ops (StarInnerRatio=1,
+    # NotchDepth=0, OvalRatioX=OvalRatioZ=1) so REGULAR behaves exactly like before
+    # these existed. See cross_section_shape in FighterGenSettings for the picker.
+    star_ratio_socket = group.inputs.new('NodeSocketFloat', 'StarInnerRatio')
+    star_ratio_socket.default_value = 1.0
+    notch_frac_socket = group.inputs.new('NodeSocketFloat', 'NotchAngleFrac')
+    notch_frac_socket.default_value = 0.0
+    notch_depth_socket = group.inputs.new('NodeSocketFloat', 'NotchDepth')
+    notch_depth_socket.default_value = 0.0
+    oval_x_socket = group.inputs.new('NodeSocketFloat', 'OvalRatioX')
+    oval_x_socket.default_value = 1.0
+    oval_z_socket = group.inputs.new('NodeSocketFloat', 'OvalRatioZ')
+    oval_z_socket.default_value = 1.0
     group.inputs.new('NodeSocketInt', 'Subdivision')
     group.inputs.new('NodeSocketMaterial', 'Material')
     group.outputs.new('NodeSocketGeometry', 'Geometry')
@@ -222,11 +235,108 @@ def build_fuselage_template():
     n_profile.inputs['Radius'].default_value = 1.0
     links.new(n_in.outputs['CrossSectionSides'], n_profile.inputs['Resolution'])
 
+    # Cross-section ring shaping: reshape the profile circle's own point positions
+    # (star/notch/oval) before it's used to sweep the hull, rather than a boolean cut --
+    # each stage is a per-point scale multiplied onto Position, chained through Star ->
+    # Notch -> Oval, and every stage is a true no-op at its neutral default so a plain
+    # REGULAR cross-section (StarInnerRatio=1, NotchDepth=0, OvalRatioX=OvalRatioZ=1)
+    # produces byte-identical geometry to before this existed.
+    n_prof_pos = nodes.new('GeometryNodeInputPosition')
+    n_prof_pos.location = (-350, 500)
+    n_prof_index = nodes.new('GeometryNodeInputIndex')
+    n_prof_index.location = (-350, 620)
+
+    # Star: alternate scale by point-index parity (index % 2), lerp between 1.0 (even
+    # points, stay at full radius) and StarInnerRatio (odd points, pulled inward).
+    n_star_mod = nodes.new('ShaderNodeMath')
+    n_star_mod.operation = 'MODULO'
+    n_star_mod.location = (-150, 620)
+    links.new(n_prof_index.outputs['Index'], n_star_mod.inputs[0])
+    n_star_mod.inputs[1].default_value = 2.0
+    n_star_diff = nodes.new('ShaderNodeMath')
+    n_star_diff.operation = 'SUBTRACT'
+    n_star_diff.location = (-150, 750)
+    n_star_diff.inputs[0].default_value = 1.0
+    links.new(n_in.outputs['StarInnerRatio'], n_star_diff.inputs[1])
+    n_star_term = nodes.new('ShaderNodeMath')
+    n_star_term.operation = 'MULTIPLY'
+    n_star_term.location = (50, 680)
+    links.new(n_star_mod.outputs['Value'], n_star_term.inputs[0])
+    links.new(n_star_diff.outputs['Value'], n_star_term.inputs[1])
+    n_star_scale = nodes.new('ShaderNodeMath')
+    n_star_scale.operation = 'SUBTRACT'
+    n_star_scale.location = (250, 680)
+    n_star_scale.inputs[0].default_value = 1.0
+    links.new(n_star_term.outputs['Value'], n_star_scale.inputs[1])
+
+    n_star_vscale = nodes.new('ShaderNodeVectorMath')
+    n_star_vscale.operation = 'SCALE'
+    n_star_vscale.location = (450, 550)
+    links.new(n_prof_pos.outputs['Position'], n_star_vscale.inputs['Vector'])
+    links.new(n_star_scale.outputs['Value'], n_star_vscale.inputs['Scale'])
+
+    # Notch: single point nearest NotchAngleFrac*Resolution pulled inward by NotchDepth.
+    n_notch_target = nodes.new('ShaderNodeMath')
+    n_notch_target.operation = 'MULTIPLY'
+    n_notch_target.location = (-150, 400)
+    links.new(n_in.outputs['NotchAngleFrac'], n_notch_target.inputs[0])
+    n_notch_sides_f = nodes.new('ShaderNodeMath')
+    n_notch_sides_f.operation = 'MULTIPLY'
+    n_notch_sides_f.location = (-350, 350)
+    links.new(n_in.outputs['CrossSectionSides'], n_notch_sides_f.inputs[0])
+    n_notch_sides_f.inputs[1].default_value = 1.0
+    links.new(n_notch_sides_f.outputs['Value'], n_notch_target.inputs[1])
+    n_notch_round = nodes.new('ShaderNodeMath')
+    n_notch_round.operation = 'ROUND'
+    n_notch_round.location = (50, 400)
+    links.new(n_notch_target.outputs['Value'], n_notch_round.inputs[0])
+    n_notch_is_target = nodes.new('ShaderNodeMath')
+    n_notch_is_target.operation = 'COMPARE'
+    n_notch_is_target.location = (250, 400)
+    links.new(n_prof_index.outputs['Index'], n_notch_is_target.inputs[0])
+    links.new(n_notch_round.outputs['Value'], n_notch_is_target.inputs[1])
+    n_notch_is_target.inputs[2].default_value = 0.1
+    n_notch_term = nodes.new('ShaderNodeMath')
+    n_notch_term.operation = 'MULTIPLY'
+    n_notch_term.location = (450, 400)
+    links.new(n_notch_is_target.outputs['Value'], n_notch_term.inputs[0])
+    links.new(n_in.outputs['NotchDepth'], n_notch_term.inputs[1])
+    n_notch_scale = nodes.new('ShaderNodeMath')
+    n_notch_scale.operation = 'SUBTRACT'
+    n_notch_scale.location = (650, 400)
+    n_notch_scale.inputs[0].default_value = 1.0
+    links.new(n_notch_term.outputs['Value'], n_notch_scale.inputs[1])
+
+    n_notch_vscale = nodes.new('ShaderNodeVectorMath')
+    n_notch_vscale.operation = 'SCALE'
+    n_notch_vscale.location = (650, 550)
+    links.new(n_star_vscale.outputs['Vector'], n_notch_vscale.inputs['Vector'])
+    links.new(n_notch_scale.outputs['Value'], n_notch_vscale.inputs['Scale'])
+
+    # Oval: non-uniform scale on the profile's own local X/Y (its flat plane before
+    # being swept -- verified empirically against the final mesh's world X/Z, see the
+    # headless test script for this feature).
+    n_oval_vec = nodes.new('ShaderNodeCombineXYZ')
+    n_oval_vec.location = (450, 250)
+    links.new(n_in.outputs['OvalRatioX'], n_oval_vec.inputs['X'])
+    links.new(n_in.outputs['OvalRatioZ'], n_oval_vec.inputs['Y'])
+    n_oval_vec.inputs['Z'].default_value = 1.0
+    n_oval_vmul = nodes.new('ShaderNodeVectorMath')
+    n_oval_vmul.operation = 'MULTIPLY'
+    n_oval_vmul.location = (850, 400)
+    links.new(n_notch_vscale.outputs['Vector'], n_oval_vmul.inputs[0])
+    links.new(n_oval_vec.outputs['Vector'], n_oval_vmul.inputs[1])
+
+    n_prof_setpos = nodes.new('GeometryNodeSetPosition')
+    n_prof_setpos.location = (1050, 300)
+    links.new(n_profile.outputs['Curve'], n_prof_setpos.inputs['Geometry'])
+    links.new(n_oval_vmul.outputs['Vector'], n_prof_setpos.inputs['Position'])
+
     n_to_mesh = nodes.new('GeometryNodeCurveToMesh')
     n_to_mesh.location = (-150, 0)
     n_to_mesh.inputs['Fill Caps'].default_value = True
     links.new(n_setradius.outputs['Curve'], n_to_mesh.inputs['Curve'])
-    links.new(n_profile.outputs['Curve'], n_to_mesh.inputs['Profile Curve'])
+    links.new(n_prof_setpos.outputs['Geometry'], n_to_mesh.inputs['Profile Curve'])
 
     n_position = nodes.new('GeometryNodeInputPosition')
     n_position.location = (50, -450)
@@ -1690,6 +1800,7 @@ def build_cannon_template():
     group = _build_weapon_group(CANNON_TEMPLATE, (
         ('NodeSocketFloat', 'Length'), ('NodeSocketFloat', 'Radius'),
         ('NodeSocketFloat', 'BarrelLength'), ('NodeSocketFloat', 'MuzzleWidth'),
+        ('NodeSocketInt', 'BarrelSides'),
         ('NodeSocketMaterial', 'Material'),
     ))
     nodes = group.nodes
@@ -1742,7 +1853,7 @@ def build_cannon_template():
     links.new(n_rhalf.outputs['Value'], n_rctr.inputs[1])
 
     n_barrel = nodes.new('GeometryNodeMeshCylinder')
-    n_barrel.inputs['Vertices'].default_value = 16
+    links.new(n_in.outputs['BarrelSides'], n_barrel.inputs['Vertices'])
     n_bar_rad = nodes.new('ShaderNodeMath')
     n_bar_rad.operation = 'MULTIPLY'
     links.new(n_in.outputs['Radius'], n_bar_rad.inputs[0])
@@ -1759,7 +1870,7 @@ def build_cannon_template():
     links.new(n_bar_pos.outputs['Vector'], n_bar_trans.inputs['Translation'])
 
     n_muz = nodes.new('GeometryNodeMeshCylinder')
-    n_muz.inputs['Vertices'].default_value = 16
+    links.new(n_in.outputs['BarrelSides'], n_muz.inputs['Vertices'])
     n_muz_rad = nodes.new('ShaderNodeMath')
     n_muz_rad.operation = 'MULTIPLY'
     links.new(n_in.outputs['Radius'], n_muz_rad.inputs[0])
@@ -2120,7 +2231,8 @@ def build_gatling_template():
     """Machine Gun / Gatling: receiver box + feed cover + shroud + exposed barrel."""
     group = _build_weapon_group(GATLING_TEMPLATE, (
         ('NodeSocketFloat', 'Length'), ('NodeSocketFloat', 'Radius'),
-        ('NodeSocketFloat', 'BarrelLength'), ('NodeSocketMaterial', 'Material'),
+        ('NodeSocketFloat', 'BarrelLength'), ('NodeSocketInt', 'BarrelSides'),
+        ('NodeSocketMaterial', 'Material'),
     ))
     nodes = group.nodes
     links = group.links
@@ -2192,7 +2304,7 @@ def build_gatling_template():
     links.new(n_box_pos.outputs['Vector'], n_box_trans.inputs['Translation'])
 
     n_sh = nodes.new('GeometryNodeMeshCylinder')
-    n_sh.inputs['Vertices'].default_value = 12
+    links.new(n_in.outputs['BarrelSides'], n_sh.inputs['Vertices'])
     n_sh_rad = nodes.new('ShaderNodeMath')
     n_sh_rad.operation = 'MULTIPLY'
     links.new(n_in.outputs['Radius'], n_sh_rad.inputs[0])
@@ -2217,7 +2329,7 @@ def build_gatling_template():
     links.new(n_sh_pos.outputs['Vector'], n_sh_trans.inputs['Translation'])
 
     n_barrel = nodes.new('GeometryNodeMeshCylinder')
-    n_barrel.inputs['Vertices'].default_value = 12
+    links.new(n_in.outputs['BarrelSides'], n_barrel.inputs['Vertices'])
     n_bar_rad = nodes.new('ShaderNodeMath')
     n_bar_rad.operation = 'MULTIPLY'
     links.new(n_in.outputs['Radius'], n_bar_rad.inputs[0])
@@ -2988,6 +3100,18 @@ class FighterGenSettings(PropertyGroup):
         default='RANDOM',
         description="Non-Organic options use a small fixed set of straight-line control points instead of full random-walk noise, so raising point count/curviness elsewhere won't make them bumpy",
     )
+    cross_section_shape: EnumProperty(
+        name='Cross-Section Shape',
+        items=[
+            ('RANDOM', "Random (pick per variant)", "Picks a different cross-section shape below for each generated variant"),
+            ('REGULAR', "Regular", "Plain N-sided cross-section (use Sides Min/Max below for triangular/polygonal/circular) -- unchanged from before"),
+            ('STAR', "Star / Pentagram", "Alternates the cross-section radius in/out around the ring for a star silhouette"),
+            ('NOTCH', "Notch / Slice", "Pulls one point of the cross-section sharply inward for a large visible gouge, no boolean cut needed"),
+            ('OVAL', "Oval", "Non-uniform X/Z scale on the cross-section for an elongated/flattened ring instead of round"),
+        ],
+        default='RANDOM',
+        description="Independent of Fuselage Archetype above -- that controls the lengthwise silhouette, this controls the cross-section ring shape, and any combination of the two is valid",
+    )
     profile_style: EnumProperty(name='Profile Style', items=[('LINEAR', 'Linear', ''), ('SMOOTH', 'Smooth', ''), ('MIXED', 'Mixed', '')], default='MIXED')
     radius_point_count: IntProperty(name='Radius Points', default=5, min=3)
     radius_floor: FloatProperty(name='Radius Floor', default=0.04, min=0.0)
@@ -3000,6 +3124,21 @@ class FighterGenSettings(PropertyGroup):
     fuse_vpinch_max: FloatProperty(name='Vertical Pinch Max', default=0.55, min=-0.95, max=0.95)
     sides_min: IntProperty(name='Sides Min', default=5, min=3, max=32)
     sides_max: IntProperty(name='Sides Max', default=10, min=3, max=32)
+    star_points_min: IntProperty(name='Star Points Min', default=5, min=3, max=12)
+    star_points_max: IntProperty(name='Star Points Max', default=7, min=3, max=12)
+    star_inner_ratio_min: FloatProperty(name='Star Inner Ratio Min', default=0.35, min=0.05, max=0.95,
+        description='How far in the star\'s inner points sit relative to the outer points (1.0 = no star effect)')
+    star_inner_ratio_max: FloatProperty(name='Star Inner Ratio Max', default=0.55, min=0.05, max=0.95)
+    notch_depth_min: FloatProperty(name='Notch Depth Min', default=0.4, min=0.0, max=0.95,
+        description='How far the single notched point is pulled inward (0 = no notch)')
+    notch_depth_max: FloatProperty(name='Notch Depth Max', default=0.7, min=0.0, max=0.95)
+    oval_ratio_min: FloatProperty(name='Oval Ratio Min', default=0.4, min=0.1, max=1.0,
+        description='Non-uniform X/Z scale applied to one axis of the cross-section ring (1.0 = perfectly round)')
+    oval_ratio_max: FloatProperty(name='Oval Ratio Max', default=0.75, min=0.1, max=1.0)
+    protrusion_count_min: IntProperty(name='Protrusion Count Min', default=0, min=0, max=8)
+    protrusion_count_max: IntProperty(name='Protrusion Count Max', default=2, min=0, max=8)
+    protrusion_size_min: FloatProperty(name='Protrusion Size Min', default=0.04, min=0.005, max=1.0)
+    protrusion_size_max: FloatProperty(name='Protrusion Size Max', default=0.09, min=0.005, max=1.0)
     fuse_subdiv: IntProperty(name='Subdivision', default=1, min=0, max=3)
     bevel_width: FloatProperty(name='Bevel Width', default=0.012, min=0.0, max=0.2)
     bevel_angle_deg: FloatProperty(name='Bevel Angle', default=35.0, min=1.0, max=89.0)
@@ -3069,6 +3208,9 @@ class FighterGenSettings(PropertyGroup):
     wp_barrel_max: FloatProperty(name='Barrel Length Ratio Max', default=0.75, min=0.1, max=0.95)
     wp_muzzle_min: FloatProperty(name='Muzzle Width Ratio Min', default=1.2, min=1.0, max=3.0)
     wp_muzzle_max: FloatProperty(name='Muzzle Width Ratio Max', default=1.8, min=1.0, max=3.0)
+    wp_barrel_sides_min: IntProperty(name='Barrel Sides Min', default=16, min=3, max=32,
+        description='Vertex count around the barrel -- low values (3-6) give a faceted/polygonal barrel instead of round, 16 matches the previous fixed look')
+    wp_barrel_sides_max: IntProperty(name='Barrel Sides Max', default=16, min=3, max=32)
 
     groove_count_min: IntProperty(name='Grooves Min', default=0, min=0)
     groove_count_max: IntProperty(name='Grooves Max', default=3, min=0)
@@ -3281,6 +3423,50 @@ def _finish_gn_object(name, template, socket_values, mat_base=None, mat_glow=Non
 _FUSELAGE_ARCHETYPE_CHOICES = ['ORGANIC', 'WEDGE', 'CYLINDER', 'TRAPEZOID', 'DIAMOND']
 
 
+_CROSS_SECTION_SHAPE_CHOICES = ['REGULAR', 'STAR', 'NOTCH', 'OVAL']
+
+
+def _add_hull_protrusions(rng, obj, s):
+    """Small greeble spikes raycast-attached to the fuselage's real, already-baked
+    surface (obj is post-convert(target='MESH') by the time this runs) -- same
+    'approach from outside, travel toward the surface' rule as every other raycast
+    attachment in this file (_sample_surface_along), just simpler since there's no
+    parent-part alignment to solve for. Parented as children rather than joined so
+    export_object_glb's existing hierarchy-walk picks them up for free; the caller
+    (_run_variant_generation) is responsible for moving these children into the same
+    collection as obj once obj itself is placed."""
+    count = rng.randint(*sorted((s.protrusion_count_min, s.protrusion_count_max)))
+    if count <= 0:
+        return
+
+    length = max(obj.dimensions.y, 0.01)
+    probe_radius = max(obj.dimensions.x, obj.dimensions.z) * 0.75 + 0.5
+    mat = obj.data.materials[0] if obj.data.materials else None
+
+    for i in range(count):
+        y = rng.uniform(length * 0.15, length * 0.85)
+        angle = rng.uniform(0.0, 2.0 * math.pi)
+        direction = Vector((-math.cos(angle), 0.0, -math.sin(angle)))  # inward, toward the hull
+        origin = Vector((0.0, y, 0.0))
+        hit_loc, hit_normal = _sample_surface_along(obj, origin, direction, max_dist=probe_radius)
+        if hit_loc is None:
+            continue
+
+        size = _rr(rng, s.protrusion_size_min, s.protrusion_size_max)
+        bpy.ops.mesh.primitive_cone_add(
+            radius1=size * 0.5, radius2=0.0, depth=size * 2.0,
+            location=hit_loc, vertices=6,
+        )
+        cone = bpy.context.active_object
+        cone.name = f"{obj.name}_protrusion_{i:02d}"
+        cone.rotation_mode = 'QUATERNION'
+        cone.rotation_quaternion = Vector((0.0, 0.0, 1.0)).rotation_difference(hit_normal)
+        cone.parent = obj
+        cone.matrix_parent_inverse = obj.matrix_world.inverted()
+        if mat is not None:
+            cone.data.materials.append(mat)
+
+
 def _generate_fuselage_variant(rng, name, s, mat_base):
     template = build_fuselage_template()
     archetype = s.fuselage_archetype
@@ -3290,6 +3476,30 @@ def _generate_fuselage_variant(rng, name, s, mat_base):
         template, rng, s.radius_point_count, s.height_point_count, s.profile_style, archetype
     )
 
+    cross_section_shape = s.cross_section_shape
+    if cross_section_shape == 'RANDOM':
+        cross_section_shape = rng.choice(_CROSS_SECTION_SHAPE_CHOICES)
+
+    cross_section_sides = rng.randint(*sorted((s.sides_min, s.sides_max)))
+    star_inner_ratio = 1.0
+    notch_angle_frac = 0.0
+    notch_depth = 0.0
+    oval_ratio_x = 1.0
+    oval_ratio_z = 1.0
+    if cross_section_shape == 'STAR':
+        star_points = rng.randint(*sorted((s.star_points_min, s.star_points_max)))
+        cross_section_sides = star_points * 2  # alternating outer/inner needs an even ring
+        star_inner_ratio = _rr(rng, s.star_inner_ratio_min, s.star_inner_ratio_max)
+    elif cross_section_shape == 'NOTCH':
+        notch_angle_frac = rng.uniform(0.0, 1.0)
+        notch_depth = _rr(rng, s.notch_depth_min, s.notch_depth_max)
+    elif cross_section_shape == 'OVAL':
+        # Squash one axis only, so it reads as elongated/flattened rather than just smaller.
+        if rng.random() < 0.5:
+            oval_ratio_x = _rr(rng, s.oval_ratio_min, s.oval_ratio_max)
+        else:
+            oval_ratio_z = _rr(rng, s.oval_ratio_min, s.oval_ratio_max)
+
     p = {
         'Length': _rr(rng, s.length_min, s.length_max),
         'RadiusFloor': s.radius_floor,
@@ -3297,7 +3507,12 @@ def _generate_fuselage_variant(rng, name, s, mat_base):
         'HeightFloor': s.height_floor,
         'HeightCeiling': s.height_ceiling,
         'VerticalPinch': _rr(rng, s.fuse_vpinch_min, s.fuse_vpinch_max),
-        'CrossSectionSides': rng.randint(*sorted((s.sides_min, s.sides_max))),
+        'CrossSectionSides': cross_section_sides,
+        'StarInnerRatio': star_inner_ratio,
+        'NotchAngleFrac': notch_angle_frac,
+        'NotchDepth': notch_depth,
+        'OvalRatioX': oval_ratio_x,
+        'OvalRatioZ': oval_ratio_z,
         'Subdivision': s.fuse_subdiv,
     }
     obj = _finish_gn_object(name, variant_group, p, mat_base=mat_base)
@@ -3324,6 +3539,7 @@ def _generate_fuselage_variant(rng, name, s, mat_base):
     obj.data.use_auto_smooth = True
     obj.data.auto_smooth_angle = math.radians(35)
     _apply_bevel(obj, s)
+    _add_hull_protrusions(rng, obj, s)
     return obj
 
 
@@ -3400,14 +3616,21 @@ def _generate_weapon_variant(rng, name, s, mat_base, mat_glow):
     if wp_type == 'RANDOM':
         wp_type = rng.choice(_WEAPON_TYPE_CHOICES)
 
+    barrel_sides = rng.randint(*sorted((s.wp_barrel_sides_min, s.wp_barrel_sides_max)))
+
     if wp_type == 'CANNON':
         template = build_cannon_template()
         p = {'Length': length, 'Radius': radius, 'BarrelLength': barrel_ratio,
-             'MuzzleWidth': _rr(rng, s.wp_muzzle_min, s.wp_muzzle_max)}
+             'MuzzleWidth': _rr(rng, s.wp_muzzle_min, s.wp_muzzle_max),
+             'BarrelSides': barrel_sides}
     elif wp_type == 'GATLING':
         template = build_gatling_template()
-        p = {'Length': length, 'Radius': radius, 'BarrelLength': barrel_ratio}
+        p = {'Length': length, 'Radius': radius, 'BarrelLength': barrel_ratio,
+             'BarrelSides': barrel_sides}
     else:
+        # Railgun's silhouette is built from cubes, not a MeshCylinder barrel, so
+        # BarrelSides has nothing to attach to here -- _finish_gn_object silently
+        # ignores dict keys that don't match one of the template's own sockets.
         template = build_railgun_template()
         p = {'Length': length, 'Radius': radius, 'BarrelLength': barrel_ratio}
 
@@ -3503,6 +3726,14 @@ def _run_variant_generation(context, coll, start_index, y_offset):
         for c in list(obj.users_collection):
             c.objects.unlink(obj)
         coll.objects.link(obj)
+        # Raycast-attached greebles (e.g. fuselage hull protrusions) are parented
+        # children, not joined -- move them into the same collection as their parent so
+        # they get selected/cleaned-up together with it instead of being orphaned in
+        # whatever collection was active when they were created.
+        for child in obj.children:
+            for c in list(child.users_collection):
+                c.objects.unlink(child)
+            coll.objects.link(child)
 
         if s.export_glb:
             export_folder = os.path.join(bpy.path.abspath(s.export_dir), cat_lower)
@@ -3743,6 +3974,7 @@ class FIGHTERGEN_PT_panel(Panel):
         # generated object directly instead), so it's tucked behind Advanced below.
         if s.part_type == 'FUSELAGE':
             box.prop(s, 'fuselage_archetype')
+            box.prop(s, 'cross_section_shape')
         elif s.part_type == 'WEAPONS':
             box.prop(s, 'wp_type')
 
@@ -3776,6 +4008,18 @@ class FIGHTERGEN_PT_panel(Panel):
                 row = param_box.row(align=True); row.prop(s, 'fuse_vpinch_min'); row.prop(s, 'fuse_vpinch_max')
                 row = param_box.row(align=True); row.prop(s, 'sides_min'); row.prop(s, 'sides_max')
                 param_box.prop(s, 'fuse_subdiv')
+
+                xsection_box = adv_box.box()
+                xsection_box.label(text="Cross-Section Shape (Fuselage Only)")
+                row = xsection_box.row(align=True); row.prop(s, 'star_points_min'); row.prop(s, 'star_points_max')
+                row = xsection_box.row(align=True); row.prop(s, 'star_inner_ratio_min'); row.prop(s, 'star_inner_ratio_max')
+                row = xsection_box.row(align=True); row.prop(s, 'notch_depth_min'); row.prop(s, 'notch_depth_max')
+                row = xsection_box.row(align=True); row.prop(s, 'oval_ratio_min'); row.prop(s, 'oval_ratio_max')
+
+                protrusion_box = adv_box.box()
+                protrusion_box.label(text="Hull Protrusions (Fuselage Only)")
+                row = protrusion_box.row(align=True); row.prop(s, 'protrusion_count_min'); row.prop(s, 'protrusion_count_max')
+                row = protrusion_box.row(align=True); row.prop(s, 'protrusion_size_min'); row.prop(s, 'protrusion_size_max')
 
                 groove_box = adv_box.box()
                 groove_box.label(text="Panel lines (Fuselage Only)")
@@ -3824,6 +4068,7 @@ class FIGHTERGEN_PT_panel(Panel):
                 row = param_box.row(align=True); row.prop(s, 'wp_barrel_min'); row.prop(s, 'wp_barrel_max')
                 if s.wp_type in ('CANNON', 'RANDOM'):
                     row = param_box.row(align=True); row.prop(s, 'wp_muzzle_min'); row.prop(s, 'wp_muzzle_max')
+                row = param_box.row(align=True); row.prop(s, 'wp_barrel_sides_min'); row.prop(s, 'wp_barrel_sides_max')
 
             if s.part_type in ('FUSELAGE', 'WINGS', 'TAILS', 'ENGINES'):
                 post_box = adv_box.box()
@@ -4354,13 +4599,17 @@ def _generate_wing_weapon(rng, name_prefix, part_label, s, mat_base, mat_glow, f
     if wp_type == 'RANDOM':
         wp_type = rng.choice(_WEAPON_TYPE_CHOICES)
 
+    barrel_sides = rng.randint(*sorted((s.wp_barrel_sides_min, s.wp_barrel_sides_max)))
+
     if wp_type == 'CANNON':
         template = build_cannon_template()
         p = {'Length': length, 'Radius': radius, 'BarrelLength': barrel_ratio,
-             'MuzzleWidth': _rr(rng, s.wp_muzzle_min, s.wp_muzzle_max)}
+             'MuzzleWidth': _rr(rng, s.wp_muzzle_min, s.wp_muzzle_max),
+             'BarrelSides': barrel_sides}
     elif wp_type == 'GATLING':
         template = build_gatling_template()
-        p = {'Length': length, 'Radius': radius, 'BarrelLength': barrel_ratio}
+        p = {'Length': length, 'Radius': radius, 'BarrelLength': barrel_ratio,
+             'BarrelSides': barrel_sides}
     else:
         template = build_railgun_template()
         p = {'Length': length, 'Radius': radius, 'BarrelLength': barrel_ratio}
