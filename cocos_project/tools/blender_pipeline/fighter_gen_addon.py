@@ -24,10 +24,10 @@ from mathutils import Vector, Matrix, Euler
 _ADDON_DIR = os.path.dirname(os.path.abspath(__file__))
 _COCOS_PROJECT_DIR = os.path.abspath(os.path.join(_ADDON_DIR, "..", ".."))
 _DEFAULT_PARTS_EXPORT_DIR = os.path.join(_COCOS_PROJECT_DIR, "tools", "fighter-generator", "public", "parts")
-# Cocos 側 assets 直下ではなく、アドオン .py と同じ tools/blender_pipeline/ 配下の
-# output/ を既定にしておく -- 生成物をいったんここに集めてから中身を確認して必要な分だけ
-# 手動で assets へ持っていく運用のため、毎回パスを打ち直さずに済むようにしている。
-_DEFAULT_COCOS_EXPORT_DIR = os.path.join(_ADDON_DIR, "output")
+# assets/resources/Gltf/ が Cocos Creator 側で実際に使われている慣習パスなので、
+# ここを既定にしておく -- _ADDON_DIR 起点で解決するので毎回パスを打ち直さずに済み、
+# どのマシンでクローンしても正しく動く。
+_DEFAULT_COCOS_EXPORT_DIR = os.path.join(_COCOS_PROJECT_DIR, "assets", "resources", "Gltf")
 
 FUSELAGE_TEMPLATE = "GN_Fuselage_Template"
 WINGS_TEMPLATE = "GN_Wings_Template"
