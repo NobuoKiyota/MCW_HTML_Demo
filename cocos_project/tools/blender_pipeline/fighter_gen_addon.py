@@ -24,7 +24,10 @@ from mathutils import Vector, Matrix, Euler
 _ADDON_DIR = os.path.dirname(os.path.abspath(__file__))
 _COCOS_PROJECT_DIR = os.path.abspath(os.path.join(_ADDON_DIR, "..", ".."))
 _DEFAULT_PARTS_EXPORT_DIR = os.path.join(_COCOS_PROJECT_DIR, "tools", "fighter-generator", "public", "parts")
-_DEFAULT_COCOS_EXPORT_DIR = os.path.join(_COCOS_PROJECT_DIR, "assets", "resources", "Models")
+# Cocos 側 assets 直下ではなく、アドオン .py と同じ tools/blender_pipeline/ 配下の
+# output/ を既定にしておく -- 生成物をいったんここに集めてから中身を確認して必要な分だけ
+# 手動で assets へ持っていく運用のため、毎回パスを打ち直さずに済むようにしている。
+_DEFAULT_COCOS_EXPORT_DIR = os.path.join(_ADDON_DIR, "output")
 
 FUSELAGE_TEMPLATE = "GN_Fuselage_Template"
 WINGS_TEMPLATE = "GN_Wings_Template"
@@ -2706,11 +2709,30 @@ def apply_ship_gradient(mat, base_color, tail_color, collection):
     links.new(ramp.outputs['Color'], bsdf.inputs['Base Color'])
 
 
+def _has_transform_animation(obj):
+    """True if the object's own Location/Rotation/Scale is keyframed (a plain Action,
+    not modifier-parameter animation -- see the module docstring note near
+    export_assembly_glb about what glTF can and can't represent)."""
+    ad = obj.animation_data
+    if not ad or not ad.action:
+        return False
+    return any(
+        fc.data_path in ('location', 'rotation_euler', 'rotation_quaternion', 'scale')
+        for fc in ad.action.fcurves
+    )
+
+
 def export_object_glb(obj, filepath):
     """Duplicates object (and any children), applies all modifiers, joins for export,
     resets to origin, and cleans up. Resetting to origin before export means a part's
     viewport-grid position (from batch generation) never gets baked into the exported
-    glTF node transform."""
+    glTF node transform.
+
+    If any copy carries keyframed Location/Rotation/Scale, the whole hierarchy is left
+    unjoined and un-reset instead: joining/overwriting Transform would bake over or
+    destroy the keyframes. A shared temporary Empty parent absorbs the origin offset
+    instead, so each animated object's own local Transform (and its keyframes) is
+    never touched."""
     bpy.ops.object.select_all(action='DESELECT')
 
     def select_hierarchy(o):
@@ -2725,20 +2747,36 @@ def export_object_glb(obj, filepath):
     if not copied_objs:
         return
 
+    animated = any(_has_transform_animation(co) for co in copied_objs)
+
     bpy.ops.object.select_all(action='DESELECT')
     for co in copied_objs:
         co.select_set(True)
     bpy.context.view_layer.objects.active = copied_objs[0]
 
     bpy.ops.object.convert(target='MESH')
-    if len(copied_objs) > 1:
-        bpy.ops.object.join()
 
-    main_export_obj = bpy.context.active_object
-    main_export_obj.location = (0.0, 0.0, 0.0)
-    main_export_obj.rotation_euler = (0.0, 0.0, 0.0)
-    main_export_obj.scale = (1.0, 1.0, 1.0)
-    main_export_obj.name = obj.name + '_gltf_export_temp'
+    if animated:
+        offset_empty = bpy.data.objects.new(obj.name + '_export_root', None)
+        bpy.context.collection.objects.link(offset_empty)
+        offset_empty.location = -copied_objs[0].matrix_world.translation
+        for co in copied_objs:
+            co.parent = offset_empty
+        export_targets = copied_objs + [offset_empty]
+    else:
+        if len(copied_objs) > 1:
+            bpy.ops.object.join()
+        main_export_obj = bpy.context.active_object
+        main_export_obj.location = (0.0, 0.0, 0.0)
+        main_export_obj.rotation_euler = (0.0, 0.0, 0.0)
+        main_export_obj.scale = (1.0, 1.0, 1.0)
+        main_export_obj.name = obj.name + '_gltf_export_temp'
+        export_targets = [main_export_obj]
+
+    bpy.ops.object.select_all(action='DESELECT')
+    for t in export_targets:
+        t.select_set(True)
+    bpy.context.view_layer.objects.active = export_targets[0]
 
     bpy.ops.export_scene.gltf(
         filepath=filepath,
@@ -2748,7 +2786,8 @@ def export_object_glb(obj, filepath):
         export_apply=True,
     )
 
-    bpy.data.objects.remove(main_export_obj, do_unlink=True)
+    for t in export_targets:
+        bpy.data.objects.remove(t, do_unlink=True)
     bpy.ops.object.select_all(action='DESELECT')
     select_hierarchy(obj)
     bpy.context.view_layer.objects.active = obj
@@ -2758,10 +2797,20 @@ def export_assembly_glb(objs, filepath):
     """Like export_object_glb, but for a list of independent objects that are NOT a
     Blender parent/child hierarchy (Assembly parts are separate top-level objects
     positioned in world space) -- duplicates all of them, bakes each one's own
-    modifier stack (Mirror/Twist/Taper/Lattice/whatever), joins them into a single
-    mesh (each source object's material becomes its own material slot on the result),
-    and exports as one combined GLB. This is what makes the whole assembled ship
-    importable into Cocos Creator as one model instead of one file per part."""
+    modifier stack (Mirror/Twist/Taper/Lattice/whatever), joins the non-animated ones
+    into a single mesh (each source object's material becomes its own material slot on
+    the result), and exports everything as one combined GLB. This is what makes the
+    whole assembled ship importable into Cocos Creator as one model instead of one
+    file per part.
+
+    Any part with its own keyframed Location/Rotation/Scale (e.g. a canopy that opens)
+    is kept out of the join instead -- joining/resetting would bake over or destroy
+    those keyframes, and glTF can only represent that kind of animation as a separate
+    node's own Transform anyway. It's exported as its own glTF node, parented under
+    the same shared origin-offset Empty as the joined static mesh so both line up.
+    Modifier-parameter-driven mesh deformation (as opposed to plain object Transform
+    animation) still can't survive this path or any other glTF export -- see the
+    Shape-Key-baking note discussed with the user, not implemented here."""
     objs = [o for o in objs if o.type == 'MESH']
     if not objs:
         return False
@@ -2775,20 +2824,46 @@ def export_assembly_glb(objs, filepath):
     if not copied_objs:
         return False
 
+    animated_copies = [co for co in copied_objs if _has_transform_animation(co)]
+    static_copies = [co for co in copied_objs if co not in animated_copies]
+
     bpy.ops.object.select_all(action='DESELECT')
     for co in copied_objs:
         co.select_set(True)
     bpy.context.view_layer.objects.active = copied_objs[0]
-
     bpy.ops.object.convert(target='MESH')
-    if len(copied_objs) > 1:
-        bpy.ops.object.join()
 
-    main_export_obj = bpy.context.active_object
-    main_export_obj.location = (0.0, 0.0, 0.0)
-    main_export_obj.rotation_euler = (0.0, 0.0, 0.0)
-    main_export_obj.scale = (1.0, 1.0, 1.0)
-    main_export_obj.name = "assembly_gltf_export_temp"
+    origin_offset = -copied_objs[0].matrix_world.translation
+    export_targets = []
+
+    if static_copies:
+        bpy.ops.object.select_all(action='DESELECT')
+        for co in static_copies:
+            co.select_set(True)
+        bpy.context.view_layer.objects.active = static_copies[0]
+        if len(static_copies) > 1:
+            bpy.ops.object.join()
+        main_export_obj = bpy.context.active_object
+        main_export_obj.location = (0.0, 0.0, 0.0)
+        main_export_obj.rotation_euler = (0.0, 0.0, 0.0)
+        main_export_obj.scale = (1.0, 1.0, 1.0)
+        main_export_obj.name = "assembly_gltf_export_temp"
+        export_targets.append(main_export_obj)
+
+    if animated_copies:
+        offset_empty = bpy.data.objects.new("assembly_gltf_export_root", None)
+        bpy.context.collection.objects.link(offset_empty)
+        offset_empty.location = origin_offset
+        for co in animated_copies:
+            co.parent = offset_empty
+            co.name = co.name + '_gltf_export_temp'
+        export_targets.extend(animated_copies)
+        export_targets.append(offset_empty)
+
+    bpy.ops.object.select_all(action='DESELECT')
+    for t in export_targets:
+        t.select_set(True)
+    bpy.context.view_layer.objects.active = export_targets[0]
 
     bpy.ops.export_scene.gltf(
         filepath=filepath,
@@ -2798,7 +2873,8 @@ def export_assembly_glb(objs, filepath):
         export_apply=True,
     )
 
-    bpy.data.objects.remove(main_export_obj, do_unlink=True)
+    for t in export_targets:
+        bpy.data.objects.remove(t, do_unlink=True)
     bpy.ops.object.select_all(action='DESELECT')
     for o in objs:
         o.select_set(True)
@@ -3037,6 +3113,17 @@ CATEGORY_FOLDERS = {
     'FUSELAGE': 'fuselage', 'WINGS': 'wings', 'ENGINES': 'engines',
     'CANOPY': 'canopy', 'TAILS': 'tails', 'WEAPONS': 'weapons',
 }
+
+
+def _guess_export_subfolder(objs, fallback):
+    """Prefer the name of the (usually user-renamed, e.g. 'Enemy004') collection the
+    exported objects actually live in over the fixed Part Type category name, so baked
+    exports land grouped by ship/variant instead of all mixed into one category folder."""
+    for o in objs:
+        for coll in o.users_collection:
+            if coll.name and coll.name != "Scene Collection":
+                return coll.name
+    return fallback
 
 
 def _rr(rng, a, b):
@@ -3368,7 +3455,8 @@ class FIGHTERGEN_OT_export_selected(Operator):
             return {'CANCELLED'}
 
         cat_lower = CATEGORY_FOLDERS[s.part_type]
-        export_folder = os.path.join(bpy.path.abspath(s.export_dir), cat_lower)
+        subfolder = _guess_export_subfolder(sel, cat_lower)
+        export_folder = os.path.join(bpy.path.abspath(s.export_dir), subfolder)
         os.makedirs(export_folder, exist_ok=True)
         for obj in sel:
             filepath = os.path.join(export_folder, obj.name + '.glb')
