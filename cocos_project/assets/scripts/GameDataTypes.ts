@@ -49,21 +49,44 @@ export class EnemyBulletData {
 }
 
 /**
+ * 行動グラフ内の1ノード (ランタイム用プレーンデータ、@ccclass不要)
+ */
+export interface BehaviorGraphNode {
+    id: number;
+    type: "Start" | "Move" | "Wait" | "Fire" | "Branch" | "Loop" | "Spin" | "Punch";
+    params?: { [key: string]: any };
+    next?: number;      // Start/Move/Wait/Fire/Loop の通常遷移先ノードID
+    trueNext?: number;  // Branch: 条件成立時の遷移先ノードID
+    falseNext?: number; // Branch: 条件不成立時の遷移先ノードID
+}
+
+/**
+ * 行動グラフ (ランタイム用プレーンデータ、@ccclass不要)
+ * assets/resources/Data/Behaviors/*.json をそのままパースした形
+ */
+export interface BehaviorGraph {
+    id: string;
+    nodes: BehaviorGraphNode[];
+}
+
+/**
  * 敵の行動データ (Behavior)
+ * 実体の行動ロジックはノードグラフ(BehaviorGraph)としてJSONに切り出し、
+ * ここではそのJSONアセットへの参照(graphPath)のみを持つ。
  */
 @ccclass('BehaviorData')
 export class BehaviorData {
     @property
     public id: string = "";
 
-    @property({ tooltip: "Internal Logic ID (e.g. MPID001)" })
-    public logicId: string = "MPID001";
+    @property({ tooltip: "行動グラフJSONのresourcesパス (例: Data/Behaviors/BH_ZAKO_BASIC)" })
+    public graphPath: string = "";
 
-    @property({ type: CCFloat })
-    public baseSpeed: number = 2.0;
+    @property
+    public note: string = "";
 
-    @property({ type: CCFloat })
-    public baseTurn: number = 2.0;
+    // Runtime Cache (GameDatabaseがresources.loadで読み込んだグラフをここに格納)
+    public _graph: BehaviorGraph | null = null;
 }
 
 /**
@@ -133,6 +156,12 @@ export class EnemyData {
 
     @property({ tooltip: "ドロップテーブルID" })
     public dropId: string = "";
+
+    @property({ tooltip: "3Dモデル(glTF)のresourcesパス。空なら従来通り2Dスプライトのみ表示 (例: Gltf/Enemies/Common/Enemy006)" })
+    public model3DPath: string = "";
+
+    @property({ type: CCFloat, tooltip: "3Dモデルの初期Y軸回転(度)。モデルの向きがゲーム内で逆な場合に180などを指定" })
+    public model3DYRot: number = 0;
 
     // Runtime Cache (Optional, populated by DB)
     public _behavior: BehaviorData = null;

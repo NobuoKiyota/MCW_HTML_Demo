@@ -176,4 +176,8 @@ export interface IGameManager {
     spawnDamageText(x: number, y: number, amount: number, isKill: boolean): void;
     spawnExplosion(x: number, y: number, isKill?: boolean): void;
     goToHome(): void;
+    // 行動パターン検証用テストシーン向けAPI (BehaviorTestController.ts から使用)
+    spawnEnemyById(id: string): any;
+    despawnAllEnemies(): void;
+    testMode: boolean;
 }

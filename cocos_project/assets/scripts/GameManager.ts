@@ -53,6 +53,9 @@ export class GameManager extends Component implements IGameManager {
     public isPaused: boolean = false;
     public isDebug: boolean = false;
 
+    @property({ tooltip: "行動パターン検証用テストシーン専用フラグ: trueの間は自動スポーン/ミッション距離カウントダウンを止める" })
+    public testMode: boolean = false;
+
     // References to current scene objects
     public playerNode: Node = null;
     public bulletLayer: Node = null;
@@ -734,34 +737,39 @@ export class GameManager extends Component implements IGameManager {
         this.frameCount++;
         this.playState.elapsedTime += deltaTime;
 
-        // Timer Logic
-        this.spawnTimer += deltaTime;
-        const interval = (GAME_SETTINGS.ENEMY.SPAWN_INTERVAL / 60); // Convert frames to seconds approx
+        // Timer Logic (行動パターン検証用テストシーンでは自動湧きを止める)
+        if (!this.testMode) {
+            this.spawnTimer += deltaTime;
+            const interval = (GAME_SETTINGS.ENEMY.SPAWN_INTERVAL / 60); // Convert frames to seconds approx
 
-        if (this.spawnTimer >= interval) {
-            this.spawnTimer = 0;
-            this.spawnEnemy();
+            if (this.spawnTimer >= interval) {
+                this.spawnTimer = 0;
+                this.spawnEnemy();
+            }
         }
 
         // Distance Logic
         const pCtrl = this.playerNode ? this.playerNode.getComponent("PlayerController") as any : null;
         const currentSpeed = pCtrl ? pCtrl.speed : 0;
 
-        // Update Speed Manager
+        // Update Speed Manager (敵のスクロールオフセット計算に使われるため testMode でも継続する)
         this.speedManager.setBaseSpeed(currentSpeed);
 
-        // Get Final Speed
-        const finalSpeed = this.speedManager.getCurrentSpeed();
+        // ミッション距離カウントダウン/ゴール判定はテストシーンでは行わない
+        if (!this.testMode) {
+            // Get Final Speed
+            const finalSpeed = this.speedManager.getCurrentSpeed();
 
-        // Conversion logic (similar to engine.js)
-        const physics = GAME_SETTINGS.PHYSICS as any;
-        const distDivisor = physics.MISSION_DIVISOR || 2000;
-        const distDec = (finalSpeed * physics.MISSION_SCALE) / distDivisor;
-        this.playState.distance -= distDec;
+            // Conversion logic (similar to engine.js)
+            const physics = GAME_SETTINGS.PHYSICS as any;
+            const distDivisor = physics.MISSION_DIVISOR || 2000;
+            const distDec = (finalSpeed * physics.MISSION_SCALE) / distDivisor;
+            this.playState.distance -= distDec;
 
-        if (this.playState.distance <= 0) {
-            this.playState.distance = 0;
-            this.triggerGoalSequence();
+            if (this.playState.distance <= 0) {
+                this.playState.distance = 0;
+                this.triggerGoalSequence();
+            }
         }
 
         // UI Update (via UIManager)
@@ -832,20 +840,7 @@ export class GameManager extends Component implements IGameManager {
             }
 
             if (enemyData && enemyData.prefab) {
-                const node = instantiate(enemyData.prefab);
-                node.parent = this.enemyLayer; // Prefab base ref
-                this.forceUILayer(node);
-
-                // Random X, Top Y
-                const x = (Math.random() * GAME_SETTINGS.CANVAS_WIDTH) - (GAME_SETTINGS.CANVAS_WIDTH / 2);
-                const y = (GAME_SETTINGS.CANVAS_HEIGHT / 2) + 50;
-                node.setPosition(x, y, 0);
-
-                const enemyComp = node.getComponent("Enemy") as any;
-                if (enemyComp) {
-                    enemyComp.init(enemyData, this);
-                }
-                console.log(`[GameManager] Spawned enemy: ${enemyData.id} at (${x.toFixed(1)}, ${y.toFixed(1)})`);
+                this._instantiateEnemy(enemyData);
                 return;
             } else {
                 // Debug: Why failed?
@@ -856,6 +851,64 @@ export class GameManager extends Component implements IGameManager {
             if (this.frameCount % 60 === 0) {
                 console.warn("[GameManager] No enemies found in GameDatabase runtime list!");
             }
+        }
+    }
+
+    /**
+     * 指定した EnemyData を実際にインスタンス化してenemyLayerに配置する共通処理。
+     * ランダム抽選(spawnEnemy)・ID指定(spawnEnemyById)の両方から呼ばれる。
+     */
+    private _instantiateEnemy(enemyData: any): Node | null {
+        if (!this.enemyLayer) {
+            console.error("[GameManager] _instantiateEnemy failed: enemyLayer is null.");
+            return null;
+        }
+
+        const node = instantiate(enemyData.prefab);
+        node.parent = this.enemyLayer; // Prefab base ref
+        this.forceUILayer(node);
+
+        // Random X, Top Y
+        const x = (Math.random() * GAME_SETTINGS.CANVAS_WIDTH) - (GAME_SETTINGS.CANVAS_WIDTH / 2);
+        const y = (GAME_SETTINGS.CANVAS_HEIGHT / 2) + 50;
+        node.setPosition(x, y, 0);
+
+        const enemyComp = node.getComponent("Enemy") as any;
+        if (enemyComp) {
+            enemyComp.init(enemyData, this);
+        }
+        console.log(`[GameManager] Spawned enemy: ${enemyData.id} at (${x.toFixed(1)}, ${y.toFixed(1)})`);
+        return node;
+    }
+
+    /**
+     * 行動パターン検証用テストシーンから、IDを指定して敵を1体スポーンする。
+     */
+    public spawnEnemyById(id: string): Node | null {
+        const db = this.gameDatabase || GameDatabase.instance;
+        if (!db || !db.isReady) {
+            console.warn(`[GameManager] spawnEnemyById('${id}') skipped: GameDatabase is NOT READY or null.`);
+            return null;
+        }
+
+        const enemyData = db.getEnemyData(id);
+        if (!enemyData || !enemyData.prefab) {
+            console.warn(`[GameManager] spawnEnemyById('${id}') failed: EnemyData not found or has no Prefab.`);
+            return null;
+        }
+
+        return this._instantiateEnemy(enemyData);
+    }
+
+    /**
+     * 行動パターン検証用テストシーンから、現在出現している敵を全て破棄する。
+     */
+    public despawnAllEnemies(): void {
+        if (!this.enemyLayer) return;
+        // 走査中に破棄すると children が変化するため、事前に配列へコピーしてから破棄する。
+        const children = this.enemyLayer.children.slice();
+        for (const child of children) {
+            child.destroy();
         }
     }
 

@@ -1,5 +1,5 @@
-import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab, resources, director } from 'cc';
-import { EnemyData, EnemyBulletData, BehaviorData, DropData, SoundData } from './GameDataTypes';
+import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab, resources, director, JsonAsset } from 'cc';
+import { EnemyData, EnemyBulletData, BehaviorData, DropData, SoundData, BehaviorGraph } from './GameDataTypes';
 import { CSVHelper } from './CSVHelper';
 import { SoundManager } from './SoundManager';
 import { IMissionData } from './Constants'; // New
@@ -166,10 +166,29 @@ export class GameDatabase extends Component {
         this.behaviors = data.map(row => {
             const d = new BehaviorData();
             d.id = row.ID;
-            d.logicId = row.LogicID || "MPID001";
-            d.baseSpeed = row.BaseSpeed || 2.0;
-            d.baseTurn = row.BaseTurn || 2.0;
+            d.graphPath = row.GraphPath || "";
+            d.note = row.Note || "";
             return d;
+        });
+
+        // グラフJSONは resources 経由の非同期ロードなので、CSVパースとは別に読み込みをキックする。
+        // ローカルの小さいJSONのため通常は即時に近い速度で完了する。
+        for (const d of this.behaviors) {
+            this.loadBehaviorGraph(d);
+        }
+    }
+
+    private loadBehaviorGraph(d: BehaviorData) {
+        if (!d.graphPath) {
+            console.warn(`[GameDatabase] BehaviorData '${d.id}' has no graphPath.`);
+            return;
+        }
+        resources.load(d.graphPath, JsonAsset, (err, asset) => {
+            if (err || !asset) {
+                console.error(`[GameDatabase] Failed to load behavior graph '${d.graphPath}' for '${d.id}':`, err);
+                return;
+            }
+            d._graph = asset.json as unknown as BehaviorGraph;
         });
     }
 
@@ -216,6 +235,9 @@ export class GameDatabase extends Component {
             entry.bulletDmgMult = row.BulletDmgMult || 1.0;
 
             entry.dropId = row.DropID;
+
+            entry.model3DPath = row.Model3DPath || "";
+            entry.model3DYRot = row.Model3DYRot || 0;
 
             // Link Data (Cache)
             entry._behavior = this.getBehaviorData(entry.behaviorId);

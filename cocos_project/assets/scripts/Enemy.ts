@@ -1,8 +1,9 @@
-import { _decorator, Component, Node, Vec3, math, Sprite, Color, director, find } from 'cc';
+import { _decorator, Component, Node, Vec3, math, Sprite, Color, director, find, Layers, Prefab, resources, instantiate, tween, Tween } from 'cc';
 // import { GameManager } from './GameManager'; // Circular Dependency
 import { GAME_SETTINGS, IGameManager, GameState } from './Constants';
 import { SoundManager } from './SoundManager';
 import { DataManager } from './DataManager';
+import { BehaviorRuntime, BehaviorVisualHooks } from './BehaviorRuntime';
 const { ccclass, property } = _decorator;
 
 @ccclass('Enemy')
@@ -13,12 +14,11 @@ export class Enemy extends Component {
     // Runtime Stats (No Inspector)
     public hp: number = 10;
     public maxHp: number = 10;
-    public speed: number = 2;
-    public turn: number = 2;
-    public mpId: string = "MPID001";
+
+    @property({ tooltip: "テスト用: trueの間は被弾してもダメージ・死亡処理を一切行わない" })
+    public invincible: boolean = false;
 
     private time: number = 0;
-    private cooldown: number = 0;
 
     private _startPos: Vec3 = new Vec3();
     private _tempPos: Vec3 = new Vec3();
@@ -26,12 +26,33 @@ export class Enemy extends Component {
     // Cache GM
     private _gm: IGameManager = null;
 
-    // Shooting Params (Runtime)
-    public canShoot: boolean = false;
-    public fireInterval: number = 1.0;
-    public bulletSpeed: number = 5;
-    public bulletDamage: number = 10;
-    public bulletType: number = 0;
+    // 行動グラフ(BehaviorGraph)のランタイム実行エンジン。移動・射撃の両方をここで処理する。
+    private _behaviorRuntime: BehaviorRuntime | null = null;
+
+    // PlayerController.model3D と同じパターン: 2Dの当たり判定ノードに3Dモデルを子として取り付ける (任意)
+    public model3D: Node = null;
+
+    @property({ type: Prefab, tooltip: "3DモデルのPrefab(glTFインポート時に自動生成されるサブアセット)をここに直接ドラッグ&ドロップで設定できます。設定した場合、CSVのModel3DPathより優先されます。" })
+    public model3DPrefab: Prefab = null;
+
+    @property({ tooltip: "3Dモデルの初期Y軸回転(度)。model3DPrefabをドラッグ設定した場合のみ使用(CSV経由の場合はModel3DYRot列を使用)。モデルの向きが逆な場合に180などを指定。" })
+    public model3DPrefabYRot: number = 0;
+
+    @property({ tooltip: "3Dモデルのスケール(一律倍率)。GLBのエクスポート単位とゲーム内スケールが合わない場合にここで調整する。model3DPrefab/CSV経由どちらにも適用される。" })
+    public model3DScale: number = 1.0;
+
+    @property({ tooltip: "ONの間、横移動によるバンク(左右への傾き)の代わりに常時自機の方向を向く。モデルの正面軸によっては下のOffsetで調整が必要。" })
+    public faceTowardPlayer: boolean = false;
+
+    @property({ tooltip: "faceTowardPlayer使用時の追加Y回転オフセット(度)。モデルが自機と違う方向を向く場合に90/180/-90などで調整する。" })
+    public faceTowardPlayerOffset: number = 0;
+
+    // 3Dモデルの「素の」向き(埋め込み/生成直後に記録)。バンキング/注視/Spin/Punchはこれを基準に加算する。
+    private _model3DBaseRot: Vec3 = new Vec3();
+    private _model3DYaw: number = 0;
+    // BehaviorGraphのSpin/Punchノードが加える相対回転オフセット (x/y/z度)。
+    // tweenでこのプレーンオブジェクトの値を動かし、毎フレームベース角度に合成する。
+    private _animOffset = { x: 0, y: 0, z: 0 };
 
     onLoad() {
         console.log(`[Enemy] onLoad: ${this.node.uuid}`);
@@ -51,50 +72,103 @@ export class Enemy extends Component {
         this.hp = data.hp || 10;
         this.maxHp = data.hp || 10;
 
-        // 1. Behavior
-        if (data._behavior) {
-            const b = data._behavior;
-            this.mpId = b.logicId;
-            this.speed = b.baseSpeed * (data.speedMult || 1.0);
-            this.turn = b.baseTurn;
-        } else {
-            // Fallback (Safe default)
-            this.speed = (data.speed || 2) * (data.speedMult || 1.0);
-            this.turn = data.turnSpeed || 2;
-            this.mpId = data.mpId || "MPID001";
-        }
+        // Behavior + Combat: BehaviorGraph(ノードグラフ)ランタイムに一任する。
+        // 移動パターンも射撃タイミングもグラフ側(Move/Wait/Fire/Branch/Loopノード)で定義される。
+        const graph = data._behavior ? data._behavior._graph : null;
+        const visualHooks: BehaviorVisualHooks = {
+            onSpin: (axis, degrees, duration) => this.playSpin(axis, degrees, duration),
+            onPunch: (axis, degrees, outDuration, inDuration) => this.playPunch(axis, degrees, outDuration, inDuration),
+        };
+        this._behaviorRuntime = new BehaviorRuntime(graph, data, gm, this.node, visualHooks);
 
-        // 2. Combat (EnemyBullet)
-        if (data._bullet) {
-            this.canShoot = true;
-            const eb = data._bullet;
-            this.bulletType = eb.type;
-            this.fireInterval = eb.interval;
-            this.bulletSpeed = eb.speed * (data.bulletSpeedMult || 1.0);
-            this.bulletDamage = eb.damage * (data.bulletDmgMult || 1.0);
-            // Wait a full interval before the first shot instead of firing instantly on spawn.
-            this.cooldown = this.fireInterval;
-        } else {
-            // No bullet data = No shooting
-            this.canShoot = false;
-        }
+        this.attachModel3D(data);
 
         this.node.getPosition(this._startPos);
+    }
+
+    /**
+     * 3Dモデル(glTF由来)を子ノードとして取り付ける。優先順位はPlayerController/GameManagerの
+     * PlayerShip3D埋め込みパターンと同じ:
+     *   1. プレハブ側に既に"Model3D"という名前の子ノードが埋め込まれていればそれをそのまま使う
+     *      (Prefab編集画面でも見た目・位置・スケールをその場で確認しながら調整できる)
+     *   2. model3DPrefab (Inspectorでドラッグ設定、実行時にinstantiateして子ノード化)
+     *   3. EnemyData.model3DPath (CSV経由、resources.loadで非同期ロード)
+     * いずれの経路でも、当たり判定・行動ロジックは既存の2Dノード(Sprite/Collider2D)のまま維持し、
+     * 見た目だけを3Dモデルに置き換える。GameManager.forceUILayer() は既にinit()より前に呼ばれ終えて
+     * いるため、ここで追加/発見する子ノードはUI_2Dに巻き込まれず、明示的にDEFAULTレイヤーへ設定する。
+     *
+     * 注意: この処理は init() 経由でのみ実行される。つまりCocos EditorでPrefabを開いて編集している
+     * だけの状態(Playを押していない状態)では実行されない。埋め込み済みの子ノード(方式1)であれば
+     * Prefab編集画面でもその場で見えるが、model3DPrefab/CSV(方式2,3)は実際にゲームを再生して
+     * スポーンさせるまで画面に現れない。
+     */
+    private attachModel3D(data: any) {
+        const existing = this.node.getChildByName("Model3D");
+        if (existing) {
+            existing.layer = Layers.BitMask.DEFAULT;
+            this.model3D = existing;
+            this.finalizeModel3D();
+            console.log(`[Enemy] Reused embedded Model3D child node for ${data.id}.`);
+            return;
+        }
+
+        if (this.model3DPrefab) {
+            this.instantiateModel3D(this.model3DPrefab, this.model3DPrefabYRot || 0);
+            return;
+        }
+
+        if (!data.model3DPath) return;
+
+        resources.load(data.model3DPath, Prefab, (err, prefab) => {
+            if (err || !prefab) {
+                console.warn(`[Enemy] Failed to load 3D model '${data.model3DPath}' for ${data.id}:`, err);
+                return;
+            }
+            if (!this.node || !this.node.isValid) return; // 読み込み完了前に敵が破棄された場合のガード
+            this.instantiateModel3D(prefab, data.model3DYRot || 0);
+        });
+    }
+
+    private instantiateModel3D(prefab: Prefab, yRot: number) {
+        const modelNode = instantiate(prefab);
+        modelNode.name = "Model3D";
+        modelNode.layer = Layers.BitMask.DEFAULT;
+        this.node.addChild(modelNode);
+        modelNode.setPosition(0, 0, 0);
+        modelNode.setRotationFromEuler(0, yRot, 0);
+        const s = this.model3DScale || 1.0;
+        modelNode.setScale(s, s, s);
+        this.model3D = modelNode;
+
+        this.finalizeModel3D();
+    }
+
+    // 3Dモデル取り付け後の共通処理: 平面Spriteを隠し、素の向きをバンキング/注視/攻撃パンチの基準として記録する。
+    private finalizeModel3D() {
+        this.hideFlatSprite();
+        if (this.model3D) {
+            this._model3DBaseRot = this.model3D.eulerAngles.clone();
+            this._model3DYaw = this._model3DBaseRot.y;
+        }
+    }
+
+    // 平面Spriteは3Dモデルの下に隠す(二重表示防止)。当たり判定(Collider2D)のサイズ計算に
+    // 使われるUITransformは維持したいので、Spriteの削除ではなく透明化で対応する
+    // (Playerの3Dモデル対応時と同じ理由・同じ手法)。
+    private hideFlatSprite() {
+        const sprite = this.getComponent(Sprite);
+        if (sprite) sprite.color = new Color(255, 255, 255, 0);
     }
 
     update(dt: number) {
         const gm = this._gm;
         if (!gm || gm.state !== GameState.INGAME || gm.isPaused) return;
 
-        // Time processing
-        this.cooldown -= dt; // Seconds
-
         if (dt > 0.1) dt = 0.1;
         const frameScale = dt * 60;
         this.time += frameScale;
 
-        this.handleMovement(frameScale);
-        this.handleFiring(); // Remove dtScale arg
+        this.handleMovement(dt, frameScale);
 
         // Bounds
         this.node.getPosition(this._tempPos);
@@ -104,13 +178,9 @@ export class Enemy extends Component {
         }
     }
 
-    handleMovement(dtScale: number) {
-        const pid = this.mpId;
-        const t = this.time;
-        const spd = this.speed * dtScale;
-        const trn = this.turn * dtScale;
-
+    handleMovement(dt: number, dtScale: number) {
         this.node.getPosition(this._tempPos);
+        const oldX = this._tempPos.x;
 
         // Apply Scroll Speed (Relative Velocity)
         const gm = this._gm;
@@ -120,70 +190,82 @@ export class Enemy extends Component {
             this._tempPos.y -= gm.speedManager.getCurrentSpeed() * dtScale;
         }
 
-        // Basic Directions
-        if (pid === 'MPID001') { // Down
-            this._tempPos.y -= spd;
-        }
-        else if (pid === 'MPID002') { // Up
-            this._tempPos.y += spd;
-        }
-        else if (pid === 'MPID003') { // Right->Left
-            this._tempPos.x -= spd;
-        }
-        else if (pid === 'MPID004') { // Left->Right
-            this._tempPos.x += spd;
-        }
-        else if (pid === 'MPID005' || pid === 'MPID006') { // ZigZag
-            this._tempPos.y -= spd;
-            this._tempPos.x += Math.sin(t * 0.05) * trn;
-        }
-        else if (pid.startsWith('MPID009')) { // Homing
-            const gm = this._gm;
-            if (gm && gm.playerNode) {
-                const playerPos = gm.playerNode.position;
-                const dx = playerPos.x - this._tempPos.x;
-                const dy = playerPos.y - this._tempPos.y;
-                const angle = Math.atan2(dy, dx);
-                this._tempPos.x += Math.cos(angle) * (spd * 0.5);
-                this._tempPos.y += Math.sin(angle) * (spd * 0.5);
-            }
-        }
-        else {
-            this._tempPos.y -= spd; // Default
+        // 行動グラフに沿った移動(Move系ノードのパターン)と射撃(Fire系ノード)は
+        // BehaviorRuntime に一任する。_tempPos はスクロールオフセット適用後の座標。
+        if (this._behaviorRuntime) {
+            this._behaviorRuntime.tick(dt, dtScale, this.time, this.hp, this.maxHp, this._tempPos);
         }
 
         this.node.setPosition(this._tempPos);
+
+        if (this.model3D) {
+            this.updateModel3DVisual(this._tempPos.x - oldX);
+        }
     }
 
-    handleFiring() {
-        if (!this.canShoot) return;
-
-        if (this.cooldown > 0) return;
-
+    /**
+     * 3Dモデルの向きを毎フレーム更新する。PlayerController.model3D のバンキング処理と同じ考え方で、
+     * バンキング/自機注視(Y、lerpで滑らかに追従)と、BehaviorGraphのSpin/Punchノードによる
+     * 相対オフセット(_animOffset、X/Y/Z)を毎フレーム合成してsetRotationFromEulerする。
+     */
+    private updateModel3DVisual(dx: number) {
+        let targetYaw: number;
         const gm = this._gm;
-        if (gm) {
-            let angle = -Math.PI / 2;
 
-            if (this.bulletType === 1 && gm.playerNode) {
-                const dx = gm.playerNode.position.x - this.node.position.x;
-                const dy = gm.playerNode.position.y - this.node.position.y;
-                angle = Math.atan2(dy, dx);
-            }
-
-            gm.spawnBullet(
-                this.node.position.x,
-                this.node.position.y - 20,
-                angle,
-                this.bulletSpeed,
-                this.bulletDamage,
-                true // isEnemy
-            );
+        if (this.faceTowardPlayer && gm && gm.playerNode) {
+            const pdx = gm.playerNode.position.x - this.node.position.x;
+            const pdy = gm.playerNode.position.y - this.node.position.y;
+            // モデルの正面軸の定義次第で符号/軸が逆になることがある。逆を向く場合は
+            // faceTowardPlayerOffsetを90/180/-90などに調整するか、この式のatan2引数を入れ替える。
+            targetYaw = Math.atan2(pdx, pdy) * 180 / Math.PI + this.faceTowardPlayerOffset;
+        } else {
+            // Playerのバンキングと同じ式 (横移動量に比例して左右に傾く)
+            targetYaw = this._model3DBaseRot.y - dx * 15;
         }
 
-        this.cooldown = this.fireInterval;
+        this._model3DYaw = math.lerp(this._model3DYaw, targetYaw, 0.1);
+
+        this.model3D.setRotationFromEuler(
+            this._model3DBaseRot.x + this._animOffset.x,
+            this._model3DYaw + this._animOffset.y,
+            this._model3DBaseRot.z + this._animOffset.z
+        );
+    }
+
+    /**
+     * BehaviorGraphのSpinノードから呼ばれる。指定軸をduration秒かけてdegrees分(相対)回転させる。
+     * BehaviorRuntime側もSpinノードの間シーケンスをブロックしているので、見た目と進行が同期する。
+     * 例: 登場時に axis="y", degrees=360, duration=0.6 でその場を向いたまま1回転しながら出現。
+     */
+    private playSpin(axis: string, degrees: number, duration: number) {
+        if (!this.model3D) return;
+        const key = (axis === 'x' || axis === 'z') ? axis : 'y';
+        Tween.stopAllByTarget(this._animOffset);
+        this._animOffset.x = 0; this._animOffset.y = 0; this._animOffset.z = 0;
+        tween(this._animOffset)
+            .by(duration, { [key]: degrees } as any, { easing: 'quadInOut' })
+            .start();
+    }
+
+    /**
+     * BehaviorGraphのPunchノードから呼ばれる。指定軸を一瞬だけdegrees分(相対)傾けてすぐ戻す。
+     * ブロックしないノードなので、通常はFireノードの直後に繋いで攻撃の反動演出として使う。
+     * 連射で前のtweenが残っていてもstopAllByTargetで打ち切ってから再生するので暴れない。
+     */
+    private playPunch(axis: string, degrees: number, outDuration: number, inDuration: number) {
+        if (!this.model3D) return;
+        const key = (axis === 'y' || axis === 'z') ? axis : 'x';
+        Tween.stopAllByTarget(this._animOffset);
+        this._animOffset.x = 0; this._animOffset.y = 0; this._animOffset.z = 0;
+        tween(this._animOffset)
+            .to(outDuration, { [key]: degrees } as any, { easing: 'quadOut' })
+            .to(inDuration, { [key]: 0 } as any, { easing: 'quadIn' })
+            .start();
     }
 
     public takeDamage(amount: number) {
+        if (this.invincible) return; // テスト用無敵: ダメージ・被弾演出・死亡処理を一切行わない
+
         // console.log(`[Enemy] takeDamage: ${this.node.uuid} Amount:${amount} HP:${this.hp}`);
         // Defense Calculation
         let finalDamage = amount;

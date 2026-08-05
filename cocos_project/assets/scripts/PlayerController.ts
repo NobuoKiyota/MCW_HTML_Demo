@@ -73,6 +73,9 @@ export class PlayerController extends Component {
 
     public hp: number = 100;
 
+    @property({ tooltip: "テスト用: trueの間は被弾してもダメージ処理を一切行わない" })
+    public invincible: boolean = false;
+
     private targetPos: Vec3 = new Vec3();
     private currentPos: Vec3 = new Vec3();
 
@@ -391,6 +394,7 @@ export class PlayerController extends Component {
 
     public takeDamage(amount: number) {
         if (!this.canControl()) return; // Guard for GameOver/Paused state
+        if (this.invincible) return; // テスト用無敵: ダメージ処理を一切行わない
         this.hp -= amount;
         if (this.hp < 0) this.hp = 0;
 
