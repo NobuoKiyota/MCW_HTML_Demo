@@ -85,15 +85,6 @@ module.exports = {
     },
 
     methods: {
-        openPanel() {
-            console.log('[BehaviorEditor Extension] Opening panel behavior-editor.default...');
-            try {
-                Editor.Panel.open('behavior-editor.default');
-            } catch (err) {
-                console.error('[BehaviorEditor Extension] Error opening panel:', err);
-            }
-        },
-
         // Editor.Message.request('behavior-editor', 'list-behaviors')
         listBehaviors() {
             try {
@@ -128,8 +119,8 @@ module.exports = {
             }
         },
 
-        // Editor.Message.request('behavior-editor', 'save-graph', id, graph)
-        saveGraph(id, graph) {
+        // Editor.Message.request('behavior-editor', 'save-graph', id, graph, note)
+        saveGraph(id, graph, note) {
             try {
                 const filePath = getGraphJsonPath(id);
                 fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -140,18 +131,21 @@ module.exports = {
                     console.warn('[BehaviorEditor Extension] asset-db refresh-asset (graph json) failed:', err);
                 });
 
-                // 対応するBehaviors.csv行が無ければ追加しておく(孤立したJSONにしない)
+                // 対応するBehaviors.csv行が無ければ追加し、あればNoteを更新する
                 const { headers, rows } = readBehaviorsCsv();
                 const idIdx = headers.indexOf('ID');
-                const exists = rows.some(r => r[idIdx] === id);
-                if (!exists) {
-                    const pathIdx = headers.indexOf('GraphPath');
-                    const noteIdx = headers.indexOf('Note');
+                const pathIdx = headers.indexOf('GraphPath');
+                const noteIdx = headers.indexOf('Note');
+                const rowIdx = rows.findIndex(r => r[idIdx] === id);
+                if (rowIdx === -1) {
                     const row = headers.map(() => '');
                     row[idIdx] = id;
                     if (pathIdx >= 0) row[pathIdx] = graphResourcePath(id);
-                    if (noteIdx >= 0) row[noteIdx] = '';
+                    if (noteIdx >= 0) row[noteIdx] = note || '';
                     rows.push(row);
+                    writeBehaviorsCsv(headers, rows);
+                } else if (noteIdx >= 0 && note != null && rows[rowIdx][noteIdx] !== note) {
+                    rows[rowIdx][noteIdx] = note;
                     writeBehaviorsCsv(headers, rows);
                 }
 

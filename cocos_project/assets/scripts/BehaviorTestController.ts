@@ -67,6 +67,19 @@ export class BehaviorTestController extends Component {
             console.error("[BehaviorTestController] gameManager is not assigned in the Inspector.");
             return;
         }
+
+        // GameManager.start()自身もtitlePrefab/homePrefabが設定されていればgoToTitle()/goToHome()を
+        // 呼び、switchContent()+applyCameraForState()でカメラをTitle/Home位置(640,360)にセットする。
+        // このコンポーネントのstart()とGameManagerのstart()はCocosの同一ライフサイクル内で走り、
+        // どちらが後に実行されるかはノード順・初回ロード時のリソース読み込みタイミングなどに左右され
+        // 保証されない。startInGame()をここで直接呼ぶと、GameManager側のgoToTitle()が後から実行され
+        // カメラがTitle位置のまま上書きされてしまうことがある(初回Playでのみ再現し、停止して再度
+        // Playすると直るのはこのタイミング差のため)。scheduleOnce(0)で次フレームに回し、全コンポーネント
+        // のstart()が完了した後に確実に実行されるようにする。
+        this.scheduleOnce(() => this.beginTest(), 0);
+    }
+
+    private beginTest() {
         // 自動スポーン/ミッション距離カウントダウンを止めてから、既存の startInGame() を再利用して
         // Ingameプレハブの展開・カメラ設定・参照解決(playerNode/enemyLayer/bulletLayer等)を行う。
         // (Enemy.update()/GameManager.update() は state === INGAME でなければ何もしないため必須)

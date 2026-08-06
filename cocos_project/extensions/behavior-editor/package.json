@@ -2,35 +2,12 @@
   "package_version": 2,
   "version": "1.0.0",
   "name": "behavior-editor",
-  "label": "Behavior Pattern Editor",
-  "description": "Node-graph editor for enemy BehaviorGraph patterns (assets/resources/Data/Behaviors/*.json)",
+  "label": "Behavior Pattern Editor (backend)",
+  "description": "Backend IPC handlers for BehaviorGraph JSON (assets/resources/Data/Behaviors/*.json) and the bundled LiteGraph.js lib files. No standalone panel - the UI is embedded in the Master Manager panel's 'Behavior Graph' tab.",
   "author": "Antigravity",
   "main": "./main.js",
-  "panels": {
-    "default": {
-      "title": "Behavior Pattern Editor",
-      "type": "dockable",
-      "main": "./panels/default/index.js",
-      "size": {
-        "min-width": 700,
-        "min-height": 500,
-        "width": 1000,
-        "height": 700
-      }
-    }
-  },
   "contributions": {
-    "menu": [
-      {
-        "path": "i18n:menu.extension",
-        "label": "Behavior Pattern Editor",
-        "message": "openPanel"
-      }
-    ],
     "messages": {
-      "openPanel": {
-        "methods": ["openPanel"]
-      },
       "list-behaviors": {
         "methods": ["listBehaviors"]
       },

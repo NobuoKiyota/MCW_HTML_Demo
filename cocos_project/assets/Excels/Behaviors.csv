@@ -1,8 +1,9 @@
 ID,GraphPath,Note
-BH_ZAKO_BASIC,Data/Behaviors/BH_ZAKO_BASIC,Basic Straight Down (was MPID001)
+DebriMove01,Data/Behaviors/DebriMove01,Basic Straight Down (was MPID001)
 BH_HOVER,Data/Behaviors/BH_HOVER,Straight Up (was MPID002)
 BH_RUSH,Data/Behaviors/BH_RUSH,Right to Left Rush (was MPID003)
 BH_LEFTRIGHT,Data/Behaviors/BH_LEFTRIGHT,Left to Right (was MPID004)
 BH_ZIGZAG,Data/Behaviors/BH_ZIGZAG,Zigzag Down (was MPID005/006)
-BH_HOMING,Data/Behaviors/BH_HOMING,Homing toward Player (was MPID009)
-BH_BOSS_1,Data/Behaviors/BH_BOSS_1,Boss Pattern 1 (was MPBOSS01, previously unimplemented fallback)
+Enemy006,Data/Behaviors/Enemy006,Homing toward Player (was MPID009)
+Enemy007,Data/Behaviors/Enemy007,Enemy007
+DebriMove02,Data/Behaviors/DebriMove02,Copied from DebriMove01

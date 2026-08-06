@@ -1,5 +1,5 @@
 {
-    "id": "BH_HOMING",
+    "id": "Enemy006",
     "nodes": [
         {
             "id": 3,
@@ -37,7 +37,8 @@
             "params": {
                 "axis": "y",
                 "degrees": 360,
-                "duration": 1.2
+                "duration": 1.2,
+                "loop": false
             },
             "next": 2
         },
@@ -87,8 +88,8 @@
                 "bounding": [
                     7,
                     9,
-                    532,
-                    254
+                    549,
+                    316
                 ],
                 "color": "#3f789e",
                 "font_size": 24

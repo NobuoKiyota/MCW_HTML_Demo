@@ -212,9 +212,9 @@
     ],
     "value": {
       "__type__": "cc.Vec3",
-      "x": 6,
-      "y": 12,
-      "z": 6
+      "x": 4,
+      "y": 8,
+      "z": 4
     }
   },
   {
@@ -267,6 +267,8 @@
     "model3DPrefab": null,
     "model3DPrefabYRot": 0,
     "model3DScale": 1,
+    "faceTowardPlayer": false,
+    "faceTowardPlayerOffset": 0,
     "_id": ""
   },
   {

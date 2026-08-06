@@ -53,7 +53,7 @@ export class EnemyBulletData {
  */
 export interface BehaviorGraphNode {
     id: number;
-    type: "Start" | "Move" | "Wait" | "Fire" | "Branch" | "Loop" | "Spin" | "Punch";
+    type: "Start" | "Move" | "MoveTo" | "Wait" | "Fire" | "Branch" | "Loop" | "Spin" | "Punch" | "Reroute" | "Comment" | "Random";
     params?: { [key: string]: any };
     next?: number;      // Start/Move/Wait/Fire/Loop の通常遷移先ノードID
     trueNext?: number;  // Branch: 条件成立時の遷移先ノードID

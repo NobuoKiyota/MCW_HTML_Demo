@@ -1,0 +1,281 @@
+{
+    "id": "Enemy007",
+    "nodes": [
+        {
+            "id": 12,
+            "type": "MoveTo",
+            "params": {
+                "from": "3",
+                "to": "1",
+                "interp": "curve",
+                "curveAmount": 60,
+                "duration": 1
+            },
+            "next": 10
+        },
+        {
+            "id": 4,
+            "type": "Loop",
+            "params": {
+                "count": -1,
+                "target": 3
+            },
+            "next": null
+        },
+        {
+            "id": 5,
+            "type": "Punch",
+            "params": {
+                "axis": "x",
+                "degrees": -30,
+                "outDuration": 0.05,
+                "inDuration": 0.12
+            },
+            "next": 4
+        },
+        {
+            "id": 3,
+            "type": "Fire",
+            "next": 5
+        },
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 6
+        },
+        {
+            "id": 8,
+            "type": "MoveTo",
+            "params": {
+                "from": "2",
+                "to": "1",
+                "interp": "curve",
+                "curveAmount": 60,
+                "duration": 1
+            },
+            "next": 2
+        },
+        {
+            "id": 14,
+            "type": "Branch",
+            "params": {
+                "condition": "random",
+                "value": 50,
+                "logic": "none",
+                "condition2": "random",
+                "value2": 50
+            },
+            "trueNext": 7,
+            "falseNext": 11
+        },
+        {
+            "id": 2,
+            "type": "Move",
+            "params": {
+                "pattern": "zigzag",
+                "angle": 270,
+                "speed": 3,
+                "turn": 5
+            },
+            "next": null
+        },
+        {
+            "id": 10,
+            "type": "Move",
+            "params": {
+                "pattern": "homing",
+                "angle": 270,
+                "speed": 3,
+                "turn": 5
+            },
+            "next": null
+        },
+        {
+            "id": 7,
+            "type": "MoveTo",
+            "params": {
+                "from": "0",
+                "to": "2",
+                "interp": "curve",
+                "curveAmount": 120,
+                "duration": 1
+            },
+            "next": 9
+        },
+        {
+            "id": 11,
+            "type": "MoveTo",
+            "params": {
+                "from": "0",
+                "to": "3",
+                "interp": "curve",
+                "curveAmount": 120,
+                "duration": 1
+            },
+            "next": 13
+        },
+        {
+            "id": 6,
+            "type": "Spin",
+            "params": {
+                "axis": "x",
+                "degrees": 720,
+                "duration": 1,
+                "loop": false
+            },
+            "next": 14
+        },
+        {
+            "id": 9,
+            "type": "Spin",
+            "params": {
+                "axis": "y",
+                "degrees": 720,
+                "duration": 2,
+                "loop": false
+            },
+            "next": 8
+        },
+        {
+            "id": 13,
+            "type": "Spin",
+            "params": {
+                "axis": "y",
+                "degrees": 720,
+                "duration": 2,
+                "loop": false
+            },
+            "next": 12
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                25.662000089645385,
+                550.7999938964844
+            ],
+            "2": [
+                1448,
+                358.79999389648435
+            ],
+            "3": [
+                28,
+                94
+            ],
+            "4": [
+                20,
+                192
+            ],
+            "5": [
+                250,
+                98
+            ],
+            "6": [
+                193.66200008964537,
+                550.7999938964844
+            ],
+            "7": [
+                689.3167798091719,
+                349.2450960019529
+            ],
+            "8": [
+                1194,
+                352.79999389648435
+            ],
+            "9": [
+                933.2257798091721,
+                353.2380960019529
+            ],
+            "10": [
+                1437.2257798091725,
+                569.2380960019531
+            ],
+            "11": [
+                693.225779809172,
+                569.2380960019531
+            ],
+            "12": [
+                1196.654591015707,
+                567.7904199605473
+            ],
+            "13": [
+                933.2257798091721,
+                569.2380960019531
+            ],
+            "14": [
+                434,
+                551
+            ]
+        },
+        "nodeStyles": {
+            "1": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "2": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "6": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "7": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "8": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "9": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "10": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "11": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "12": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "13": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "14": {
+                "color": "#232",
+                "bgcolor": "#353"
+            }
+        },
+        "groups": [
+            {
+                "title": "FIRE",
+                "bounding": [
+                    0,
+                    19,
+                    473,
+                    282
+                ],
+                "color": "#3f789e",
+                "font_size": 24
+            },
+            {
+                "title": "Move",
+                "bounding": [
+                    3,
+                    307,
+                    1677,
+                    481
+                ],
+                "color": "#8A8",
+                "font_size": 24
+            }
+        ]
+    }
+}

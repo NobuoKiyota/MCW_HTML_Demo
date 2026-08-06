@@ -180,4 +180,7 @@ export interface IGameManager {
     spawnEnemyById(id: string): any;
     despawnAllEnemies(): void;
     testMode: boolean;
+    // BehaviorGraphのMoveToノードが参照するEnemyMovePoint。id="0"は「現在地」の予約語なので
+    // 実際にMovePointsコンテナへ登録されることはなく、常にnullを返す想定。
+    getMovePoint(id: string): { x: number; y: number } | null;
 }

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "name": "master-manager",
   "label": "Master Manager",
-  "description": "Master Manager Editor Panel for Player, Mission, Enemy, and Sound tuning",
+  "description": "Master Manager Editor Panel for Player, Mission, Enemy, and Sound tuning + embedded Behavior Graph Editor tab",
   "author": "Antigravity",
   "main": "./main.js",
   "panels": {
@@ -12,10 +12,10 @@
       "type": "dockable",
       "main": "./panels/default/index.js",
       "size": {
-        "min-width": 400,
-        "min-height": 350,
-        "width": 600,
-        "height": 500
+        "min-width": 700,
+        "min-height": 500,
+        "width": 1000,
+        "height": 700
       }
     }
   },

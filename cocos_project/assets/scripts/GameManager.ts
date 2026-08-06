@@ -9,6 +9,7 @@ import { ResultUI } from './ResultUI'; // Import Added Here
 import { DataManager } from './DataManager';
 import { CocosLogger } from './CocosLogger';
 import { CocosDiagnostic } from './CocosDiagnostic';
+import { MovePoint } from './MovePoint';
 
 
 const { ccclass, property } = _decorator;
@@ -61,6 +62,11 @@ export class GameManager extends Component implements IGameManager {
     public bulletLayer: Node = null;
     public enemyLayer: Node = null;
     public itemLayer: Node = null; // Add ItemLayer ref
+
+    // BehaviorGraphのMoveToノードが参照するEnemyMovePoint(EMP)。id -> ローカル座標(enemyLayerと同じ空間)。
+    // Ingameプレハブ/シーン内の "MovePoints" コンテナ配下に置かれたMovePointコンポーネント付きノードから
+    // resolveInGameReferences() が起動時に収集する。
+    public movePoints: Map<string, Vec3> = new Map();
 
     // Managers
     public speedManager: GameSpeedManager = new GameSpeedManager();
@@ -670,6 +676,22 @@ export class GameManager extends Component implements IGameManager {
             this.forceBackgroundLayer(starField);
         }
 
+        // EnemyMovePoint(EMP)収集: "MovePoints" コンテナ配下のMovePointコンポーネント付き子ノードを
+        // ID -> ローカル座標のマップにする。他のレイヤーと同様(0,0,0)に矯正してenemyLayerと同じ
+        // 座標空間で参照できるようにする。コンテナが無いシーン(未対応の旧シーン等)では単に空のまま。
+        this.movePoints.clear();
+        const movePointsContainer = findNode(rootNode, "MovePoints");
+        if (movePointsContainer) {
+            movePointsContainer.setPosition(0, 0, 0);
+            for (const child of movePointsContainer.children) {
+                const mp = child.getComponent(MovePoint);
+                if (mp && mp.pointId) {
+                    this.movePoints.set(mp.pointId, child.position.clone());
+                }
+            }
+            console.log(`[GameManager] Collected ${this.movePoints.size} MovePoint(s).`);
+        }
+
         console.log(`[GameManager] References resolved: Player=${this.playerNode?.name}, EnemyLayer=${this.enemyLayer?.name}`);
 
         // Attach a 3D model to the player only if one isn't already present. Player.prefab
@@ -910,6 +932,17 @@ export class GameManager extends Component implements IGameManager {
         for (const child of children) {
             child.destroy();
         }
+    }
+
+    /**
+     * BehaviorGraphのMoveToノードから使うEnemyMovePointの座標を取得する。
+     * id="0"(または空文字)は「現在地」を表す予約語のため、常にnullを返す
+     * (呼び出し側=BehaviorRuntimeがその場合は敵の現在位置を使う)。
+     */
+    public getMovePoint(id: string): { x: number; y: number } | null {
+        if (!id || id === "0") return null;
+        const p = this.movePoints.get(id);
+        return p ? { x: p.x, y: p.y } : null;
     }
 
     public triggerGoalSequence() {

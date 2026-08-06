@@ -1,0 +1,93 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "0586c8ec-1154-484c-9094-6a9ffcf838dc",
+  "files": [],
+  "subMetas": {
+    "2f6d1": {
+      "importer": "gltf-mesh",
+      "uuid": "0586c8ec-1154-484c-9094-6a9ffcf838dc@2f6d1",
+      "displayName": "",
+      "id": "2f6d1",
+      "name": "Cube.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 821
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "b4e6b": {
+      "importer": "gltf-material",
+      "uuid": "0586c8ec-1154-484c-9094-6a9ffcf838dc@b4e6b",
+      "displayName": "",
+      "id": "b4e6b",
+      "name": "Material.material",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "dda77": {
+      "importer": "gltf-scene",
+      "uuid": "0586c8ec-1154-484c-9094-6a9ffcf838dc@dda77",
+      "displayName": "",
+      "id": "dda77",
+      "name": "Debri004.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageMetas": [],
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "assetFinder": {
+      "meshes": [
+        "0586c8ec-1154-484c-9094-6a9ffcf838dc@2f6d1"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [
+        "0586c8ec-1154-484c-9094-6a9ffcf838dc@b4e6b"
+      ],
+      "scenes": [
+        "0586c8ec-1154-484c-9094-6a9ffcf838dc@dda77"
+      ]
+    }
+  }
+}

@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Vec3, math, Sprite, Color, director, find, Layers, Prefab, resources, instantiate, tween, Tween } from 'cc';
+import { _decorator, Component, Node, Vec3, math, Sprite, Color, director, find, Layers, Prefab, resources, instantiate, tween } from 'cc';
 // import { GameManager } from './GameManager'; // Circular Dependency
 import { GAME_SETTINGS, IGameManager, GameState } from './Constants';
 import { SoundManager } from './SoundManager';
@@ -53,6 +53,10 @@ export class Enemy extends Component {
     // BehaviorGraphのSpin/Punchノードが加える相対回転オフセット (x/y/z度)。
     // tweenでこのプレーンオブジェクトの値を動かし、毎フレームベース角度に合成する。
     private _animOffset = { x: 0, y: 0, z: 0 };
+    // 軸ごとに現在再生中のtweenを覚えておく。Tween.stopAllByTargetは_animOffset全体を対象に
+    // 止めてしまう(=他の軸で再生中のSpin/Punchまで巻き込んで止まる)ため、X/Y/Z同時に別々の
+    // Spin/Punchを走らせたい場合は「新しく始める軸と同じ軸のtweenだけ」を止める必要がある。
+    private _axisTweens: { x: any; y: any; z: any } = { x: null, y: null, z: null };
 
     onLoad() {
         console.log(`[Enemy] onLoad: ${this.node.uuid}`);
@@ -76,7 +80,7 @@ export class Enemy extends Component {
         // 移動パターンも射撃タイミングもグラフ側(Move/Wait/Fire/Branch/Loopノード)で定義される。
         const graph = data._behavior ? data._behavior._graph : null;
         const visualHooks: BehaviorVisualHooks = {
-            onSpin: (axis, degrees, duration) => this.playSpin(axis, degrees, duration),
+            onSpin: (axis, degrees, duration, loop) => this.playSpin(axis, degrees, duration, loop),
             onPunch: (axis, degrees, outDuration, inDuration) => this.playPunch(axis, degrees, outDuration, inDuration),
         };
         this._behaviorRuntime = new BehaviorRuntime(graph, data, gm, this.node, visualHooks);
@@ -234,33 +238,50 @@ export class Enemy extends Component {
 
     /**
      * BehaviorGraphのSpinノードから呼ばれる。指定軸をduration秒かけてdegrees分(相対)回転させる。
-     * BehaviorRuntime側もSpinノードの間シーケンスをブロックしているので、見た目と進行が同期する。
+     * Spinノード自体はブロックしないので、これは背後で再生される演出にすぎない。
      * 例: 登場時に axis="y", degrees=360, duration=0.6 でその場を向いたまま1回転しながら出現。
+     *
+     * loop=trueの場合はduration秒周期でdegrees分の回転を無限に繰り返す(回転し続ける演出台や
+     * ドリル状の武器など、常時回転し続けるオブジェクトを表現する用途)。次に同じ軸でSpin/Punchが
+     * 実行されるまで回り続ける(他の軸で別のSpin/Punchが走っていても止めない — X/Y/Z同時に
+     * 別々のSpinを繋げば3軸同時に回転させられる)。
      */
-    private playSpin(axis: string, degrees: number, duration: number) {
+    private playSpin(axis: string, degrees: number, duration: number, loop: boolean = false) {
         if (!this.model3D) return;
         const key = (axis === 'x' || axis === 'z') ? axis : 'y';
-        Tween.stopAllByTarget(this._animOffset);
-        this._animOffset.x = 0; this._animOffset.y = 0; this._animOffset.z = 0;
-        tween(this._animOffset)
-            .by(duration, { [key]: degrees } as any, { easing: 'quadInOut' })
-            .start();
+        this.stopAxisTween(key);
+
+        const t = loop
+            ? tween(this._animOffset).by(duration, { [key]: degrees } as any, { easing: 'linear' }).repeatForever()
+            : tween(this._animOffset).by(duration, { [key]: degrees } as any, { easing: 'quadInOut' });
+        this._axisTweens[key] = t;
+        t.start();
     }
 
     /**
      * BehaviorGraphのPunchノードから呼ばれる。指定軸を一瞬だけdegrees分(相対)傾けてすぐ戻す。
      * ブロックしないノードなので、通常はFireノードの直後に繋いで攻撃の反動演出として使う。
-     * 連射で前のtweenが残っていてもstopAllByTargetで打ち切ってから再生するので暴れない。
+     * 同じ軸で連射/連続実行された場合のみ前のtweenを打ち切る(他の軸で回転中のSpin等は止めない)。
      */
     private playPunch(axis: string, degrees: number, outDuration: number, inDuration: number) {
         if (!this.model3D) return;
         const key = (axis === 'y' || axis === 'z') ? axis : 'x';
-        Tween.stopAllByTarget(this._animOffset);
-        this._animOffset.x = 0; this._animOffset.y = 0; this._animOffset.z = 0;
-        tween(this._animOffset)
+        this.stopAxisTween(key);
+
+        const t = tween(this._animOffset)
             .to(outDuration, { [key]: degrees } as any, { easing: 'quadOut' })
-            .to(inDuration, { [key]: 0 } as any, { easing: 'quadIn' })
-            .start();
+            .to(inDuration, { [key]: 0 } as any, { easing: 'quadIn' });
+        this._axisTweens[key] = t;
+        t.start();
+    }
+
+    // 指定軸で現在再生中のtween(あれば)だけを止める。他の軸のtweenには一切触れない。
+    private stopAxisTween(key: 'x' | 'y' | 'z') {
+        const running = this._axisTweens[key];
+        if (running) {
+            running.stop();
+            this._axisTweens[key] = null;
+        }
     }
 
     public takeDamage(amount: number) {
