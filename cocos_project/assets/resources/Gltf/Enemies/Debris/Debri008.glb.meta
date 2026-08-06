@@ -1,0 +1,75 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "47d79e0d-c46c-401d-b106-ae38cbd33886",
+  "files": [],
+  "subMetas": {
+    "1e446": {
+      "importer": "gltf-mesh",
+      "uuid": "47d79e0d-c46c-401d-b106-ae38cbd33886@1e446",
+      "displayName": "",
+      "id": "1e446",
+      "name": "Icosphere.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 4156
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "ab911": {
+      "importer": "gltf-scene",
+      "uuid": "47d79e0d-c46c-401d-b106-ae38cbd33886@ab911",
+      "displayName": "",
+      "id": "ab911",
+      "name": "Debri008.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageMetas": [],
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "assetFinder": {
+      "meshes": [
+        "47d79e0d-c46c-401d-b106-ae38cbd33886@1e446"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": [
+        "47d79e0d-c46c-401d-b106-ae38cbd33886@ab911"
+      ]
+    }
+  }
+}

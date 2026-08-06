@@ -1,0 +1,75 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "179dfb43-aefd-490b-b88d-c5ad69205ba9",
+  "files": [],
+  "subMetas": {
+    "fe6ae": {
+      "importer": "gltf-mesh",
+      "uuid": "179dfb43-aefd-490b-b88d-c5ad69205ba9@fe6ae",
+      "displayName": "",
+      "id": "fe6ae",
+      "name": "Cone.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 10400
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "99ee1": {
+      "importer": "gltf-scene",
+      "uuid": "179dfb43-aefd-490b-b88d-c5ad69205ba9@99ee1",
+      "displayName": "",
+      "id": "99ee1",
+      "name": "Debri007.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageMetas": [],
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "assetFinder": {
+      "meshes": [
+        "179dfb43-aefd-490b-b88d-c5ad69205ba9@fe6ae"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": [
+        "179dfb43-aefd-490b-b88d-c5ad69205ba9@99ee1"
+      ]
+    }
+  }
+}

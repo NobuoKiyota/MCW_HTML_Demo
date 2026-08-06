@@ -1,0 +1,77 @@
+CCEffect %{
+  techniques:
+  - name: opaque
+    passes:
+    - vert: metal-vs:vert
+      frag: metal-fs:frag
+      properties:
+        baseColor:      { value: [0.2, 0.22, 0.25, 1.0], editor: { type: color } }
+        lineColor:      { value: [0.05, 0.05, 0.06, 1.0], editor: { type: color } }
+        specularColor:  { value: [0.9, 0.95, 1.0, 1.0], editor: { type: color } }
+        gridScale:      { value: 2.0, editor: { tooltip: "パネル格子の分割数" } }
+        lineWidth:      { value: 0.03, editor: { tooltip: "目地ラインの太さ" } }
+        shininess:      { value: 32.0, editor: { tooltip: "金属光沢のハイライト鋭さ" } }
+}%
+
+CCProgram metal-vs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+  #include <builtin/uniforms/cc-local>
+
+  in vec3 a_position;
+  in vec3 a_normal;
+  in vec2 a_texCoord;
+
+  out vec3 v_position;
+  out vec3 v_normal;
+  out vec2 v_uv;
+
+  vec4 vert () {
+    vec4 pos = vec4(a_position, 1.0);
+    vec4 worldPos = cc_matWorld * pos;
+    v_position = worldPos.xyz;
+    v_normal = normalize((cc_matWorldIT * vec4(a_normal, 0.0)).xyz);
+    v_uv = a_texCoord;
+    return cc_matViewProj * worldPos;
+  }
+}%
+
+CCProgram metal-fs %{
+  precision highp float;
+  #include <builtin/uniforms/cc-global>
+
+  in vec3 v_position;
+  in vec3 v_normal;
+  in vec2 v_uv;
+
+  uniform MetalUniforms {
+    vec4 baseColor;
+    vec4 lineColor;
+    vec4 specularColor;
+    float gridScale;
+    float lineWidth;
+    float shininess;
+  };
+
+  vec4 frag () {
+    // 3Dトリプラナー座標系によるメカパネル格子目地の生成
+    vec3 p = fract(v_position * gridScale);
+    vec3 edge = step(vec3(lineWidth), p) * step(p, vec3(1.0 - lineWidth));
+    float panelMask = edge.x * edge.y * edge.z;
+
+    vec3 col = mix(lineColor.rgb, baseColor.rgb, panelMask);
+
+    // Phong Specular（金属光沢の強い反射）
+    vec3 N = normalize(v_normal);
+    vec3 L = normalize(-cc_mainLitDir.xyz);
+    vec3 V = normalize(cc_cameraPos.xyz - v_position);
+    vec3 R = reflect(-L, N);
+
+    float diff = max(dot(N, L), 0.15);
+    float spec = pow(max(dot(V, R), 0.0), shininess);
+
+    vec3 finalRgb = col * diff + specularColor.rgb * spec * panelMask;
+
+    return vec4(finalRgb, baseColor.a);
+  }
+}%

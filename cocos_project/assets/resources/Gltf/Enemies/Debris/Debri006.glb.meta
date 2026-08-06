@@ -1,0 +1,151 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "4fcec819-5838-4960-9f5e-4d0bb9137a21",
+  "files": [],
+  "subMetas": {
+    "2f6d1": {
+      "importer": "gltf-mesh",
+      "uuid": "4fcec819-5838-4960-9f5e-4d0bb9137a21@2f6d1",
+      "displayName": "",
+      "id": "2f6d1",
+      "name": "Cube.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 528
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "b4e6b": {
+      "importer": "gltf-material",
+      "uuid": "4fcec819-5838-4960-9f5e-4d0bb9137a21@b4e6b",
+      "displayName": "",
+      "id": "b4e6b",
+      "name": "Material.material",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "3311c": {
+      "importer": "gltf-scene",
+      "uuid": "4fcec819-5838-4960-9f5e-4d0bb9137a21@3311c",
+      "displayName": "",
+      "id": "3311c",
+      "name": "Debri006.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageMetas": [],
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "assetFinder": {
+      "meshes": [
+        "4fcec819-5838-4960-9f5e-4d0bb9137a21@2f6d1"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [
+        "4fcec819-5838-4960-9f5e-4d0bb9137a21@b4e6b"
+      ],
+      "scenes": [
+        "4fcec819-5838-4960-9f5e-4d0bb9137a21@3311c"
+      ]
+    },
+    "materials": {
+      "4fcec819-5838-4960-9f5e-4d0bb9137a21@b4e6b": {
+        "__type__": "cc.Material",
+        "_name": "",
+        "_objFlags": 0,
+        "__editorExtras__": {},
+        "_native": "",
+        "_effectAsset": {
+          "__uuid__": "bca0daa7-18e3-43ea-85f9-44ca9b325d4f",
+          "__expectedType__": "cc.EffectAsset"
+        },
+        "_techIdx": 0,
+        "_defines": [
+          {}
+        ],
+        "_states": [
+          {
+            "rasterizerState": {
+              "cullMode": 0
+            },
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          }
+        ],
+        "_props": [
+          {
+            "baseColor": {
+              "__type__": "cc.Color",
+              "r": 36,
+              "g": 107,
+              "b": 223,
+              "a": 184
+            },
+            "glowColor": {
+              "__type__": "cc.Color",
+              "r": 66,
+              "g": 77,
+              "b": 128,
+              "a": 255
+            },
+            "crackColor": {
+              "__type__": "cc.Color",
+              "r": 41,
+              "g": 92,
+              "b": 109,
+              "a": 255
+            },
+            "noiseScale": 8.7,
+            "fresnelPower": 18.5,
+            "glowIntensity": 1.91
+          }
+        ]
+      }
+    }
+  }
+}
