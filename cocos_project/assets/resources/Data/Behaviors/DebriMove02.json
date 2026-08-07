@@ -2,11 +2,6 @@
     "id": "DebriMove02",
     "nodes": [
         {
-            "id": 3,
-            "type": "Fire",
-            "next": 5
-        },
-        {
             "id": 5,
             "type": "Punch",
             "params": {
@@ -22,7 +17,7 @@
             "type": "Loop",
             "params": {
                 "count": -1,
-                "target": 3
+                "target": 5
             },
             "next": null
         },
@@ -65,16 +60,6 @@
             "next": 2
         },
         {
-            "id": 9,
-            "type": "Random",
-            "params": {
-                "min": 210,
-                "max": 330,
-                "mode": "once",
-                "interval": 1
-            }
-        },
-        {
             "id": 2,
             "type": "Move",
             "params": {
@@ -85,6 +70,24 @@
                 "angleRef": 9
             },
             "next": null
+        },
+        {
+            "id": 10,
+            "type": "Comment",
+            "params": {
+                "text": "広角移動"
+            },
+            "next": null
+        },
+        {
+            "id": 9,
+            "type": "Random",
+            "params": {
+                "min": 210,
+                "max": 330,
+                "mode": "once",
+                "interval": 1
+            }
         }
     ],
     "_editor": {
@@ -97,17 +100,13 @@
                 1144,
                 291
             ],
-            "3": [
-                520,
-                80
-            ],
             "4": [
-                919,
-                81
+                884.4545454545456,
+                28.272727272727288
             ],
             "5": [
-                680,
-                80
+                645.4545454545456,
+                27.272727272727288
             ],
             "6": [
                 229,
@@ -122,14 +121,22 @@
                 296
             ],
             "9": [
-                887,
-                507
+                978,
+                534
+            ],
+            "10": [
+                1214,
+                534
             ]
         },
         "nodeStyles": {
             "9": {
                 "color": "#2a3a4a",
                 "bgcolor": "#1c2833"
+            },
+            "10": {
+                "color": "#4a4a2a",
+                "bgcolor": "#3a3a1a"
             }
         },
         "groups": []

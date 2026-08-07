@@ -4,6 +4,8 @@ import { GAME_SETTINGS, IGameManager, GameState } from './Constants';
 import { UIManager } from './UIManager';
 import { BuffVisualEffect } from './BuffVisualEffect';
 import { SoundManager } from './SoundManager';
+import { GameDatabase } from './GameDatabase';
+import { ShotRuntime } from './ShotRuntime';
 
 const { ccclass, property } = _decorator;
 
@@ -32,15 +34,9 @@ export class PlayerController extends Component {
     @property({ tooltip: "Movement Smoothness (0.01 - 1.0)" })
     public lerpFactor: number = 0.1;
 
-    // Bullet Params
-    @property({ tooltip: "Player Bullet Speed" })
-    public bulletSpeed: number = 7;
-
-    @property({ tooltip: "Player Bullet Damage" })
-    public bulletDamage: number = 10;
-
-    @property({ tooltip: "Fire Interval (seconds)" })
-    public fireInterval: number = 0.15;
+    // Shot Pattern (発射グラフ)
+    @property({ tooltip: "使用する発射パターンID (ShotPatterns.csv/Master ManagerのShot Patternタブで編集)" })
+    public shotPatternId: string = "SP_PLAYER_BASIC";
 
     // Speed Zone Params
     @property({ type: Enum({ STEP: 0, LINEAR: 1, SMOOTH: 2, EXP: 3 }), tooltip: "Speed Curve Type based on Y-Pos" })
@@ -62,9 +58,6 @@ export class PlayerController extends Component {
     @property({ tooltip: "Distance (px) for silence" })
     public audioVolDropoff: number = 800; // Far off-screen
 
-    @property({ tooltip: "Debug: Use Homing Missiles" })
-    public useHoming: boolean = false;
-
     @property(Node)
     public model3D: Node = null;
 
@@ -79,8 +72,11 @@ export class PlayerController extends Component {
     private targetPos: Vec3 = new Vec3();
     private currentPos: Vec3 = new Vec3();
 
-    // Shooting
-    private fireTimer: number = 0;
+    // Shot Pattern ランタイム。GameDatabase.isReady + 該当パターンのグラフJSONロード完了を
+    // 待ってから構築する(上限付きリトライ、BehaviorTestController.tsと同じパターン)。
+    private _shotRuntime: ShotRuntime | null = null;
+    private _shotRuntimeRetryCount: number = 0;
+    private static readonly SHOT_RUNTIME_MAX_RETRY = 300;
 
     // Cache GM
     private _gm: IGameManager = null;
@@ -122,6 +118,41 @@ export class PlayerController extends Component {
         if (UIManager.instance) {
             UIManager.instance.updateHP(this.hp, this.maxHp);
         }
+
+        this._shotRuntimeRetryCount = 0;
+        this.waitForShotPattern();
+    }
+
+    // GameDatabase.isReady かつ該当ShotPatternのグラフJSON非同期ロードが終わるまで待ってから
+    // ShotRuntimeを構築する(BehaviorTestController.tsのwaitForDatabase()と同じ上限付きリトライ)。
+    private waitForShotPattern() {
+        const db = GameDatabase.instance;
+        if (db && db.isReady) {
+            const patternData = db.getShotPatternData(this.shotPatternId);
+            if (patternData && patternData._graph) {
+                this._shotRuntime = new ShotRuntime(patternData._graph, this._gm, this.node, false);
+                this._shotRuntime.getSpeedMult = () => 1.0;
+                this._shotRuntime.getDamageMult = () => Math.max(0.1, this.damageMultiplier - this.cargoDamagePenalty);
+                this._shotRuntime.getIntervalMult = () => this.fireRateMultiplier;
+                console.log(`[PlayerController] ShotRuntime ready for pattern '${this.shotPatternId}'.`);
+                return;
+            }
+            if (!patternData) {
+                // dbはready(ShotPatterns.csvを読み終えている)なのにこのIDが1件も無い
+                // = Shot Patternエディタでリネーム/削除された、またはタイプミス。
+                // 何度リトライしても絶対に見つからないので、30秒待たせず即座にエラーを出して諦める。
+                console.error(`[PlayerController] ShotPattern '${this.shotPatternId}' が ShotPatterns.csv に存在しません(リネーム/タイプミスの可能性)。PlayerControllerのshotPatternIdプロパティを確認してください。Player will not fire.`);
+                return;
+            }
+            // patternDataは見つかっているが_graph(JSON)の非同期ロードがまだ終わっていない。リトライで待つ。
+        }
+
+        this._shotRuntimeRetryCount++;
+        if (this._shotRuntimeRetryCount > PlayerController.SHOT_RUNTIME_MAX_RETRY) {
+            console.error(`[PlayerController] ShotPattern '${this.shotPatternId}' の読み込みが ${PlayerController.SHOT_RUNTIME_MAX_RETRY} 回のリトライ後も完了しませんでした。諦めます(Player will not fire)。`);
+            return;
+        }
+        this.scheduleOnce(() => this.waitForShotPattern(), 0.1);
     }
 
     onDestroy() {
@@ -241,62 +272,12 @@ export class PlayerController extends Component {
             this.speed = math.lerp(this.speed, targetMax, 0.05);
         }
 
-        // 3. Shooting
-        this.fireTimer += deltaTime;
-        let actualInterval = this.fireInterval * this.fireRateMultiplier;
-        if (actualInterval < 0.05) actualInterval = 0.05;
-
-        if (this.fireTimer >= actualInterval) {
-            this.fireTimer = 0;
-            this.fire();
+        // 3. Shooting: ShotRuntime(発射パターングラフ)に一任する。
+        if (this._shotRuntime) {
+            this._shotRuntime.tick(deltaTime, this.hp, this.maxHp);
         }
 
         // Manual orbit logic removed, now handled by BuffVisualEffect component
-    }
-
-    private findNearestEnemy(): Node {
-        if (!this._gm || !this._gm.enemyLayer) return null;
-
-        let nearest: Node = null;
-        let minRateDist = Number.MAX_VALUE;
-        const myPos = this.node.position;
-
-        for (const enemy of this._gm.enemyLayer.children) {
-            if (!enemy.isValid) continue;
-
-            // Simple distance check
-            const dx = enemy.position.x - myPos.x;
-            const dy = enemy.position.y - myPos.y;
-            const distSq = dx * dx + dy * dy;
-
-            if (distSq < minRateDist) {
-                minRateDist = distSq;
-                nearest = enemy;
-            }
-        }
-        return nearest;
-    }
-
-    private fire() {
-        const gm = this._gm;
-        if (gm) {
-            const angle = Math.PI / 2;
-            const finalDamage = Math.floor(this.bulletDamage * Math.max(0.1, this.damageMultiplier - this.cargoDamagePenalty));
-
-            const bullet = gm.spawnBullet(this.node.position.x, this.node.position.y + 20, angle, this.bulletSpeed, finalDamage, false);
-
-            if (bullet && this.useHoming) {
-                const target = this.findNearestEnemy();
-                if (target) {
-                    bullet.isHoming = true;
-                    bullet.target = target;
-                    // console.log(`[Player] Fired Homing Missile at ${target.uuid}`);
-                }
-            }
-
-            // Play Shoot SE (3D)
-            SoundManager.instance.play3dSE("shoot01", this.node.worldPosition, "Player");
-        }
     }
 
     public applyBuff(type: string, duration: number, value: number) {

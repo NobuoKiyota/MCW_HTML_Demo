@@ -2,16 +2,11 @@
     "id": "Enemy006",
     "nodes": [
         {
-            "id": 3,
-            "type": "Fire",
-            "next": 5
-        },
-        {
             "id": 4,
             "type": "Loop",
             "params": {
                 "count": -1,
-                "target": 3
+                "target": 5
             },
             "next": null
         },
@@ -63,10 +58,6 @@
             "2": [
                 480,
                 400
-            ],
-            "3": [
-                59,
-                98
             ],
             "4": [
                 59,

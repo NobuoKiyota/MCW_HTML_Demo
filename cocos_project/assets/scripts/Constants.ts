@@ -167,7 +167,7 @@ export interface IGameManager {
     currentMission: IMissionData; // Update type
     // currentScrollSpeed: number; // Global Physics -> Moved to GameSpeedManager
     speedManager: any; // GameSpeedManager type (any to avoid circular import here if needed, or import type)
-    spawnBullet(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean): any;
+    spawnBullet(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean, prefabName?: string): any;
     spawnItem(x: number, y: number, id: string, amount: number): void;
     spawnItemFromPrefab(prefab: any, x: number, y: number): void;
     onItemCollected(id: string, amount: number, pos?: any): void;
@@ -183,4 +183,6 @@ export interface IGameManager {
     // BehaviorGraphのMoveToノードが参照するEnemyMovePoint。id="0"は「現在地」の予約語なので
     // 実際にMovePointsコンテナへ登録されることはなく、常にnullを返す想定。
     getMovePoint(id: string): { x: number; y: number } | null;
+    // 自機発射のホーミングミサイル(ShotRuntime.tsのMissileノード)が最寄りの敵を狙うために使う。
+    findNearestEnemyTo(x: number, y: number): any;
 }

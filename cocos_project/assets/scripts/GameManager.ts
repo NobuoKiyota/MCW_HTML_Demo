@@ -43,6 +43,11 @@ export class GameManager extends Component implements IGameManager {
     @property(Prefab)
     public bulletPrefab: Prefab = null;
 
+    // Prefabs/Bullets 配下から名前で引ける弾のPrefabリスト(GameDatabase.enemyPrefabsと同じ方式)。
+    // ShotRuntime.tsのFire/MultiFire/MissileノードのprefabNameパラメータで見た目を選べるようにする。
+    // 未指定/該当なしの場合はbulletPrefab(既定)にフォールバックする。
+    public bulletPrefabs: Prefab[] = [];
+
     @property(Prefab)
     public itemPrefab: Prefab = null;
 
@@ -162,6 +167,17 @@ export class GameManager extends Component implements IGameManager {
                 }
             });
         }
+
+        // 弾の見た目バリエーション(Prefabs/Bullets)を読み込む。1件も無くても既定のbulletPrefabで
+        // 動作するので、フォルダが空/未作成でもエラー扱いにはしない。
+        resources.loadDir("Prefabs/Bullets", Prefab, (err, assets) => {
+            if (err) {
+                console.log("[GameManager] No Prefabs/Bullets folder found (optional) - using bulletPrefab only.");
+                return;
+            }
+            this.bulletPrefabs = assets;
+            console.log(`[GameManager] Loaded ${assets.length} Bullet Prefab variant(s) from resources/Prefabs/Bullets.`);
+        });
 
         // Scene Transition Listeners
         director.on("GAME_RETRY", this.retryGame, this);
@@ -608,20 +624,18 @@ export class GameManager extends Component implements IGameManager {
         this.itemLayer = findNode(rootNode, "ItemLayer");
 
         // Player.prefab's root node carries a legacy 2D Sprite (with its required UITransform)
-        // alongside PlayerController - Cocos refuses removeComponent(UITransform) while a
-        // Sprite on the same node still depends on it (same class of error seen earlier with
-        // MissionUI dialogs), so removal was never attempted here. Instead of disabling it
-        // outright, repurpose it as a bright, semi-transparent "glow" marker underneath the
-        // 3D ship model - the model's own material has no Emissive property and barely
-        // responds to the scene's DirectionalLight, so it reads as a near-black silhouette
-        // against the space background. This reuses the already-correctly-anchored legacy
-        // Sprite instead of adding a new node/asset. Tune color/opacity in the Inspector
-        // (this.playerNode's Sprite component) to taste.
+        // alongside PlayerController. The 2D visual is no longer used (player is fully
+        // represented by the 3D ship model now) - explicitly disable it here in case the
+        // prefab's saved state has it enabled, rather than relying on the prefab alone.
+        // Cocos refuses removeComponent(UITransform) while a Sprite on the same node still
+        // depends on it (same class of error seen earlier with MissionUI dialogs), so this
+        // stays a runtime enabled=false rather than an actual component removal; removing
+        // the Sprite/UITransform components outright (if desired) must be done from the
+        // Cocos Editor Inspector (Remove Component), not via script.
         if (this.playerNode) {
             const legacySprite = this.playerNode.getComponent(Sprite);
             if (legacySprite) {
-                legacySprite.enabled = true;
-                legacySprite.color = new Color(0, 220, 255, 140);
+                legacySprite.enabled = false;
             }
             // ensure layer is Default for 3D rendering
             this.playerNode.layer = Layers.BitMask.DEFAULT;
@@ -1128,9 +1142,20 @@ export class GameManager extends Component implements IGameManager {
             .start();
     }
 
-    // Bullet Factory
-    public spawnBullet(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean): any {
-        if (!this.bulletPrefab) {
+    // Prefabs/Bullets から名前で1件引く(拡張子省略可、GameDatabase.getPrefab()と同じ規約)。
+    // 見つからなければnull(呼び出し側でbulletPrefabへフォールバックする)。
+    private getBulletPrefab(name: string): Prefab | null {
+        if (!name) return null;
+        const cleanName = name.replace(".prefab", "");
+        return this.bulletPrefabs.find(p => p.data.name === cleanName) || null;
+    }
+
+    // Bullet Factory. prefabNameを指定すると Prefabs/Bullets 内の該当Prefabを使う
+    // (ShotRuntime.tsのFire/MultiFire/Missileノードのprefab切り替え用)。未指定/該当なしなら
+    // 既定のbulletPrefabにフォールバックする。
+    public spawnBullet(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean, prefabName?: string): any {
+        const prefab = (prefabName && this.getBulletPrefab(prefabName)) || this.bulletPrefab;
+        if (!prefab) {
             console.error("[GameManager] bulletPrefab is NULL! Cannot spawn bullet.");
             return null;
         }
@@ -1142,7 +1167,7 @@ export class GameManager extends Component implements IGameManager {
             parent = this.node;
         }
 
-        const node = instantiate(this.bulletPrefab);
+        const node = instantiate(prefab);
         node.parent = parent;
         this.forceUILayer(node);
         node.setPosition(x, y, 0);
@@ -1156,6 +1181,25 @@ export class GameManager extends Component implements IGameManager {
             console.error("[GameManager] 'Bullet' component missing on instantiated prefab!");
             return null;
         }
+    }
+
+    // Enemyの最寄り探索 (ShotRuntime.tsのMissileノード, homing=ON時にプレイヤー発射のターゲットを
+    // 決めるために使う。PlayerController.findNearestEnemy()の一般化版)。
+    public findNearestEnemyTo(x: number, y: number): Node | null {
+        if (!this.enemyLayer) return null;
+        let nearest: Node | null = null;
+        let minDistSq = Number.MAX_VALUE;
+        for (const enemy of this.enemyLayer.children) {
+            if (!enemy.isValid) continue;
+            const dx = enemy.position.x - x;
+            const dy = enemy.position.y - y;
+            const distSq = dx * dx + dy * dy;
+            if (distSq < minDistSq) {
+                minDistSq = distSq;
+                nearest = enemy;
+            }
+        }
+        return nearest;
     }
 
     // Item Factory

@@ -1,0 +1,17 @@
+ID,GraphPath,Note
+1Shot01,Data/ShotPatterns/1Shot01,LP:0.5 SP:7 DMG:8
+SP_FAST,Data/ShotPatterns/SP_FAST,Migrated from EB_FAST
+SP_AIM,Data/ShotPatterns/SP_AIM,Migrated from EB_AIM
+SP_BOSS_1,Data/ShotPatterns/SP_BOSS_1,Migrated from EB_BOSS_1
+SP_PLAYER_BASIC,Data/ShotPatterns/SP_PLAYER_BASIC,Player default weapon (was PlayerController.fire())
+SP_DEMO_PIERCE,Data/ShotPatterns/SP_DEMO_PIERCE,Demo: piercing shot (pierceCount=-1)
+SPREAD01,Data/ShotPatterns/SPREAD01,Demo: spread shot (MultiFire
+SP_DEMO_HOMING,Data/ShotPatterns/SP_DEMO_HOMING,Demo: homing missile
+Empty,Data/ShotPatterns/Empty,
+SPREAD02,Data/ShotPatterns/SPREAD02,5発拡散
+1Shot02,Data/ShotPatterns/1Shot02,LP:0.4 SP:7 DMG:7
+1ShotHM01,Data/ShotPatterns/1ShotHM01,Copied from 1Shot01
+1Shot03,Data/ShotPatterns/1Shot03,LP:0.35 SP:10 DMG:6
+1Shot04,Data/ShotPatterns/1Shot04,LP:0.25 SP:8 DMG:4
+1Shot05,Data/ShotPatterns/1Shot05,LP:0.5 SP:12 DMG:10
+SPREAD03,Data/ShotPatterns/SPREAD03,Copied from SPREAD02

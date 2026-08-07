@@ -27,16 +27,16 @@
     {
       "mainColor": {
         "__type__": "cc.Color",
-        "r": 136,
-        "g": 87,
-        "b": 67,
+        "r": 111,
+        "g": 55,
+        "b": 55,
         "a": 255
       },
       "secondaryColor": {
         "__type__": "cc.Color",
-        "r": 175,
-        "g": 96,
-        "b": 70,
+        "r": 116,
+        "g": 49,
+        "b": 27,
         "a": 255
       },
       "noiseScale": 0.2,

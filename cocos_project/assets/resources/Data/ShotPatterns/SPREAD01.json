@@ -1,0 +1,68 @@
+{
+    "id": "SPREAD01",
+    "nodes": [
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 2
+        },
+        {
+            "id": 4,
+            "type": "Loop",
+            "params": {
+                "count": -1,
+                "target": 1
+            },
+            "next": null
+        },
+        {
+            "id": 3,
+            "type": "Wait",
+            "params": {
+                "seconds": 1
+            },
+            "next": 4
+        },
+        {
+            "id": 2,
+            "type": "MultiFire",
+            "params": {
+                "aim": "fixed",
+                "angle": 270,
+                "count": 3,
+                "angleSpread": 30,
+                "staggerDelay": 0,
+                "speed": 5,
+                "damage": 8,
+                "pierceCount": 0,
+                "prefabName": "Bullet01",
+                "color": "",
+                "glowIntensity": 1,
+                "angleOffset": 0
+            },
+            "next": 3
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "2": [
+                220,
+                80
+            ],
+            "3": [
+                468,
+                81
+            ],
+            "4": [
+                732,
+                82
+            ]
+        },
+        "nodeStyles": {},
+        "groups": []
+    }
+}

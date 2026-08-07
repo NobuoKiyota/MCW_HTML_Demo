@@ -25,37 +25,13 @@ export class LootDropItem {
 }
 
 /**
- * 敵の弾丸データ (EnemyBullet)
- */
-@ccclass('EnemyBulletData')
-export class EnemyBulletData {
-    @property
-    public id: string = "";
-
-    @property({ type: CCInteger, tooltip: "Bullet Type (0: Normal, 1: Aim, etc)" })
-    public type: number = 0;
-
-    @property({ type: CCFloat })
-    public speed: number = 5.0;
-
-    @property({ type: CCInteger })
-    public damage: number = 10;
-
-    @property({ type: CCFloat })
-    public interval: number = 1.0;
-
-    @property({ tooltip: "Prefab Name or Resource Path" })
-    public prefabName: string = "";
-}
-
-/**
  * 行動グラフ内の1ノード (ランタイム用プレーンデータ、@ccclass不要)
  */
 export interface BehaviorGraphNode {
     id: number;
-    type: "Start" | "Move" | "MoveTo" | "Wait" | "Fire" | "Branch" | "Loop" | "Spin" | "Punch" | "Reroute" | "Comment" | "Random";
+    type: "Start" | "Move" | "MoveTo" | "Wait" | "Branch" | "Loop" | "Spin" | "Punch" | "Attack" | "Reroute" | "Comment" | "Random";
     params?: { [key: string]: any };
-    next?: number;      // Start/Move/Wait/Fire/Loop の通常遷移先ノードID
+    next?: number;      // Start/Move/Wait/Loop の通常遷移先ノードID
     trueNext?: number;  // Branch: 条件成立時の遷移先ノードID
     falseNext?: number; // Branch: 条件不成立時の遷移先ノードID
 }
@@ -67,6 +43,30 @@ export interface BehaviorGraphNode {
 export interface BehaviorGraph {
     id: string;
     nodes: BehaviorGraphNode[];
+}
+
+/**
+ * ショットグラフ内の1ノード (ランタイム用プレーンデータ、@ccclass不要)
+ * BehaviorGraphNodeと同型だが、type語彙が発射系(Fire/MultiFire/Missile)になる。
+ * Start/Wait/Branch/Loop/Random/Reroute/CommentはBehaviorGraphと共通の意味を持つ
+ * (エディタ側でも同じLiteGraphノードクラス(behavior/*)をそのまま流用する)。
+ */
+export interface ShotGraphNode {
+    id: number;
+    type: "Start" | "Fire" | "MultiFire" | "Missile" | "Wait" | "Branch" | "Loop" | "Random" | "Reroute" | "Comment";
+    params?: { [key: string]: any };
+    next?: number;
+    trueNext?: number;
+    falseNext?: number;
+}
+
+/**
+ * ショットグラフ (ランタイム用プレーンデータ、@ccclass不要)
+ * assets/resources/Data/ShotPatterns/*.json をそのままパースした形
+ */
+export interface ShotGraph {
+    id: string;
+    nodes: ShotGraphNode[];
 }
 
 /**
@@ -87,6 +87,26 @@ export class BehaviorData {
 
     // Runtime Cache (GameDatabaseがresources.loadで読み込んだグラフをここに格納)
     public _graph: BehaviorGraph | null = null;
+}
+
+/**
+ * 発射パターンデータ (ShotPattern)
+ * BehaviorDataと同型。実体の発射ロジックはノードグラフ(ShotGraph)としてJSONに切り出し、
+ * ここではそのJSONアセットへの参照(graphPath)のみを持つ。プレイヤー・エネミー共通で使う。
+ */
+@ccclass('ShotPatternData')
+export class ShotPatternData {
+    @property
+    public id: string = "";
+
+    @property({ tooltip: "発射グラフJSONのresourcesパス (例: Data/ShotPatterns/SP_ZAKO_BASIC)" })
+    public graphPath: string = "";
+
+    @property
+    public note: string = "";
+
+    // Runtime Cache (GameDatabaseがresources.loadで読み込んだグラフをここに格納)
+    public _graph: ShotGraph | null = null;
 }
 
 /**
@@ -145,14 +165,8 @@ export class EnemyData {
     @property({ type: CCFloat, tooltip: "速度倍率" })
     public speedMult: number = 1.0;
 
-    @property({ tooltip: "敵弾ID" })
-    public ebId: string = ""; // EnemyBullet ID
-
-    @property({ type: CCFloat, tooltip: "弾速倍率" })
-    public bulletSpeedMult: number = 1.0;
-
-    @property({ type: CCFloat, tooltip: "弾威力倍率" })
-    public bulletDmgMult: number = 1.0;
+    @property({ tooltip: "発射パターンID" })
+    public shotPatternId: string = "";
 
     @property({ tooltip: "ドロップテーブルID" })
     public dropId: string = "";
@@ -165,7 +179,7 @@ export class EnemyData {
 
     // Runtime Cache (Optional, populated by DB)
     public _behavior: BehaviorData = null;
-    public _bullet: EnemyBulletData = null;
+    public _shotPattern: ShotPatternData = null;
     public _drops: DropData[] = [];
     public _isFromCSV: boolean = false; // Validation Flag
 }

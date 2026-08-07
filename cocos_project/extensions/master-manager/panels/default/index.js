@@ -6,7 +6,7 @@ const CSV_FILES = [
     { label: 'Enemies', file: 'Enemies.csv' },
     { label: 'Drops', file: 'Drops.csv' },
     { label: 'Behaviors', file: 'Behaviors.csv' },
-    { label: 'EnemyBullets', file: 'EnemyBullets.csv' },
+    { label: 'ShotPatterns', file: 'ShotPatterns.csv' },
     { label: 'Sounds', file: 'Sounds.csv' },
 ];
 
@@ -14,11 +14,11 @@ const CSV_FILES = [
 // (or the same) file's ID-like column. Rendered as a datalist-backed input (suggests known
 // values, but still lets you type a genuinely new ID) instead of a bare text input, so
 // existing IDs can be picked without risking a typo that silently breaks GameDatabase's
-// cross-linking (behaviorId/ebId/dropId - see assets/scripts/GameDatabase.ts).
+// cross-linking (behaviorId/shotPatternId/dropId - see assets/scripts/GameDatabase.ts).
 const SCHEMA = {
     'Enemies.csv': {
         BehaviorID: { file: 'Behaviors.csv', column: 'ID' },
-        EbID: { file: 'EnemyBullets.csv', column: 'ID' },
+        ShotPatternID: { file: 'ShotPatterns.csv', column: 'ID' },
         DropID: { file: 'Drops.csv', column: 'ID' },
     },
     'Drops.csv': {
@@ -33,16 +33,17 @@ const SCHEMA = {
 const COLUMN_LABELS = {
     Defense: 'DF',
     SpeedMult: 'ESP',
-    BulletSpeedMult: 'BSP',
-    BulletDmgMult: 'BDMG',
 };
 
 // このパネルは元々 Master Manager(CSVテーブル編集)と Behavior Pattern Editor(ノードグラフ編集)の
 // 2つの別々のパネルだったが、行き来が多いため1つのパネルにまとめてある。tab-barの選択によって
 // viewMode('csv'|'graph')を切り替え、.mm-view/.be-viewの表示/非表示で中身を出し分ける。
+// graphモード内はさらに graphDomain('behavior'|'shot') で「Behavior Graph」「Shot Pattern」の
+// どちらを編集しているかを切り替える(LGraph/LGraphCanvasインスタンスは1つを使い回す)。
 // main.js(IPCハンドラ)は元のまま2つの拡張機能(master-manager/behavior-editor)に分かれて残っている
 // (Editor.Message.requestはパッケージ名で届くので、どちらのパネルから呼んでも問題ない)。
 let viewMode = 'csv'; // 'csv' | 'graph'
+let graphDomain = 'behavior'; // 'behavior' | 'shot' (viewMode==='graph'の時のみ意味を持つ)
 
 // ==================================================================================
 // --- Master Manager (CSVテーブル編集) 側の状態 -------------------------------------
@@ -80,6 +81,9 @@ function sortRows(colIndex) {
 // 列幅(ファイル+列名ごと)。localStorageに永続化し、エディタを再起動しても記憶しておく。
 const COL_WIDTHS_KEY = 'master-manager-col-widths';
 const DEFAULT_COL_WIDTH = 90;
+// BehaviorID/ShotPatternIDのような長めのID文字列が入る列は、記憶済み幅が無い初回表示でも
+// 値が欠けて見えないよう、既定幅をやや広めにしておく(90pxだと"SP_NORMAL"等が入りきらない)。
+const WIDE_DEFAULT_COLUMNS = { BehaviorID: 120, ShotPatternID: 120, DropID: 100 };
 let colWidths = {}; // { "file::column": widthPx }
 
 function loadColWidths() {
@@ -100,7 +104,7 @@ function saveColWidths() {
 }
 
 function getColWidth(file, col) {
-    return colWidths[`${file}::${col}`] || DEFAULT_COL_WIDTH;
+    return colWidths[`${file}::${col}`] || WIDE_DEFAULT_COLUMNS[col] || DEFAULT_COL_WIDTH;
 }
 
 function setColWidth(file, col, width) {
@@ -304,10 +308,12 @@ function renderTable(panel) {
 }
 
 // ==================================================================================
-// --- Behavior Pattern Editor(ノードグラフ編集) 側の状態 ----------------------------
+// --- Behavior Graph / Shot Pattern (ノードグラフ編集) 側の状態 -----------------------
 // ==================================================================================
 
-let behaviorList = [];      // [{id, graphPath, note}]
+let behaviorList = [];      // [{id, graphPath, note}] - graphDomain==='behavior'用
+let shotList = [];          // [{id, graphPath, note}] - graphDomain==='shot'用
+let bulletPrefabList = [];  // ['Bullet01', ...] - assets/resources/Prefabs/Bullets/ 配下のPrefab名一覧
 let currentId = null;
 let litegraph = null;       // LGraph instance
 let litegraphCanvas = null; // LGraphCanvas instance
@@ -326,8 +332,43 @@ let undoStack = [];
 let redoStack = [];
 let lastSnapshot = null;
 
-const NODE_TYPE_MAP = { start: 'Start', move: 'Move', moveto: 'MoveTo', wait: 'Wait', fire: 'Fire', branch: 'Branch', loop: 'Loop', spin: 'Spin', punch: 'Punch', reroute: 'Reroute', comment: 'Comment', random: 'Random' };
-const REVERSE_TYPE_MAP = { Start: 'behavior/start', Move: 'behavior/move', MoveTo: 'behavior/moveto', Wait: 'behavior/wait', Fire: 'behavior/fire', Branch: 'behavior/branch', Loop: 'behavior/loop', Spin: 'behavior/spin', Punch: 'behavior/punch', Reroute: 'behavior/reroute', Comment: 'behavior/comment', Random: 'behavior/random' };
+// ノードtype文字列(LiteGraph用の"behavior/xxx"/"shot/xxx")とBehaviorGraph/ShotGraphの
+// スキーマ上のtype名("Xxx")の相互変換。Start/Wait/Branch/Loop/Random/Reroute/Commentは
+// 両ドメイン共通のノードクラスをそのまま使う。
+const NODE_TYPE_MAP = { start: 'Start', move: 'Move', moveto: 'MoveTo', wait: 'Wait', branch: 'Branch', loop: 'Loop', spin: 'Spin', punch: 'Punch', attack: 'Attack', reroute: 'Reroute', comment: 'Comment', random: 'Random', fire: 'Fire', multifire: 'MultiFire', missile: 'Missile' };
+const REVERSE_TYPE_MAP = { Start: 'behavior/start', Move: 'behavior/move', MoveTo: 'behavior/moveto', Wait: 'behavior/wait', Branch: 'behavior/branch', Loop: 'behavior/loop', Spin: 'behavior/spin', Punch: 'behavior/punch', Attack: 'behavior/attack', Reroute: 'behavior/reroute', Comment: 'behavior/comment', Random: 'behavior/random', Fire: 'shot/fire', MultiFire: 'shot/multifire', Missile: 'shot/missile' };
+
+// ドメインごとのノードパレット(LiteGraphのAdd Node検索に出てくる候補)。共有ノードは常時両方で使える。
+const SHARED_NODE_TYPES = ['behavior/start', 'behavior/wait', 'behavior/branch', 'behavior/loop', 'behavior/random', 'behavior/reroute', 'behavior/comment'];
+const BEHAVIOR_ONLY_TYPES = ['behavior/move', 'behavior/moveto', 'behavior/spin', 'behavior/punch', 'behavior/attack'];
+const SHOT_ONLY_TYPES = ['shot/fire', 'shot/multifire', 'shot/missile'];
+const OUR_NODE_TYPES = SHARED_NODE_TYPES.concat(BEHAVIOR_ONLY_TYPES, SHOT_ONLY_TYPES);
+let allNodeCtors = {}; // { [type]: ctor } - プルーニングで registered_node_types から一時的に外した時の退避先
+
+// ドメインごとのIPCメッセージ名 + サイドバーリストの束ね。behavior-editor extension(main.js)側の
+// listBehaviors/listShots等、対になるメソッド名と1:1で対応する。
+const GRAPH_IPC = {
+    behavior: { list: 'list-behaviors', load: 'load-graph', save: 'save-graph', create: 'create-behavior', duplicate: 'duplicate-behavior', rename: 'rename-behavior', delete: 'delete-behavior', label: '行動パターン' },
+    shot: { list: 'list-shots', load: 'load-shot-graph', save: 'save-shot-graph', create: 'create-shot', duplicate: 'duplicate-shot', rename: 'rename-shot', delete: 'delete-shot', label: '発射パターン' },
+};
+function ipc() { return GRAPH_IPC[graphDomain]; }
+function activeGraphList() { return graphDomain === 'shot' ? shotList : behaviorList; }
+function setActiveGraphList(list) { if (graphDomain === 'shot') shotList = list; else behaviorList = list; }
+
+// BehaviorGraphのAttackノードの"shotPatternId"コンボが呼ぶ。LiteGraphのcombo widgetは
+// options.valuesに関数を渡すとクリックの都度呼び出してくれる(litegraph.min.jsで確認済み)ので、
+// shotListを都度読み直せば常に最新のShot Pattern一覧が選択肢に出る(タブを一度も開いていなくても
+// ready()時に一度shotListを読み込んでおくので空にはならない)。
+function getShotIdOptions() {
+    const ids = shotList.map((s) => s.id).sort();
+    return ['(none)', ...ids];
+}
+
+// Fire/MultiFire/Missileノードの prefabName コンボが呼ぶ。assets/resources/Prefabs/Bullets/ 配下の
+// Prefab名一覧(bulletPrefabList、ready()時に一度読み込む)を返す。空欄=既定のbulletPrefabを使う。
+function getBulletPrefabOptions() {
+    return ['(default)', ...bulletPrefabList];
+}
 
 // --- 簡易モーダル (window.prompt/confirmはこのパネル環境ではサポートされないため自前で用意する) ----
 // 実機ログ: "[Window] prompt() is and will not be supported." のため、
@@ -376,7 +417,8 @@ function showModal(panel, opts) {
     });
 }
 
-// --- LiteGraph <-> BehaviorGraph(独自スキーマ) 変換 -------------------------------------
+// --- LiteGraph <-> BehaviorGraph/ShotGraph(独自スキーマ) 変換 -------------------------------------
+// ドメインに関わらず同じ変換ロジックが使える(NODE_TYPE_MAP/REVERSE_TYPE_MAPが違うだけ)。
 
 function outputTargetNodeId(serializedNode, slotIndex, linkById) {
     if (!serializedNode.outputs || !serializedNode.outputs[slotIndex]) return null;
@@ -386,7 +428,7 @@ function outputTargetNodeId(serializedNode, slotIndex, linkById) {
     return link ? link.targetId : null;
 }
 
-function exportGraph(behaviorId) {
+function exportGraph(graphId) {
     const data = litegraph.serialize();
     const linkById = {};
     (data.links || []).forEach(l => {
@@ -418,7 +460,7 @@ function exportGraph(behaviorId) {
 
         // Blueprint風の値配線: フロー入力("In", 常に0番)以外の名前付き入力に接続があれば、
         // その入力名+"Ref"というキーで接続元ノードID(通常はRandomノード)を記録する。
-        // ノード種別ごとの特別扱いは不要 — BehaviorRuntime側がparams[`${key}Ref`]という
+        // ノード種別ごとの特別扱いは不要 — BehaviorRuntime/ShotRuntime側がparams[`${key}Ref`]という
         // 命名規則で汎用的に解決する(resolveNum)。
         if (n.inputs) {
             n.inputs.forEach((inp, slotIdx) => {
@@ -440,11 +482,11 @@ function exportGraph(behaviorId) {
         return out;
     });
 
-    // Group(ノードをまとめる見た目上の枠)はBehaviorGraphの実行スキーマには関係ないが、
+    // Group(ノードをまとめる見た目上の枠)はグラフの実行スキーマには関係ないが、
     // グラフが複雑になった時の整理用に位置・サイズ・色・タイトルをそのまま保存しておく。
     const groups = data.groups || [];
 
-    return { id: behaviorId, nodes, _editor: { nodePositions, nodeStyles, groups } };
+    return { id: graphId, nodes, _editor: { nodePositions, nodeStyles, groups } };
 }
 
 function importGraph(schemaGraph) {
@@ -604,7 +646,7 @@ function isTypingInField() {
     return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 }
 
-// Behavior Graphタブが表示中(panelActive && viewMode==='graph')の時だけ効く、かつテキスト入力中は素通しする。
+// Graphタブが表示中(panelActive && viewMode==='graph')の時だけ効く、かつテキスト入力中は素通しする。
 function onGlobalKeyDown(e) {
     if (!panelActive || !activePanel || !libReady || viewMode !== 'graph') return;
     if (isTypingInField()) return;
@@ -646,20 +688,22 @@ function updateNodeDescBar(panel) {
 }
 
 // --- データ読み込み/保存 (実際のfs I/OはExtensionのmain.js側で行う) -------------------------
+// graphDomainに応じてipc()が返すメッセージ名を使うことで、Behavior/Shot両ドメインで
+// 同じロジックを共有する。
 
-async function refreshBehaviorList(panel) {
-    const result = await Editor.Message.request('behavior-editor', 'list-behaviors');
-    behaviorList = (result && result.ok) ? result.list : [];
+async function refreshGraphList(panel) {
+    const result = await Editor.Message.request('behavior-editor', ipc().list);
+    setActiveGraphList((result && result.ok) ? result.list : []);
     renderSidebar(panel);
 }
 
-async function loadBehavior(panel, id) {
+async function loadGraphItem(panel, id) {
     if (!libReady) {
         setStatus(panel, 'LiteGraph.js が読み込まれていないため編集できません。', true);
         return;
     }
     setStatus(panel, `Loading ${id}...`, false);
-    const result = await Editor.Message.request('behavior-editor', 'load-graph', id);
+    const result = await Editor.Message.request('behavior-editor', ipc().load, id);
     if (!result || !result.ok) {
         setStatus(panel, `Load failed: ${result ? result.error : 'unknown error'}`, true);
         return;
@@ -668,8 +712,8 @@ async function loadBehavior(panel, id) {
     importGraph(result.graph);
     resetUndoHistory(); // 別パターンをロードしたら前のパターンのUndo履歴には戻れないようにする
     panel.$.currentIdLabel.textContent = id;
-    // Noteはグラフjsonではなく Behaviors.csv 側の値 (behaviorListに既に読み込み済み) から拾う
-    const entry = behaviorList.find(b => b.id === id);
+    // Noteはグラフjsonではなくcsv側の値(既にリストに読み込み済み)から拾う
+    const entry = activeGraphList().find(b => b.id === id);
     panel.$.currentNoteInput.value = entry ? (entry.note || '') : '';
     setStatus(panel, result.isNew ? `New graph (not yet saved on disk): ${id}` : `Loaded ${id}.`, false);
     renderSidebar(panel);
@@ -677,15 +721,28 @@ async function loadBehavior(panel, id) {
 
 async function saveCurrent(panel) {
     if (!currentId) {
-        setStatus(panel, 'Behaviorが選択されていません。', true);
+        setStatus(panel, `${ipc().label}が選択されていません。`, true);
         return;
     }
     const graph = exportGraph(currentId);
+
+    // 保存直前の配線状態をコンソールへ出しておく。"更新すると配線が切れる"系の不具合が
+    // 実際に保存の瞬間に起きているのかどうかを、プレイ側の挙動を待たずその場で確認できるようにする。
+    const startNode = graph.nodes.find((n) => n.type === 'Start');
+    if (!startNode) {
+        console.warn(`[BehaviorEditor] Save '${currentId}': no Start node in this graph.`);
+    } else if (startNode.next == null) {
+        console.warn(`[BehaviorEditor] Save '${currentId}': Start node is NOT connected to anything (next=null). This pattern will do nothing at runtime.`);
+    } else {
+        const target = graph.nodes.find((n) => n.id === startNode.next);
+        console.log(`[BehaviorEditor] Save '${currentId}': Start -> ${target ? `${target.type}(${target.id})` : `missing node ${startNode.next}`}`);
+    }
+
     const note = panel.$.currentNoteInput.value.trim();
-    const result = await Editor.Message.request('behavior-editor', 'save-graph', currentId, graph, note);
+    const result = await Editor.Message.request('behavior-editor', ipc().save, currentId, graph, note);
     if (result && result.ok) {
         setStatus(panel, `Saved ${currentId}.`, false);
-        await refreshBehaviorList(panel);
+        await refreshGraphList(panel);
     } else {
         setStatus(panel, `Save failed: ${result ? result.error : 'unknown error'}`, true);
     }
@@ -693,17 +750,17 @@ async function saveCurrent(panel) {
 
 async function createNew(panel) {
     const res = await showModal(panel, {
-        title: '新しい行動パターンのID (例: BH_NEW_PATTERN)',
+        title: `新しい${ipc().label}のID (例: ${graphDomain === 'shot' ? 'SP_NEW_PATTERN' : 'BH_NEW_PATTERN'})`,
         showInput: true,
         inputDefault: '',
         showNote: true,
         okText: 'Create',
     });
     if (!res.ok || !res.value) return;
-    const result = await Editor.Message.request('behavior-editor', 'create-behavior', res.value, res.note);
+    const result = await Editor.Message.request('behavior-editor', ipc().create, res.value, res.note);
     if (result && result.ok) {
-        await refreshBehaviorList(panel);
-        await loadBehavior(panel, res.value);
+        await refreshGraphList(panel);
+        await loadGraphItem(panel, res.value);
     } else {
         setStatus(panel, `Create failed: ${result ? result.error : 'unknown error'}`, true);
     }
@@ -711,7 +768,7 @@ async function createNew(panel) {
 
 async function duplicateCurrent(panel) {
     if (!currentId) {
-        setStatus(panel, 'コピー元のBehaviorが選択されていません。', true);
+        setStatus(panel, `コピー元の${ipc().label}が選択されていません。`, true);
         return;
     }
     const res = await showModal(panel, {
@@ -722,11 +779,11 @@ async function duplicateCurrent(panel) {
         okText: 'Duplicate',
     });
     if (!res.ok || !res.value) return;
-    const result = await Editor.Message.request('behavior-editor', 'duplicate-behavior', currentId, res.value, res.note);
+    const result = await Editor.Message.request('behavior-editor', ipc().duplicate, currentId, res.value, res.note);
     if (result && result.ok) {
         const sourceId = currentId;
-        await refreshBehaviorList(panel);
-        await loadBehavior(panel, res.value);
+        await refreshGraphList(panel);
+        await loadGraphItem(panel, res.value);
         setStatus(panel, `'${sourceId}' を '${res.value}' として複製しました。`, false);
     } else {
         setStatus(panel, `Duplicate failed: ${result ? result.error : 'unknown error'}`, true);
@@ -735,7 +792,7 @@ async function duplicateCurrent(panel) {
 
 async function renameCurrent(panel) {
     if (!currentId) {
-        setStatus(panel, 'Renameするパターンが選択されていません。', true);
+        setStatus(panel, `Renameする${ipc().label}が選択されていません。`, true);
         return;
     }
     const res = await showModal(panel, {
@@ -745,12 +802,12 @@ async function renameCurrent(panel) {
         okText: 'Rename',
     });
     if (!res.ok || !res.value || res.value === currentId) return;
-    const result = await Editor.Message.request('behavior-editor', 'rename-behavior', currentId, res.value);
+    const result = await Editor.Message.request('behavior-editor', ipc().rename, currentId, res.value);
     if (result && result.ok) {
         const oldId = currentId;
         currentId = res.value;
-        await refreshBehaviorList(panel);
-        await loadBehavior(panel, currentId);
+        await refreshGraphList(panel);
+        await loadGraphItem(panel, currentId);
         setStatus(panel, `'${oldId}' を '${currentId}' にリネームしました。`, false);
     } else {
         setStatus(panel, `Rename failed: ${result ? result.error : 'unknown error'}`, true);
@@ -760,17 +817,17 @@ async function renameCurrent(panel) {
 async function deleteCurrent(panel) {
     if (!currentId) return;
     const res = await showModal(panel, {
-        title: `Behaviors.csv から '${currentId}' の行を削除します(JSON実体は残します)。よろしいですか?`,
+        title: `一覧から '${currentId}' の行を削除します(JSON実体は残します)。よろしいですか?`,
         okText: 'Delete',
     });
     if (!res.ok) return;
-    const result = await Editor.Message.request('behavior-editor', 'delete-behavior', currentId);
+    const result = await Editor.Message.request('behavior-editor', ipc().delete, currentId);
     if (result && result.ok) {
         currentId = null;
         panel.$.currentIdLabel.textContent = '(none)';
         panel.$.currentNoteInput.value = '';
         if (litegraph) litegraph.clear();
-        await refreshBehaviorList(panel);
+        await refreshGraphList(panel);
         setStatus(panel, 'Deleted.', false);
     } else {
         setStatus(panel, `Delete failed: ${result ? result.error : 'unknown error'}`, true);
@@ -780,14 +837,14 @@ async function deleteCurrent(panel) {
 function renderSidebar(panel) {
     const list = panel.$.behaviorList;
     list.innerHTML = '';
-    // Behaviors.csvの行順(=作成順)そのままだと増えるほど探しにくいため、表示だけID順(A→Z)に
-    // 並べ替える。CSVの実データ順序には触れない(保存・複製・削除は引き続きCSV上の元の行を操作する)。
-    const sorted = [...behaviorList].sort((a, b) => a.id.localeCompare(b.id));
+    // 作成順のままだと増えるほど探しにくいため、表示だけID順(A→Z)に並べ替える。
+    // 実データ(CSV)の行順には触れない(保存・複製・削除は引き続きCSV上の元の行を操作する)。
+    const sorted = [...activeGraphList()].sort((a, b) => a.id.localeCompare(b.id));
     sorted.forEach(({ id }) => {
         const item = document.createElement('div');
         item.className = 'behavior-item' + (id === currentId ? ' active' : '');
         item.textContent = id; // Noteは右側の Editing: 欄で編集する。一覧はIDのみで見やすくする
-        item.addEventListener('click', () => loadBehavior(panel, id));
+        item.addEventListener('click', () => loadGraphItem(panel, id));
         list.appendChild(item);
     });
 }
@@ -820,22 +877,41 @@ function injectInlineStyle(css) {
 }
 
 // LiteGraphのカスタムノード定義。接続は「実行順序(flow)」のみを表し、LiteGraphのデータフロー
-// 実行(runStep)は使わない — 実際の解釈・実行はランタイム側のBehaviorRuntime.tsが担当する。
+// 実行(runStep)は使わない — 実際の解釈・実行はランタイム側のBehaviorRuntime.ts/ShotRuntime.tsが担当する。
 // addWidgetのラッパー。ウィジェットの内部名(name、保存されるパラメータキーと一致させる必要がある)は
 // そのままに、画面表示だけ短いラベルに差し替える(長い名前+長い値でノード上で文字が被るのを防ぐ)。
 function addW(node, type, name, value, callback, opts, label) {
-    const widget = node.addWidget(type, name, value, callback, opts);
+    // customWidgetPrompt(数値ウィジェットをクリックして直接入力するダイアログ)はcallbackに
+    // <input type="text">の生の文字列をそのまま渡してくる。number系ウィジェットでこれを
+    // そのままproperties[key]に書き込むと、以後の演算(BehaviorRuntime/ShotRuntimeのresolveNum等)で
+    // 非数値文字列がMath.round/Math.max等を通ってNaNになり、MultiFireのwhile(remaining>0)のような
+    // 比較が常にfalseになって "何も起きない(エラーも出ない)" 形で弾が一切出なくなる、といった
+    // 静かなバグの原因になっていた。number型に限り、コミット時に数値へ変換し、変換できない
+    // (NaNになる)場合は直前の値を維持してNaNを絶対に書き込まないようにする。
+    let widget;
+    const wrappedCallback = (type === 'number' && callback)
+        ? (v) => {
+            const n = typeof v === 'number' ? v : parseFloat(v);
+            callback(Number.isFinite(n) ? n : (widget ? widget.value : value));
+        }
+        : callback;
+    widget = node.addWidget(type, name, value, wrappedCallback, opts);
     if (widget && label) widget.label = label;
     return widget;
 }
 
 function registerBehaviorNodeTypes(LiteGraph) {
     function BehaviorStartNode() {
+        // Loopノードが"最初のアクションノード"へ直接ループバックしようとすると、Startの配線と
+        // 同じ入力ソケットを取り合って片方が追い出される(LiteGraphは1入力=1本まで)。
+        // そのためStartにも入力を持たせ、Loopの戻り先は常にStart自身にする規約にする
+        // (Startはnextへ即転送するだけなので、動作は最初の実行時と全く同じになる)。
+        this.addInput("In", "flow");
         this.addOutput("Next", "flow");
         this.properties = {};
     }
     BehaviorStartNode.title = "Start";
-    BehaviorStartNode.desc = "行動グラフの入口。1つだけ配置する。";
+    BehaviorStartNode.desc = "グラフの入口。1つだけ配置する。Loopで最初に戻りたい場合は、最初のアクションノードにではなく必ずこのStartノードの In に繋ぐこと(同じ入力ソケットを取り合うと片方の配線が保存時に消える)。";
 
     function BehaviorMoveNode() {
         this.addInput("In", "flow");
@@ -875,15 +951,7 @@ function registerBehaviorNodeTypes(LiteGraph) {
         addW(this, "number", "seconds", this.properties.seconds, (v) => { this.properties.seconds = v; }, { step: 1, min: 0 }, "sec");
     }
     BehaviorWaitNode.title = "Wait";
-    BehaviorWaitNode.desc = "指定秒数だけシーケンスを止める(移動は継続する)。secondsはRandomノードから配線可能。";
-
-    function BehaviorFireNode() {
-        this.addInput("In", "flow");
-        this.addOutput("Next", "flow");
-        this.properties = {};
-    }
-    BehaviorFireNode.title = "Fire";
-    BehaviorFireNode.desc = "このEnemyDataに設定された弾(EnemyBulletData)を1発発射する。待機時間は弾のInterval値を自動使用する。";
+    BehaviorWaitNode.desc = "指定秒数だけシーケンスを止める(Behavior Graphでは移動は継続する、Shot Patternでは単に待つ)。secondsはRandomノードから配線可能。";
 
     function BehaviorBranchNode() {
         this.addInput("In", "flow");
@@ -897,7 +965,7 @@ function registerBehaviorNodeTypes(LiteGraph) {
         addW(this, "number", "value2", this.properties.value2, (v) => { this.properties.value2 = v; }, { step: 1 }, "val2");
     }
     BehaviorBranchNode.title = "Branch";
-    BehaviorBranchNode.desc = "条件で分岐する。timeElapsedGT=経過秒, hpPercentLT=HP%未満, distToPlayerLT=自機との距離未満, random=True側に進む確率%(通過するたび抽選)。logicをAND/ORにするとcondition2/value2も評価して組み合わせる(noneなら1つ目のみ)。";
+    BehaviorBranchNode.desc = "条件で分岐する。timeElapsedGT=経過秒, hpPercentLT=HP%未満(撃ち手自身のHP), distToPlayerLT=自機との距離未満, random=True側に進む確率%(通過するたび抽選)。logicをAND/ORにするとcondition2/value2も評価して組み合わせる(noneなら1つ目のみ)。";
 
     function BehaviorLoopNode() {
         this.addInput("In", "flow");
@@ -936,7 +1004,22 @@ function registerBehaviorNodeTypes(LiteGraph) {
         addW(this, "number", "inDuration", this.properties.inDuration, (v) => { this.properties.inDuration = v; }, { step: 0.01, min: 0 }, "inDur");
     }
     BehaviorPunchNode.title = "Punch";
-    BehaviorPunchNode.desc = "3Dモデルの指定軸を一瞬だけdegrees度(相対)傾けてすぐ戻す。ブロックしない。Fireの直後に繋いで攻撃の反動演出として使うのが典型例。degrees/outDuration/inDurationはRandomノードから配線可能。";
+    BehaviorPunchNode.desc = "3Dモデルの指定軸を一瞬だけdegrees度(相対)傾けてすぐ戻す。ブロックしない。攻撃の反動演出として使うのが典型例。degrees/outDuration/inDurationはRandomノードから配線可能。";
+
+    // Behavior Graph側から「今何のShot Patternで攻撃するか」を切り替えるための制御ノード。
+    // 実際の発射ロジックは持たず、Enemyが持つShotRuntimeを差し替えるトリガーとして働く
+    // (Enemy.setActiveShotPattern()参照)。shotPatternIdはShot Patternタブに登録済みのIDから
+    // ドロップダウンで選ぶ(getShotIdOptions()、常に最新の一覧を反映)。
+    function BehaviorAttackNode() {
+        this.addInput("In", "flow");
+        this.addOutput("Next", "flow");
+        this.properties = { shotPatternId: "(none)" };
+        addW(this, "combo", "shotPatternId", this.properties.shotPatternId, (v) => { this.properties.shotPatternId = v; }, { values: () => getShotIdOptions() }, "attack");
+        this.color = "#5a2a2a";
+        this.bgcolor = "#3a1c1c";
+    }
+    BehaviorAttackNode.title = "Attack";
+    BehaviorAttackNode.desc = "現在アクティブな発射パターン(Shot Pattern)を切り替える。指定したパターンはStartから再スタートし、次にAttackノードで切り替えるまでループし続ける(各パターン自身のLoopノードに従う)。\"(none)\"を選ぶと攻撃を停止する。ブロックしない、即座に次へ進む。EnemyDataのShotPatternID(初期の発射パターン)は引き続き有効で、このノードはそれを上書きする形になる。";
 
     // UE Blueprintの「Reroute」相当。何もせずNextへ即座に進むだけの中継ノード。
     // 線を整理してすっきりさせるためだけに使う(実行順序・パラメータには一切影響しない)。
@@ -984,7 +1067,7 @@ function registerBehaviorNodeTypes(LiteGraph) {
     // UE Blueprintの「Random Float」+「Timeline」的な値ノード。フローには一切参加せず(In/Nextを
     // 持たない)、出力"Value"を他ノードの数値項目(角度・速度・秒数など)の入力ソケットに繋いで使う。
     // mode=onceは初回に1回だけ抽選して以後固定、mode=intervalはinterval秒ごとに再抽選し続ける
-    // (周期的に値が変動する「ランダムLFO」相当)。
+    // (周期的に値が変動する「ランダムLFO」相当)。Behavior/Shot両ドメイン共通で使える。
     function BehaviorRandomNode() {
         this.addOutput("Value", "number");
         this.properties = { min: 0, max: 1, mode: "once", interval: 1.0 };
@@ -998,18 +1081,110 @@ function registerBehaviorNodeTypes(LiteGraph) {
     BehaviorRandomNode.title = "Random";
     BehaviorRandomNode.desc = "min〜maxの範囲で乱数値を出力する値ノード(フロー接続は不要、Value出力を他ノードの数値項目の入力ソケットに繋いで使う)。mode=onceは最初の1回だけ抽選して以後その値で固定。mode=intervalはinterval秒ごとに再抽選し続ける(周期的に揺らぐランダムLFO)。";
 
+    // --- Shot Pattern専用ノード(発射系) ---------------------------------------------------
+
+    function ShotFireNode() {
+        this.addInput("In", "flow");
+        this.addOutput("Next", "flow");
+        this.properties = { aim: "fixed", angle: 270, speed: 5.0, damage: 10, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0 };
+        addW(this, "combo", "aim", this.properties.aim, (v) => { this.properties.aim = v; }, { values: ["fixed", "atPlayer"] });
+        this.addInput("angle", "number");
+        addW(this, "number", "angle", this.properties.angle, (v) => { this.properties.angle = v; }, { step: 10 }, "ang");
+        this.addInput("speed", "number");
+        addW(this, "number", "speed", this.properties.speed, (v) => { this.properties.speed = v; }, { step: 1 }, "spd");
+        this.addInput("damage", "number");
+        addW(this, "number", "damage", this.properties.damage, (v) => { this.properties.damage = v; }, { step: 1 }, "dmg");
+        this.addInput("pierceCount", "number");
+        addW(this, "number", "pierceCount", this.properties.pierceCount, (v) => { this.properties.pierceCount = v; }, { step: 1, precision: 0 }, "pierce");
+        addW(this, 'combo', 'prefabName', this.properties.prefabName, (v) => { this.properties.prefabName = v; }, { values: () => getBulletPrefabOptions() }, 'prefab');
+        addW(this, 'text', 'color', this.properties.color, (v) => { this.properties.color = v; }, {}, 'color');
+        this.addInput('glowIntensity', 'number');
+        addW(this, 'number', 'glowIntensity', this.properties.glowIntensity, (v) => { this.properties.glowIntensity = v; }, { step: 0.1, min: 0 }, 'glow');
+    }
+    ShotFireNode.title = "Fire";
+    ShotFireNode.desc = "単発を1発撃って即座に次へ進む(ブロックしない)。aim=atPlayerでangleを無視し自機方向へ(敵発射のみ有効、自機発射では無視される)。pierceCount: 0=通常(1ヒットで消滅) / -1=無限貫通 / N=N回ヒットで消滅。prefabName='(default)'ならGameManagerの既定bulletPrefab、それ以外はassets/resources/Prefabs/Bullets/内の同名Prefabを使う。colorは\"#rrggbb\"形式(空欄なら既定の敵/自機色のまま)。glowIntensityは発光の明るさ倍率(既定1.0)。連射させたい場合は直後にWait→Loopで繋ぐ。数値パラメータはRandomノードから配線可能。";
+
+    function ShotMultiFireNode() {
+        this.addInput("In", "flow");
+        this.addOutput("Next", "flow");
+        this.properties = { aim: "fixed", angle: 270, count: 3, angleSpread: 0, staggerDelay: 0, speed: 5.0, damage: 10, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0 };
+        addW(this, "combo", "aim", this.properties.aim, (v) => { this.properties.aim = v; }, { values: ["fixed", "atPlayer"] });
+        this.addInput("angle", "number");
+        addW(this, "number", "angle", this.properties.angle, (v) => { this.properties.angle = v; }, { step: 10 }, "ang");
+        this.addInput("count", "number");
+        addW(this, "number", "count", this.properties.count, (v) => { this.properties.count = v; }, { step: 1, min: 1, precision: 0 });
+        this.addInput("angleSpread", "number");
+        addW(this, "number", "angleSpread", this.properties.angleSpread, (v) => { this.properties.angleSpread = v; }, { step: 5 }, "spread");
+        this.addInput("staggerDelay", "number");
+        addW(this, "number", "staggerDelay", this.properties.staggerDelay, (v) => { this.properties.staggerDelay = v; }, { step: 0.01, min: 0 }, "stagger");
+        this.addInput("speed", "number");
+        addW(this, "number", "speed", this.properties.speed, (v) => { this.properties.speed = v; }, { step: 1 }, "spd");
+        this.addInput("damage", "number");
+        addW(this, "number", "damage", this.properties.damage, (v) => { this.properties.damage = v; }, { step: 1 }, "dmg");
+        this.addInput("pierceCount", "number");
+        addW(this, "number", "pierceCount", this.properties.pierceCount, (v) => { this.properties.pierceCount = v; }, { step: 1, precision: 0 }, "pierce");
+        addW(this, 'combo', 'prefabName', this.properties.prefabName, (v) => { this.properties.prefabName = v; }, { values: () => getBulletPrefabOptions() }, 'prefab');
+        addW(this, 'text', 'color', this.properties.color, (v) => { this.properties.color = v; }, {}, 'color');
+        this.addInput('glowIntensity', 'number');
+        addW(this, 'number', 'glowIntensity', this.properties.glowIntensity, (v) => { this.properties.glowIntensity = v; }, { step: 0.1, min: 0 }, 'glow');
+    }
+    ShotMultiFireNode.title = "MultiFire";
+    ShotMultiFireNode.desc = "count発を1回のトリガーで撃つ。angleSpread>0かつstaggerDelay=0なら「拡散弾」(中心角angleを軸にcount発を扇状に同時発射)。angleSpread=0かつstaggerDelay>0なら「複数発射」(同じ角度へstaggerDelay秒間隔で連続発射、撃ち切るまでブロックする)。両方組み合わせも可。prefabName/color/glowIntensityで見た目を上書きできる(Fireノードと同じ)。数値パラメータはRandomノードから配線可能。";
+
+    function ShotMissileNode() {
+        this.addInput("In", "flow");
+        this.addOutput("Next", "flow");
+        this.properties = { angle: 270, speed: 3.0, damage: 15, homing: false, turnRate: 0.1, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0 };
+        this.addInput("angle", "number");
+        addW(this, "number", "angle", this.properties.angle, (v) => { this.properties.angle = v; }, { step: 10 }, "ang");
+        this.addInput("speed", "number");
+        addW(this, "number", "speed", this.properties.speed, (v) => { this.properties.speed = v; }, { step: 1 }, "spd");
+        this.addInput("damage", "number");
+        addW(this, "number", "damage", this.properties.damage, (v) => { this.properties.damage = v; }, { step: 1 }, "dmg");
+        addW(this, "toggle", "homing", this.properties.homing, (v) => { this.properties.homing = v; });
+        this.addInput("turnRate", "number");
+        addW(this, "number", "turnRate", this.properties.turnRate, (v) => { this.properties.turnRate = v; }, { step: 0.01, min: 0 }, "turn");
+        this.addInput("pierceCount", "number");
+        addW(this, "number", "pierceCount", this.properties.pierceCount, (v) => { this.properties.pierceCount = v; }, { step: 1, precision: 0 }, "pierce");
+        addW(this, 'combo', 'prefabName', this.properties.prefabName, (v) => { this.properties.prefabName = v; }, { values: () => getBulletPrefabOptions() }, 'prefab');
+        addW(this, 'text', 'color', this.properties.color, (v) => { this.properties.color = v; }, {}, 'color');
+        this.addInput('glowIntensity', 'number');
+        addW(this, 'number', 'glowIntensity', this.properties.glowIntensity, (v) => { this.properties.glowIntensity = v; }, { step: 0.1, min: 0 }, 'glow');
+    }
+    ShotMissileNode.title = "Missile";
+    ShotMissileNode.desc = "低速だが威力の高い弾を1発撃つ。ブロックしない。homing=ONで発射直後にターゲット(自機発射なら最寄りの敵、敵発射なら自機)を自動取得して追尾する(turnRateが旋回の強さ、Bullet.steerForceに対応)。prefabName/color/glowIntensityで見た目を上書きできる(Fireノードと同じ)。数値パラメータはRandomノードから配線可能。";
+
     LiteGraph.registerNodeType("behavior/start", BehaviorStartNode);
     LiteGraph.registerNodeType("behavior/move", BehaviorMoveNode);
     LiteGraph.registerNodeType("behavior/moveto", BehaviorMoveToNode);
     LiteGraph.registerNodeType("behavior/wait", BehaviorWaitNode);
-    LiteGraph.registerNodeType("behavior/fire", BehaviorFireNode);
     LiteGraph.registerNodeType("behavior/branch", BehaviorBranchNode);
     LiteGraph.registerNodeType("behavior/loop", BehaviorLoopNode);
     LiteGraph.registerNodeType("behavior/spin", BehaviorSpinNode);
     LiteGraph.registerNodeType("behavior/punch", BehaviorPunchNode);
+    LiteGraph.registerNodeType("behavior/attack", BehaviorAttackNode);
     LiteGraph.registerNodeType("behavior/reroute", BehaviorRerouteNode);
     LiteGraph.registerNodeType("behavior/comment", BehaviorCommentNode);
     LiteGraph.registerNodeType("behavior/random", BehaviorRandomNode);
+    LiteGraph.registerNodeType("shot/fire", ShotFireNode);
+    LiteGraph.registerNodeType("shot/multifire", ShotMultiFireNode);
+    LiteGraph.registerNodeType("shot/missile", ShotMissileNode);
+}
+
+// グラフドメイン("behavior"|"shot")に応じて、LiteGraphのAdd Node検索に出てくるノード種類を
+// 絞り込む。共有ノード(Start/Wait/Branch/Loop/Random/Reroute/Comment)は常に両方で使える。
+// allNodeCtorsに全コンストラクタを退避しておき、registered_node_typesへの出し入れだけを行う
+// (initLiteGraph側で一度registerBehaviorNodeTypes()した後に呼ばれる想定)。
+function setActiveNodePalette(domain) {
+    if (!window.LiteGraph || !window.LiteGraph.registered_node_types) return;
+    const allowed = new Set(SHARED_NODE_TYPES.concat(domain === 'shot' ? SHOT_ONLY_TYPES : BEHAVIOR_ONLY_TYPES));
+    OUR_NODE_TYPES.forEach((type) => {
+        if (allowed.has(type)) {
+            if (allNodeCtors[type]) window.LiteGraph.registered_node_types[type] = allNodeCtors[type];
+        } else {
+            delete window.LiteGraph.registered_node_types[type];
+        }
+    });
 }
 
 // LGraphCanvas.prototype.promptの置き換え。数値/コンボウィジェットのクリックや、ノード名の
@@ -1059,8 +1234,8 @@ function customWidgetPrompt(title, value, callback, event, multiline) {
     };
 
     input.addEventListener('keydown', (e) => {
-        // Ctrl+S/Delete等のグローバルショートカット(Behavior Pattern Editor全体用)に
-        // 奪われないよう、このinput内でのキー入力は外へ伝播させない。
+        // Ctrl+S/Delete等のグローバルショートカット(パネル全体用)に奪われないよう、
+        // このinput内でのキー入力は外へ伝播させない。
         e.stopPropagation();
         if (e.key === 'Enter' && !multiline) {
             e.preventDefault();
@@ -1094,15 +1269,23 @@ async function initLiteGraph(panel) {
 
         registerBehaviorNodeTypes(window.LiteGraph);
 
-        // LiteGraph同梱の既定ノード(MAX/MIN/SIN()等の数式ノード)はこの用途では使わないため、
-        // ダブルクリック検索やAdd Nodeメニューに出てこないよう登録から外す(behavior/*のみ残す)。
+        // 自前で登録したノード(OUR_NODE_TYPES)の参照を退避してから、LiteGraph同梱の既定ノード
+        // (MAX/MIN/SIN()等の数式ノード)を含め、それ以外は登録から完全に削除する
+        // (ダブルクリック検索やAdd Nodeメニューに出てこないようにするため)。
+        // Behavior/Shot間の出し分けはsetActiveNodePalette()が担当する。
+        OUR_NODE_TYPES.forEach((type) => {
+            if (window.LiteGraph.registered_node_types[type]) {
+                allNodeCtors[type] = window.LiteGraph.registered_node_types[type];
+            }
+        });
         if (window.LiteGraph.registered_node_types) {
             Object.keys(window.LiteGraph.registered_node_types).forEach((type) => {
-                if (!type.startsWith('behavior/')) {
+                if (!OUR_NODE_TYPES.includes(type)) {
                     delete window.LiteGraph.registered_node_types[type];
                 }
             });
         }
+        setActiveNodePalette(graphDomain);
 
         // ノードをダブルクリックした際に画面を覆うように出てくる既定の「ノードパネル」を無効化する。
         // (「クリックするとふいにプロパティが開く」「Valueをダブルクリックすると全プロパティ表示が
@@ -1133,15 +1316,16 @@ async function initLiteGraph(panel) {
 
         // パネル初期表示時、レイアウト確定前のサイズでcanvasの内部解像度が決まってしまい
         // 引き伸ばされて見えることがあるため、作成直後と次フレームの両方でresizeし直す
-        // (このパネルではBehavior Graphタブが最初は非表示のため、実際に意味のあるサイズになるのは
-        // switchToGraph()側のresize呼び出し。ここでの呼び出しはエラーにならないよう安全に呼ぶだけ)。
+        // (このパネルではBehavior/Shotどちらのグラフタブも最初は非表示のため、実際に意味のある
+        // サイズになるのはswitchToGraph()側のresize呼び出し。ここでの呼び出しはエラーにならない
+        // よう安全に呼ぶだけ)。
         if (litegraphCanvas.resize) litegraphCanvas.resize();
         requestAnimationFrame(() => {
             if (litegraphCanvas && litegraphCanvas.resize) litegraphCanvas.resize();
         });
 
         libReady = true;
-        setStatus(panel, 'LiteGraph.js loaded. Select a behavior on the left, or create a new one.', false);
+        setStatus(panel, 'LiteGraph.js loaded. Select a pattern on the left, or create a new one.', false);
     } catch (err) {
         console.error('[BehaviorEditor Panel] Failed to load LiteGraph.js:', err);
         setStatus(
@@ -1153,7 +1337,7 @@ async function initLiteGraph(panel) {
 }
 
 // ==================================================================================
-// --- タブ切り替え(CSVテーブル ⇔ Behavior Graph) --------------------------------------
+// --- タブ切り替え(CSVテーブル ⇔ Behavior Graph ⇔ Shot Pattern) --------------------------
 // ==================================================================================
 
 // CSVテーブル側に未保存の変更がある時だけ確認を挟む(グラフ側はUndo履歴があるので確認なしで良い)。
@@ -1175,11 +1359,17 @@ function renderTabBar(panel) {
         tabBar.appendChild(btn);
     });
 
-    const graphBtn = document.createElement('button');
-    graphBtn.className = 'tab-btn tab-btn-graph' + (viewMode === 'graph' ? ' active' : '');
-    graphBtn.textContent = '🧩 Behavior Graph';
-    graphBtn.addEventListener('click', () => switchToGraph(panel));
-    tabBar.appendChild(graphBtn);
+    const behaviorBtn = document.createElement('button');
+    behaviorBtn.className = 'tab-btn tab-btn-graph' + (viewMode === 'graph' && graphDomain === 'behavior' ? ' active' : '');
+    behaviorBtn.textContent = '🧩 Behavior Graph';
+    behaviorBtn.addEventListener('click', () => switchToGraph(panel, 'behavior'));
+    tabBar.appendChild(behaviorBtn);
+
+    const shotBtn = document.createElement('button');
+    shotBtn.className = 'tab-btn tab-btn-graph' + (viewMode === 'graph' && graphDomain === 'shot' ? ' active' : '');
+    shotBtn.textContent = '🔫 Shot Pattern';
+    shotBtn.addEventListener('click', () => switchToGraph(panel, 'shot'));
+    tabBar.appendChild(shotBtn);
 }
 
 function updateViewVisibility(panel) {
@@ -1203,16 +1393,31 @@ async function switchToCsv(panel, file) {
     renderTabBar(panel);
 }
 
-function switchToGraph(panel) {
+async function switchToGraph(panel, domain) {
     if (!confirmDiscardIfDirty()) return;
+    const domainChanged = viewMode !== 'graph' ? true : graphDomain !== domain;
     viewMode = 'graph';
+    graphDomain = domain;
+
+    if (domainChanged) {
+        // Behavior/Shotはノード語彙が異なるため、ドメイン切り替え時は選択中のグラフをクリアする
+        // (前ドメインのグラフを出しっぱなしにすると、Add Nodeで再現できないノードが残って紛らわしい)。
+        setActiveNodePalette(domain);
+        currentId = null;
+        panel.$.currentIdLabel.textContent = '(none)';
+        panel.$.currentNoteInput.value = '';
+        if (litegraph) litegraph.clear();
+        resetUndoHistory();
+    }
+
     renderTabBar(panel);
     updateViewVisibility(panel);
+    await refreshGraphList(panel);
 }
 
 module.exports = Editor.Panel.define({
     listeners: {
-        // panelActiveはBehavior Graph側のキーボードショートカット(Ctrl+S/Delete/Ctrl+Z/Ctrl+Shift+Z)と
+        // panelActiveはGraph側のキーボードショートカット(Ctrl+S/Delete/Ctrl+Z/Ctrl+Shift+Z)と
         // Undo履歴ポーリング/説明バー更新を「このパネルが表示中の時だけ」に絞るためのフラグ。
         show() {
             console.log('[MasterManager Panel] Show');
@@ -1230,7 +1435,7 @@ module.exports = Editor.Panel.define({
 
     template: `
         <div class="panel-root">
-            <div class="header">⚙️ Master Manager / 🧩 Behavior Graph Editor</div>
+            <div class="header">⚙️ Master Manager / 🧩 Behavior Graph / 🔫 Shot Pattern</div>
             <div class="tab-bar"></div>
 
             <div class="mm-view">
@@ -1433,7 +1638,7 @@ module.exports = Editor.Panel.define({
             cursor: pointer;
         }
 
-        /* --- Behavior Graph (Behavior Pattern Editor) 側 --- */
+        /* --- Behavior Graph / Shot Pattern (ノードグラフ編集) 側 --- */
         .be-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
         .be-body { flex: 1; display: flex; min-height: 0; gap: 8px; }
         .sidebar { width: 220px; flex-shrink: 0; display: flex; flex-direction: column; background: #1a1a1a; border-radius: 6px; padding: 8px; }
@@ -1513,7 +1718,7 @@ module.exports = Editor.Panel.define({
         .footer { flex-shrink: 0; margin-top: 10px; }
         .status { font-size: 12px; color: #8fd68f; }
 
-        /* --- Behavior Graph用モーダル --- */
+        /* --- Graph用モーダル --- */
         .modal-overlay {
             position: absolute;
             inset: 0;
@@ -1607,12 +1812,12 @@ module.exports = Editor.Panel.define({
         });
         this.$.saveBtn.addEventListener('click', () => saveFile(this));
 
-        // --- Behavior Graph ボタン ---
+        // --- Graph(Behavior/Shot共通) ボタン ---
         this.$.beNewBtn.addEventListener('click', () => createNew(this));
         this.$.beDuplicateBtn.addEventListener('click', () => duplicateCurrent(this));
         this.$.beRenameBtn.addEventListener('click', () => renameCurrent(this));
         this.$.beDeleteBtn.addEventListener('click', () => deleteCurrent(this));
-        this.$.beRefreshBtn.addEventListener('click', () => refreshBehaviorList(this));
+        this.$.beRefreshBtn.addEventListener('click', () => refreshGraphList(this));
         this.$.beSaveBtn.addEventListener('click', () => saveCurrent(this));
         this.$.gridSnapToggle.addEventListener('change', (e) => {
             if (litegraphCanvas) litegraphCanvas.align_to_grid = e.target.checked;
@@ -1625,7 +1830,18 @@ module.exports = Editor.Panel.define({
         updateViewVisibility(this);
 
         await initLiteGraph(this);
-        await refreshBehaviorList(this);
+        await refreshGraphList(this);
+
+        // Behavior GraphのAttackノードのドロップダウンはShot Patternタブを開かなくても使える
+        // 必要があるため、shotListは起動時に(現在のgraphDomainに関わらず)必ず一度読み込んでおく。
+        if (graphDomain !== 'shot') {
+            const shotListResult = await Editor.Message.request('behavior-editor', 'list-shots');
+            shotList = (shotListResult && shotListResult.ok) ? shotListResult.list : [];
+        }
+
+        // Fire/MultiFire/MissileノードのprefabNameドロップダウン用に、Bullet Prefab一覧も起動時に読んでおく。
+        const bulletPrefabResult = await Editor.Message.request('behavior-editor', 'list-bullet-prefabs');
+        bulletPrefabList = (bulletPrefabResult && bulletPrefabResult.ok) ? bulletPrefabResult.list : [];
 
         await loadFile(this, currentFile);
         renderTabBar(this);

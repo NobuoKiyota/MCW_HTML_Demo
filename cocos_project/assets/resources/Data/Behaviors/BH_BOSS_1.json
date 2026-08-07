@@ -7,11 +7,6 @@
             "next": 6
         },
         {
-            "id": 3,
-            "type": "Fire",
-            "next": 5
-        },
-        {
             "id": 5,
             "type": "Punch",
             "params": {
@@ -27,7 +22,7 @@
             "type": "Loop",
             "params": {
                 "count": -1,
-                "target": 3
+                "target": 5
             },
             "next": null
         },
@@ -86,10 +81,6 @@
             "2": [
                 776,
                 374
-            ],
-            "3": [
-                520,
-                80
             ],
             "4": [
                 840,

@@ -7,3 +7,4 @@ BH_ZIGZAG,Data/Behaviors/BH_ZIGZAG,Zigzag Down (was MPID005/006)
 Enemy006,Data/Behaviors/Enemy006,Homing toward Player (was MPID009)
 Enemy007,Data/Behaviors/Enemy007,Enemy007
 DebriMove02,Data/Behaviors/DebriMove02,Copied from DebriMove01
+Enemy001,Data/Behaviors/Enemy001,

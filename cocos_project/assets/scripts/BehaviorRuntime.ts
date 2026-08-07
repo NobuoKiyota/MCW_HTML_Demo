@@ -43,6 +43,9 @@ export interface BehaviorVisualHooks {
     onSpin?(axis: string, degrees: number, duration: number, loop: boolean): void;
     // axisをdegrees分(相対)一瞬傾けてすぐ戻す。ブロックしない(Fire直後などに繋いで使う想定)。
     onPunch?(axis: string, degrees: number, outDuration: number, inDuration: number): void;
+    // shotPatternId(空文字/"(none)"なら攻撃停止)を指定して、現在アクティブな発射パターン
+    // (ShotRuntime)を切り替える。Attackノードから呼ばれる。ブロックしない。
+    onAttack?(shotPatternId: string): void;
 }
 
 /**
@@ -50,9 +53,12 @@ export interface BehaviorVisualHooks {
  *
  * 2トラックモデル:
  *  - Motion State: 直近に実行された Move ノードのパラメータを保持し、毎フレーム座標に反映され続ける。
- *  - Flow Sequence: Start から Move/Wait/Fire/Branch/Loop/Spin/Punch を逐次たどる。Move/Branch/Loop/Punchは
- *    同一フレーム内で即座に次ノードへ進み、Wait/Fire/Spinのみがそのノードの待機時間が経過するまで
+ *  - Flow Sequence: Start から Move/Wait/Branch/Loop/Spin/Punch を逐次たどる。Move/Branch/Loop/Punchは
+ *    同一フレーム内で即座に次ノードへ進み、Wait/Spinのみがそのノードの待機時間が経過するまで
  *    フレームをまたいでブロックする。
+ *
+ * 発射(Fire)は本クラスの対象外。射撃タイミング・弾のパラメータは別途 ShotRuntime.ts
+ * (ShotGraph/EnemyData.shotPatternId経由)が、このMovementの流れとは独立して並行実行する。
  */
 export class BehaviorRuntime {
 
@@ -96,6 +102,12 @@ export class BehaviorRuntime {
                 this._nodeMap.set(n.id, n);
             }
             const start = graph.nodes.find(n => n.type === "Start");
+            // startノード自体は見つかったが、その next が未接続(null)だと1歩も進めず即終了する
+            // (=完全に沈黙する)。これを「Startノードが無い」場合と区別して警告する
+            // (過去に実際、保存のたびにStart->最初のノードの配線が失われる不具合があったため)。
+            if (start && start.next == null) {
+                console.warn(`[BehaviorRuntime] Graph '${graph.id}': Start node exists but is NOT connected to anything (next=null). Nothing will ever fire.`);
+            }
             this._cursor = start ? start.id : null;
             // 有効なグラフがある場合、Moveノードに到達するまでは出現位置に固定する
             // (グラフ全体が読み込めない異常系は、下のelse節でこれまで通り下方向へ流すフォールバックを維持する)。
@@ -152,14 +164,20 @@ export class BehaviorRuntime {
 
     // Randomノードから配線された値があればそれを、無ければリテラル値(未指定ならfallback)を返す。
     // 配線は params["<key>Ref"] = 参照先RandomノードのID、という規約でエディタ側が書き出す。
+    // paramsから読んだ値がエディタ側の過去のバグ等で文字列化されていた場合でも、演算がNaNに
+    // 汚染されて機能が丸ごと沈黙する(例: MultiFireのwhile(remaining>0)が常にfalseになり
+    // 発射が一切起きないのにエラーも出ない)のを避けるため、必ず数値化してから返す。
+    // 数値化できない場合はfallbackを返す(NaNを絶対に上位へ流さない)。
     private resolveNum(params: any, key: string, fallback: number): number {
         const refId = params && params[`${key}Ref`];
         if (refId != null) {
             const state = this._randomStates.get(refId);
             if (state) return state.value;
         }
-        const v = params && params[key];
-        return v != null ? v : fallback;
+        const raw = params && params[key];
+        if (raw == null) return fallback;
+        const n = typeof raw === "number" ? raw : parseFloat(raw);
+        return Number.isFinite(n) ? n : fallback;
     }
 
     private runFlow(dt: number, hp: number, maxHp: number) {
@@ -252,23 +270,6 @@ export class BehaviorRuntime {
                     }
                     return; // 待機継続、今フレームはここまで
                 }
-                case "Fire": {
-                    // 弾のInterval(EnemyBulletData経由)を待機時間として使う。
-                    // 元実装(handleFiring)の「スポーン直後は1インターバル待ってから初弾」という挙動を踏襲。
-                    const interval = (this._data._bullet && this._data._bullet.interval) || 1.0;
-                    if (this._timerNodeId !== node.id) {
-                        this._timerNodeId = node.id;
-                        this._timerRemaining = interval;
-                    }
-                    this._timerRemaining -= dt;
-                    if (this._timerRemaining <= 0) {
-                        this._timerNodeId = null;
-                        this.doFire();
-                        this._cursor = node.next ?? null;
-                        continue;
-                    }
-                    return; // 待機継続
-                }
                 case "Branch": {
                     const result = this.evalCondition(node.params, hp, maxHp);
                     this._cursor = (result ? node.trueNext : node.falseNext) ?? null;
@@ -312,6 +313,17 @@ export class BehaviorRuntime {
                     }
                     this._cursor = node.next ?? null;
                     continue; // ブロックしない、即座に次へ
+                }
+                case "Attack": {
+                    // 現在アクティブな発射パターン(ShotRuntime)を切り替える。実際の切り替え処理は
+                    // Enemyが所有するShotRuntimeの差し替えなのでBehaviorRuntimeの対象外 — フックへ
+                    // 委譲するだけ。ブロックしない(即座に次へ進む)。
+                    const p = node.params || {};
+                    if (this._visualHooks && this._visualHooks.onAttack) {
+                        this._visualHooks.onAttack(p.shotPatternId ?? "");
+                    }
+                    this._cursor = node.next ?? null;
+                    continue;
                 }
                 default: {
                     this._cursor = node.next ?? null;
@@ -436,31 +448,5 @@ export class BehaviorRuntime {
             default:
                 return false;
         }
-    }
-
-    private doFire() {
-        const gm = this._gm;
-        if (!gm) return;
-        const bullet = this._data._bullet;
-        if (!bullet) return; // このEnemyDataに弾が設定されていなければ何もしない
-
-        let angle = -Math.PI / 2;
-        if (bullet.type === 1 && gm.playerNode) {
-            const dx = gm.playerNode.position.x - this._enemyNode.position.x;
-            const dy = gm.playerNode.position.y - this._enemyNode.position.y;
-            angle = Math.atan2(dy, dx);
-        }
-
-        const speed = bullet.speed * (this._data.bulletSpeedMult || 1.0);
-        const damage = bullet.damage * (this._data.bulletDmgMult || 1.0);
-
-        gm.spawnBullet(
-            this._enemyNode.position.x,
-            this._enemyNode.position.y - 20,
-            angle,
-            speed,
-            damage,
-            true // isEnemy
-        );
     }
 }

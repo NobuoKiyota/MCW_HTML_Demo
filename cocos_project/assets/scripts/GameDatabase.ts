@@ -1,5 +1,5 @@
 import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab, resources, director, JsonAsset } from 'cc';
-import { EnemyData, EnemyBulletData, BehaviorData, DropData, SoundData, BehaviorGraph } from './GameDataTypes';
+import { EnemyData, BehaviorData, ShotPatternData, DropData, SoundData, BehaviorGraph, ShotGraph } from './GameDataTypes';
 import { CSVHelper } from './CSVHelper';
 import { SoundManager } from './SoundManager';
 import { IMissionData } from './Constants'; // New
@@ -24,8 +24,8 @@ export class GameDatabase extends Component {
     // ... (rest of props)
 
     // --- Raw Data Storage ---
-    public enemyBullets: EnemyBulletData[] = [];
     public behaviors: BehaviorData[] = [];
+    public shotPatterns: ShotPatternData[] = [];
     public drops: DropData[] = [];
     public sounds: SoundData[] = [];
     public missions: IMissionData[] = []; // New
@@ -34,11 +34,11 @@ export class GameDatabase extends Component {
     @property({ type: TextAsset, tooltip: "CSV: Enemies" })
     public enemyCsv: TextAsset = null;
 
-    @property({ type: TextAsset, tooltip: "CSV: EnemyBullets" })
-    public bulletCsv: TextAsset = null;
-
     @property({ type: TextAsset, tooltip: "CSV: Behaviors" })
     public behaviorCsv: TextAsset = null;
+
+    @property({ type: TextAsset, tooltip: "CSV: ShotPatterns" })
+    public shotPatternCsv: TextAsset = null;
 
     @property({ type: TextAsset, tooltip: "CSV: Drops" })
     public dropCsv: TextAsset = null;
@@ -76,8 +76,8 @@ export class GameDatabase extends Component {
 
         // Fail-safe initialization
         if (!this.enemies) this.enemies = [];
-        if (!this.enemyBullets) this.enemyBullets = [];
         if (!this.behaviors) this.behaviors = [];
+        if (!this.shotPatterns) this.shotPatterns = [];
         if (!this.drops) this.drops = [];
         if (!this.sounds) this.sounds = [];
 
@@ -110,15 +110,15 @@ export class GameDatabase extends Component {
 
     private loadAllCSV() {
         // Clear old data to prevent duplicates if called multiple times (though start only runs once)
-        this.enemyBullets = [];
         this.behaviors = [];
+        this.shotPatterns = [];
         this.drops = [];
         this.sounds = []; // Clear old sounds
         this.enemies = []; // Clear runtime list
         this.missions = []; // Clear mission list
 
-        if (this.bulletCsv) this.parseBulletCSV(this.bulletCsv.text);
         if (this.behaviorCsv) this.parseBehaviorCSV(this.behaviorCsv.text);
+        if (this.shotPatternCsv) this.parseShotPatternCSV(this.shotPatternCsv.text);
         if (this.dropCsv) this.parseDropCSV(this.dropCsv.text);
         if (this.soundCsv) this.parseSoundCSV(this.soundCsv.text);
         if (this.enemyCsv) this.parseEnemyCSV(this.enemyCsv.text);
@@ -139,26 +139,12 @@ export class GameDatabase extends Component {
             });
         }
 
-        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.enemyBullets.length} Bullets, ${this.behaviors.length} Behaviors, ${this.drops.length} Drops, ${this.missions.length} Missions`);
+        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.behaviors.length} Behaviors, ${this.shotPatterns.length} ShotPatterns, ${this.drops.length} Drops, ${this.missions.length} Missions`);
 
         this.isReady = true;
 
         // Notify Manager that Database is ready (Optional, if needed for tight coupling)
         // GameManager.instance.onDatabaseReady();
-    }
-
-    private parseBulletCSV(text: string) {
-        const data = CSVHelper.parse(text);
-        this.enemyBullets = data.map(row => {
-            const d = new EnemyBulletData();
-            d.id = row.ID;
-            d.type = row.Type || 0;
-            d.speed = row.Speed || 5;
-            d.damage = row.Damage || 10;
-            d.interval = row.Interval || 1.0;
-            d.prefabName = row.PrefabName || "";
-            return d;
-        });
     }
 
     private parseBehaviorCSV(text: string) {
@@ -189,6 +175,35 @@ export class GameDatabase extends Component {
                 return;
             }
             d._graph = asset.json as unknown as BehaviorGraph;
+        });
+    }
+
+    private parseShotPatternCSV(text: string) {
+        const data = CSVHelper.parse(text);
+        this.shotPatterns = data.map(row => {
+            const d = new ShotPatternData();
+            d.id = row.ID;
+            d.graphPath = row.GraphPath || "";
+            d.note = row.Note || "";
+            return d;
+        });
+
+        for (const d of this.shotPatterns) {
+            this.loadShotGraph(d);
+        }
+    }
+
+    private loadShotGraph(d: ShotPatternData) {
+        if (!d.graphPath) {
+            console.warn(`[GameDatabase] ShotPatternData '${d.id}' has no graphPath.`);
+            return;
+        }
+        resources.load(d.graphPath, JsonAsset, (err, asset) => {
+            if (err || !asset) {
+                console.error(`[GameDatabase] Failed to load shot graph '${d.graphPath}' for '${d.id}':`, err);
+                return;
+            }
+            d._graph = asset.json as unknown as ShotGraph;
         });
     }
 
@@ -230,9 +245,7 @@ export class GameDatabase extends Component {
             entry.behaviorId = row.BehaviorID;
             entry.speedMult = row.SpeedMult || 1.0;
 
-            entry.ebId = row.EbID;
-            entry.bulletSpeedMult = row.BulletSpeedMult || 1.0;
-            entry.bulletDmgMult = row.BulletDmgMult || 1.0;
+            entry.shotPatternId = row.ShotPatternID;
 
             entry.dropId = row.DropID;
 
@@ -241,7 +254,7 @@ export class GameDatabase extends Component {
 
             // Link Data (Cache)
             entry._behavior = this.getBehaviorData(entry.behaviorId);
-            entry._bullet = this.getBulletData(entry.ebId);
+            entry._shotPattern = this.getShotPatternData(entry.shotPatternId);
             entry._drops = this.getDropDataList(entry.dropId);
             entry._isFromCSV = true;
 
@@ -299,12 +312,12 @@ export class GameDatabase extends Component {
         return this.enemyPrefabs.find(p => p.data.name === cleanName) || null;
     }
 
-    public getBulletData(id: string): EnemyBulletData | null {
-        return this.enemyBullets.find(d => d.id === id) || null;
-    }
-
     public getBehaviorData(id: string): BehaviorData | null {
         return this.behaviors.find(d => d.id === id) || null;
+    }
+
+    public getShotPatternData(id: string): ShotPatternData | null {
+        return this.shotPatterns.find(d => d.id === id) || null;
     }
 
     public getDropDataList(id: string): DropData[] {
@@ -313,7 +326,7 @@ export class GameDatabase extends Component {
 
     /**
      * IDから敵データを取得
-     * @param id 
+     * @param id
      */
     public getEnemyData(id: string): EnemyData | null {
         return this.enemies.find(e => e.id === id) || null;

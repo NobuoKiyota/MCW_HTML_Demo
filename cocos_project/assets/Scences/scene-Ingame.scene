@@ -209,7 +209,7 @@
     "_priority": 0,
     "_fov": 45,
     "_fovAxis": 0,
-    "_orthoHeight": 370.1043841336117,
+    "_orthoHeight": 360,
     "_near": 0,
     "_far": 2000,
     "_color": {
@@ -260,7 +260,7 @@
     "_lpos": {
       "__type__": "cc.Vec3",
       "x": 640,
-      "y": 360.00000000000006,
+      "y": 360,
       "z": 1000
     },
     "_lrot": {
@@ -355,7 +355,9 @@
       "__uuid__": "dcafce84-70eb-4280-b396-ea7489f2f051",
       "__expectedType__": "cc.Prefab"
     },
+    "itemPrefab": null,
     "gameDatabase": null,
+    "testMode": false,
     "_id": "3egfERN3hBAJQQcc18lzll"
   },
   {
@@ -399,12 +401,12 @@
       "__uuid__": "a473ce8b-bfbf-4c65-8ebc-718a9d855000",
       "__expectedType__": "cc.TextAsset"
     },
-    "bulletCsv": {
-      "__uuid__": "4bac7b51-ee6a-4040-8c72-a3f8eafa3fa3",
-      "__expectedType__": "cc.TextAsset"
-    },
     "behaviorCsv": {
       "__uuid__": "b0cf6f27-4075-4c91-be6a-d79a6dd6a152",
+      "__expectedType__": "cc.TextAsset"
+    },
+    "shotPatternCsv": {
+      "__uuid__": "096f3ab5-f674-4519-9842-62b6c0b65b0b",
       "__expectedType__": "cc.TextAsset"
     },
     "dropCsv": {
@@ -415,6 +417,7 @@
       "__uuid__": "246e2e19-29f6-4cac-86db-9e02c5fec14c",
       "__expectedType__": "cc.TextAsset"
     },
+    "missionCsv": null,
     "_id": "f4n1wJm+xCUL6z8zqPWV40"
   },
   {

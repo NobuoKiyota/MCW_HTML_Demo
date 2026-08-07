@@ -1,14 +1,74 @@
 {
     "id": "BH_LEFTRIGHT",
     "nodes": [
-        { "id": 1, "type": "Start", "next": 6 },
-        { "id": 6, "type": "Spin", "params": { "axis": "y", "degrees": 360, "duration": 0.6 }, "next": 2 },
-        { "id": 2, "type": "Move", "params": { "pattern": "straight", "angle": 0, "speed": 2.0, "turn": 2.0 }, "next": 3 },
-        { "id": 3, "type": "Fire", "params": {}, "next": 5 },
-        { "id": 5, "type": "Punch", "params": { "axis": "x", "degrees": -30, "outDuration": 0.05, "inDuration": 0.12 }, "next": 4 },
-        { "id": 4, "type": "Loop", "params": { "target": 3, "count": -1 } }
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 6
+        },
+        {
+            "id": 6,
+            "type": "Spin",
+            "params": {
+                "axis": "y",
+                "degrees": 360,
+                "duration": 0.6
+            },
+            "next": 2
+        },
+        {
+            "id": 2,
+            "type": "Move",
+            "params": {
+                "pattern": "straight",
+                "angle": 0,
+                "speed": 2,
+                "turn": 2
+            },
+            "next": 5
+        },
+        {
+            "id": 5,
+            "type": "Punch",
+            "params": {
+                "axis": "x",
+                "degrees": -30,
+                "outDuration": 0.05,
+                "inDuration": 0.12
+            },
+            "next": 4
+        },
+        {
+            "id": 4,
+            "type": "Loop",
+            "params": {
+                "target": 5,
+                "count": -1
+            }
+        }
     ],
     "_editor": {
-        "nodePositions": { "1": [40, 80], "6": [200, 80], "2": [360, 80], "3": [520, 80], "5": [680, 80], "4": [840, 80] }
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "2": [
+                360,
+                80
+            ],
+            "4": [
+                840,
+                80
+            ],
+            "5": [
+                680,
+                80
+            ],
+            "6": [
+                200,
+                80
+            ]
+        }
     }
 }

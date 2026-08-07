@@ -2,35 +2,91 @@
   "package_version": 2,
   "version": "1.0.0",
   "name": "behavior-editor",
-  "label": "Behavior Pattern Editor (backend)",
-  "description": "Backend IPC handlers for BehaviorGraph JSON (assets/resources/Data/Behaviors/*.json) and the bundled LiteGraph.js lib files. No standalone panel - the UI is embedded in the Master Manager panel's 'Behavior Graph' tab.",
+  "label": "Behavior/Shot Graph Backend",
+  "description": "Backend IPC handlers for BehaviorGraph JSON (assets/resources/Data/Behaviors/*.json), ShotGraph JSON (assets/resources/Data/ShotPatterns/*.json), and the bundled LiteGraph.js lib files. No standalone panel - the UI is embedded in the Master Manager panel's 'Behavior Graph' / 'Shot Pattern' tabs.",
   "author": "Antigravity",
   "main": "./main.js",
   "contributions": {
     "messages": {
       "list-behaviors": {
-        "methods": ["listBehaviors"]
+        "methods": [
+          "listBehaviors"
+        ]
       },
       "load-graph": {
-        "methods": ["loadGraph"]
+        "methods": [
+          "loadGraph"
+        ]
       },
       "save-graph": {
-        "methods": ["saveGraph"]
+        "methods": [
+          "saveGraph"
+        ]
       },
       "create-behavior": {
-        "methods": ["createBehavior"]
+        "methods": [
+          "createBehavior"
+        ]
       },
       "delete-behavior": {
-        "methods": ["deleteBehavior"]
+        "methods": [
+          "deleteBehavior"
+        ]
       },
       "duplicate-behavior": {
-        "methods": ["duplicateBehavior"]
+        "methods": [
+          "duplicateBehavior"
+        ]
       },
       "rename-behavior": {
-        "methods": ["renameBehavior"]
+        "methods": [
+          "renameBehavior"
+        ]
+      },
+      "list-shots": {
+        "methods": [
+          "listShots"
+        ]
+      },
+      "load-shot-graph": {
+        "methods": [
+          "loadShotGraph"
+        ]
+      },
+      "save-shot-graph": {
+        "methods": [
+          "saveShotGraph"
+        ]
+      },
+      "create-shot": {
+        "methods": [
+          "createShot"
+        ]
+      },
+      "delete-shot": {
+        "methods": [
+          "deleteShot"
+        ]
+      },
+      "duplicate-shot": {
+        "methods": [
+          "duplicateShot"
+        ]
+      },
+      "rename-shot": {
+        "methods": [
+          "renameShot"
+        ]
       },
       "load-lib-file": {
-        "methods": ["loadLibFile"]
+        "methods": [
+          "loadLibFile"
+        ]
+      },
+      "list-bullet-prefabs": {
+        "methods": [
+          "listBulletPrefabs"
+        ]
       }
     }
   }

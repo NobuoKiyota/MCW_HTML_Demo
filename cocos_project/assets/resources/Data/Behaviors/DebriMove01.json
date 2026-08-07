@@ -2,11 +2,6 @@
     "id": "DebriMove01",
     "nodes": [
         {
-            "id": 3,
-            "type": "Fire",
-            "next": 5
-        },
-        {
             "id": 5,
             "type": "Punch",
             "params": {
@@ -16,15 +11,6 @@
                 "inDuration": 0.12
             },
             "next": 4
-        },
-        {
-            "id": 4,
-            "type": "Loop",
-            "params": {
-                "count": -1,
-                "target": 3
-            },
-            "next": null
         },
         {
             "id": 1,
@@ -85,6 +71,15 @@
                 "mode": "once",
                 "interval": 1
             }
+        },
+        {
+            "id": 4,
+            "type": "Loop",
+            "params": {
+                "count": -1,
+                "target": 5
+            },
+            "next": null
         }
     ],
     "_editor": {
@@ -97,17 +92,13 @@
                 1144,
                 291
             ],
-            "3": [
-                520,
-                80
-            ],
             "4": [
-                919,
-                81
+                850,
+                8
             ],
             "5": [
-                680,
-                80
+                611,
+                7
             ],
             "6": [
                 229,

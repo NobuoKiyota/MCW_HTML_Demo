@@ -784,12 +784,12 @@
       "__uuid__": "a473ce8b-bfbf-4c65-8ebc-718a9d855000",
       "__expectedType__": "cc.TextAsset"
     },
-    "bulletCsv": {
-      "__uuid__": "4bac7b51-ee6a-4040-8c72-a3f8eafa3fa3",
-      "__expectedType__": "cc.TextAsset"
-    },
     "behaviorCsv": {
       "__uuid__": "b0cf6f27-4075-4c91-be6a-d79a6dd6a152",
+      "__expectedType__": "cc.TextAsset"
+    },
+    "shotPatternCsv": {
+      "__uuid__": "096f3ab5-f674-4519-9842-62b6c0b65b0b",
       "__expectedType__": "cc.TextAsset"
     },
     "dropCsv": {

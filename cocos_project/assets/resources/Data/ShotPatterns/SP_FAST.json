@@ -1,0 +1,64 @@
+{
+    "id": "SP_FAST",
+    "nodes": [
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 2
+        },
+        {
+            "id": 3,
+            "type": "Wait",
+            "params": {
+                "seconds": 0.25
+            },
+            "next": 4
+        },
+        {
+            "id": 4,
+            "type": "Loop",
+            "params": {
+                "count": -1,
+                "target": 1
+            },
+            "next": null
+        },
+        {
+            "id": 2,
+            "type": "Fire",
+            "params": {
+                "aim": "fixed",
+                "angle": 270,
+                "speed": 7,
+                "damage": 8,
+                "pierceCount": 0.30000000000000004,
+                "prefabName": "Bullet01",
+                "color": "",
+                "glowIntensity": 1
+            },
+            "next": 3
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "2": [
+                191,
+                241
+            ],
+            "3": [
+                444,
+                243
+            ],
+            "4": [
+                692,
+                82
+            ]
+        },
+        "nodeStyles": {},
+        "groups": []
+    }
+}

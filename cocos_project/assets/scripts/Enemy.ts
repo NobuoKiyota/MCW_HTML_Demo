@@ -4,6 +4,8 @@ import { GAME_SETTINGS, IGameManager, GameState } from './Constants';
 import { SoundManager } from './SoundManager';
 import { DataManager } from './DataManager';
 import { BehaviorRuntime, BehaviorVisualHooks } from './BehaviorRuntime';
+import { ShotRuntime } from './ShotRuntime';
+import { GameDatabase } from './GameDatabase';
 const { ccclass, property } = _decorator;
 
 @ccclass('Enemy')
@@ -26,8 +28,12 @@ export class Enemy extends Component {
     // Cache GM
     private _gm: IGameManager = null;
 
-    // 行動グラフ(BehaviorGraph)のランタイム実行エンジン。移動・射撃の両方をここで処理する。
+    // 行動グラフ(BehaviorGraph)のランタイム実行エンジン。移動のみを担当する。
     private _behaviorRuntime: BehaviorRuntime | null = null;
+
+    // 発射パターングラフ(ShotGraph)のランタイム実行エンジン。移動とは独立して並行実行する
+    // (2トラック方式: 動きながら撃つ、を移動グラフ側に埋め込まずに表現できるようにするため)。
+    private _shotRuntime: ShotRuntime | null = null;
 
     // PlayerController.model3D と同じパターン: 2Dの当たり判定ノードに3Dモデルを子として取り付ける (任意)
     public model3D: Node = null;
@@ -76,14 +82,27 @@ export class Enemy extends Component {
         this.hp = data.hp || 10;
         this.maxHp = data.hp || 10;
 
-        // Behavior + Combat: BehaviorGraph(ノードグラフ)ランタイムに一任する。
-        // 移動パターンも射撃タイミングもグラフ側(Move/Wait/Fire/Branch/Loopノード)で定義される。
+        // Behavior(移動): BehaviorGraph(ノードグラフ)ランタイムに一任する。
         const graph = data._behavior ? data._behavior._graph : null;
         const visualHooks: BehaviorVisualHooks = {
             onSpin: (axis, degrees, duration, loop) => this.playSpin(axis, degrees, duration, loop),
             onPunch: (axis, degrees, outDuration, inDuration) => this.playPunch(axis, degrees, outDuration, inDuration),
+            onAttack: (shotPatternId) => this.setActiveShotPattern(shotPatternId),
         };
         this._behaviorRuntime = new BehaviorRuntime(graph, data, gm, this.node, visualHooks);
+
+        // Shot(発射): ShotGraphが設定されていれば、移動とは独立したもう1つのランタイムとして
+        // 並行実行する。未設定(shotPatternIdが空/該当パターン無し)の敵は単に発射しない。
+        const shotGraph = data._shotPattern ? data._shotPattern._graph : null;
+        if (shotGraph) {
+            this._shotRuntime = new ShotRuntime(shotGraph, gm, this.node, true);
+        } else if (data.shotPatternId) {
+            // ShotPatternIDは指定されているのに_graphが無い = GameDatabaseでIDが見つからないか、
+            // グラフJSONの非同期ロードがinit()の時点でまだ終わっていない(タイミング競合)。
+            console.warn(`[Enemy] init: shotPatternId='${data.shotPatternId}' was set for ${data.id} but no graph was resolved (_shotPattern=${data._shotPattern ? "found" : "null"}). This enemy will not fire.`);
+        } else {
+            console.log(`[Enemy] init: ${data.id} has no shotPatternId set (ShotPatterns.csv). It will only fire if a Behavior Attack node sets one.`);
+        }
 
         this.attachModel3D(data);
 
@@ -174,6 +193,10 @@ export class Enemy extends Component {
 
         this.handleMovement(dt, frameScale);
 
+        if (this._shotRuntime) {
+            this._shotRuntime.tick(dt, this.hp, this.maxHp);
+        }
+
         // Bounds
         this.node.getPosition(this._tempPos);
         const limit = -GAME_SETTINGS.CANVAS_HEIGHT / 2 - 100;
@@ -194,8 +217,8 @@ export class Enemy extends Component {
             this._tempPos.y -= gm.speedManager.getCurrentSpeed() * dtScale;
         }
 
-        // 行動グラフに沿った移動(Move系ノードのパターン)と射撃(Fire系ノード)は
-        // BehaviorRuntime に一任する。_tempPos はスクロールオフセット適用後の座標。
+        // 行動グラフに沿った移動(Move系ノードのパターン)は BehaviorRuntime に一任する。
+        // _tempPos はスクロールオフセット適用後の座標。
         if (this._behaviorRuntime) {
             this._behaviorRuntime.tick(dt, dtScale, this.time, this.hp, this.maxHp, this._tempPos);
         }
@@ -282,6 +305,27 @@ export class Enemy extends Component {
             running.stop();
             this._axisTweens[key] = null;
         }
+    }
+
+    /**
+     * BehaviorGraphのAttackノードから呼ばれる。現在アクティブな発射パターン(ShotRuntime)を
+     * 差し替える(既存のShotRuntimeがあれば単純に新しいインスタンスへ置き換えるだけ — 新しい
+     * パターンはStartノードから再スタートする)。id が空文字/"(none)"なら攻撃を停止する。
+     * 未知のIDが指定された場合は警告のみ出し、現在のShotRuntimeはそのまま維持する
+     * (タイプミス等で誤って攻撃が止まってしまうのを避けるため)。
+     */
+    private setActiveShotPattern(id: string) {
+        if (!id || id === '(none)') {
+            this._shotRuntime = null;
+            return;
+        }
+        const db = GameDatabase.instance;
+        const patternData = db ? db.getShotPatternData(id) : null;
+        if (!patternData || !patternData._graph) {
+            console.warn(`[Enemy] Attack: ShotPattern '${id}' not found or not loaded yet for ${this.data ? this.data.id : '?'}. Keeping previous attack.`);
+            return;
+        }
+        this._shotRuntime = new ShotRuntime(patternData._graph, this._gm, this.node, true);
     }
 
     public takeDamage(amount: number) {

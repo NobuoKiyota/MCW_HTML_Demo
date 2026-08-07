@@ -2,29 +2,15 @@
     "id": "Enemy001",
     "nodes": [
         {
-            "id": 3,
-            "type": "Fire",
-            "next": 5
-        },
-        {
-            "id": 5,
-            "type": "Punch",
+            "id": 6,
+            "type": "Spin",
             "params": {
-                "axis": "x",
-                "degrees": -30,
-                "outDuration": 0.05,
-                "inDuration": 0.12
+                "axis": "y",
+                "degrees": 360,
+                "duration": 0.6,
+                "loop": false
             },
-            "next": 4
-        },
-        {
-            "id": 4,
-            "type": "Loop",
-            "params": {
-                "count": -1,
-                "target": 3
-            },
-            "next": null
+            "next": 2
         },
         {
             "id": 1,
@@ -40,40 +26,23 @@
                 "speed": 2,
                 "turn": 2
             },
-            "next": null
+            "next": 8
         },
         {
-            "id": 6,
-            "type": "Spin",
+            "id": 8,
+            "type": "Wait",
             "params": {
-                "axis": "x",
-                "degrees": 360,
-                "duration": 2,
-                "loop": true
+                "seconds": 0.1
             },
             "next": 7
         },
         {
             "id": 7,
-            "type": "Spin",
+            "type": "Attack",
             "params": {
-                "axis": "y",
-                "degrees": 360,
-                "duration": 3,
-                "loop": true
+                "shotPatternId": "1ShotHM01"
             },
-            "next": 8
-        },
-        {
-            "id": 8,
-            "type": "Spin",
-            "params": {
-                "axis": "z",
-                "degrees": 360,
-                "duration": 1.5,
-                "loop": true
-            },
-            "next": 2
+            "next": null
         }
     ],
     "_editor": {
@@ -83,35 +52,28 @@
                 80
             ],
             "2": [
-                923,
-                298
-            ],
-            "3": [
-                520,
-                80
-            ],
-            "4": [
-                919,
-                81
-            ],
-            "5": [
-                680,
+                480,
                 80
             ],
             "6": [
-                229,
-                299
+                239,
+                84
             ],
             "7": [
-                462,
-                296
+                973,
+                87
             ],
             "8": [
-                686,
-                296
+                736,
+                86
             ]
         },
-        "nodeStyles": {},
+        "nodeStyles": {
+            "7": {
+                "color": "#5a2a2a",
+                "bgcolor": "#3a1c1c"
+            }
+        },
         "groups": []
     }
 }
