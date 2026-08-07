@@ -1,5 +1,5 @@
 {
-    "id": "Enemy001",
+    "id": "Enemy003_COPY",
     "nodes": [
         {
             "id": 6,
@@ -40,7 +40,7 @@
             "id": 7,
             "type": "Attack",
             "params": {
-                "shotPatternId": "1Shot01"
+                "shotPatternId": "SPREAD01"
             },
             "next": null
         }

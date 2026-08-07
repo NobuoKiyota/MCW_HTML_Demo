@@ -1,0 +1,96 @@
+{
+  "__type__": "cc.Material",
+  "_name": "",
+  "_objFlags": 0,
+  "__editorExtras__": {},
+  "_native": "",
+  "_effectAsset": {
+    "__uuid__": "2ec11458-f855-4978-b14d-f3ed5cf697fa",
+    "__expectedType__": "cc.EffectAsset"
+  },
+  "_techIdx": 0,
+  "_defines": [
+    {
+      "USE_ALPHA_TEST": true
+    },
+    {},
+    {},
+    {}
+  ],
+  "_states": [
+    {
+      "primitive": 2,
+      "rasterizerState": {},
+      "depthStencilState": {
+        "stencilFuncFront": 1,
+        "stencilFuncBack": 2,
+        "stencilReadMaskBack": 4294967304.1
+      },
+      "blendState": {
+        "blendColor": {
+          "__type__": "cc.Color",
+          "r": 128,
+          "g": 0,
+          "b": 0,
+          "a": 255
+        },
+        "targets": [
+          {}
+        ]
+      }
+    },
+    {
+      "rasterizerState": {},
+      "depthStencilState": {},
+      "blendState": {
+        "targets": [
+          {}
+        ]
+      }
+    },
+    {
+      "rasterizerState": {},
+      "depthStencilState": {},
+      "blendState": {
+        "targets": [
+          {}
+        ]
+      }
+    },
+    {
+      "rasterizerState": {},
+      "depthStencilState": {},
+      "blendState": {
+        "targets": [
+          {}
+        ]
+      }
+    }
+  ],
+  "_props": [
+    {
+      "mainColor": {
+        "__type__": "cc.Color",
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 177
+      },
+      "albedoScale": 19.3,
+      "metallic": 0.8,
+      "occlusion": 0.5,
+      "specularIntensity": 0.6,
+      "emissive": {
+        "__type__": "cc.Color",
+        "r": 94,
+        "g": 21,
+        "b": 21,
+        "a": 37
+      },
+      "alphaThreshold": 0.516
+    },
+    {},
+    {},
+    {}
+  ]
+}

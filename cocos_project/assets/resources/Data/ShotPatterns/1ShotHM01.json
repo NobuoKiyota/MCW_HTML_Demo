@@ -31,9 +31,9 @@
                 "speed": 10,
                 "damage": 10,
                 "homing": true,
-                "turnRate": 0.075,
+                "turnRate": 0.05,
                 "pierceCount": 0,
-                "prefabName": "Bullet03",
+                "prefabName": "Bullet06",
                 "color": "",
                 "glowIntensity": 1
             },
@@ -55,8 +55,8 @@
                 82
             ],
             "6": [
-                216,
-                189
+                200,
+                160
             ]
         },
         "nodeStyles": {},

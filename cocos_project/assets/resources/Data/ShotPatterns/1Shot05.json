@@ -32,7 +32,7 @@
                 "speed": 10,
                 "damage": 10,
                 "pierceCount": 0,
-                "prefabName": "Bullet01",
+                "prefabName": "Bullet05",
                 "color": "",
                 "glowIntensity": 1
             },

@@ -19,7 +19,7 @@
             "id": 3,
             "type": "Wait",
             "params": {
-                "seconds": 0.25
+                "seconds": 0.3
             },
             "next": 4
         },
@@ -32,7 +32,7 @@
                 "speed": 8,
                 "damage": 4,
                 "pierceCount": 0,
-                "prefabName": "Bullet01",
+                "prefabName": "Bullet04",
                 "color": "",
                 "glowIntensity": 1
             },

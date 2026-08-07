@@ -1,0 +1,179 @@
+{
+    "id": "Enemy008",
+    "nodes": [
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 6
+        },
+        {
+            "id": 6,
+            "type": "Spin",
+            "params": {
+                "axis": "y",
+                "degrees": 360,
+                "duration": 1.2,
+                "loop": false
+            },
+            "next": 11
+        },
+        {
+            "id": 11,
+            "type": "Branch",
+            "params": {
+                "condition": "random",
+                "value": 50,
+                "logic": "none",
+                "condition2": "random",
+                "value2": 50
+            },
+            "trueNext": 8,
+            "falseNext": 13
+        },
+        {
+            "id": 8,
+            "type": "Attack",
+            "params": {
+                "shotPatternId": "1Shot05"
+            },
+            "next": 9
+        },
+        {
+            "id": 13,
+            "type": "Attack",
+            "params": {
+                "shotPatternId": "1Shot05"
+            },
+            "next": 14
+        },
+        {
+            "id": 9,
+            "type": "MoveTo",
+            "params": {
+                "from": "0",
+                "to": "2",
+                "interp": "curve",
+                "curveAmount": 60,
+                "duration": 1
+            },
+            "next": 10
+        },
+        {
+            "id": 10,
+            "type": "MoveTo",
+            "params": {
+                "from": "2",
+                "to": "1",
+                "interp": "curve",
+                "curveAmount": 60,
+                "duration": 1
+            },
+            "next": 2
+        },
+        {
+            "id": 14,
+            "type": "MoveTo",
+            "params": {
+                "from": "0",
+                "to": "3",
+                "interp": "curve",
+                "curveAmount": 60,
+                "duration": 1
+            },
+            "next": 15
+        },
+        {
+            "id": 15,
+            "type": "MoveTo",
+            "params": {
+                "from": "3",
+                "to": "1",
+                "interp": "curve",
+                "curveAmount": 60,
+                "duration": 1
+            },
+            "next": 12
+        },
+        {
+            "id": 2,
+            "type": "Move",
+            "params": {
+                "pattern": "zigzag",
+                "angle": 270,
+                "speed": 2,
+                "turn": 5
+            },
+            "next": null
+        },
+        {
+            "id": 12,
+            "type": "Move",
+            "params": {
+                "pattern": "zigzag",
+                "angle": 270,
+                "speed": 2,
+                "turn": 5
+            },
+            "next": null
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                0,
+                40
+            ],
+            "2": [
+                1359.300000000002,
+                42.2
+            ],
+            "6": [
+                160,
+                40
+            ],
+            "8": [
+                639.2999999999994,
+                42.2
+            ],
+            "9": [
+                879.2999999999994,
+                42.2
+            ],
+            "10": [
+                1119.300000000002,
+                42.2
+            ],
+            "11": [
+                400,
+                40
+            ],
+            "12": [
+                1361.1748404762982,
+                299.6000583995473
+            ],
+            "13": [
+                639.2999999999994,
+                282.20000000000005
+            ],
+            "14": [
+                881.1748404762951,
+                299.6000583995473
+            ],
+            "15": [
+                1121.1748404762982,
+                299.6000583995473
+            ]
+        },
+        "nodeStyles": {
+            "8": {
+                "color": "#5a2a2a",
+                "bgcolor": "#3a1c1c"
+            },
+            "13": {
+                "color": "#5a2a2a",
+                "bgcolor": "#3a1c1c"
+            }
+        },
+        "groups": []
+    }
+}

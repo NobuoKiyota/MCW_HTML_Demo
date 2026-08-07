@@ -29,13 +29,13 @@
             "params": {
                 "aim": "fixed",
                 "angle": 270,
-                "count": 7,
+                "count": 5,
                 "angleSpread": 30,
                 "staggerDelay": 0,
-                "speed": 8,
-                "damage": 8,
+                "speed": 6,
+                "damage": 7,
                 "pierceCount": 0,
-                "prefabName": "Bullet01",
+                "prefabName": "Bullet03",
                 "color": "",
                 "glowIntensity": 1,
                 "angleOffset": 0

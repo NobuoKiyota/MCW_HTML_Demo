@@ -102,9 +102,9 @@
     },
     "_lscale": {
       "__type__": "cc.Vec3",
-      "x": 10,
-      "y": 10,
-      "z": 10
+      "x": 20,
+      "y": 20,
+      "z": 20
     },
     "_mobility": 0,
     "_layer": 1073741824,
@@ -118,7 +118,7 @@
   },
   {
     "__type__": "cc.MeshRenderer",
-    "_name": "Capsule<ModelComponent>",
+    "_name": "Sphere<ModelComponent>",
     "_objFlags": 0,
     "__editorExtras__": {},
     "node": {
@@ -130,7 +130,7 @@
     },
     "_materials": [
       {
-        "__uuid__": "620b6bf3-0369-4560-837f-2a2c00b73c26",
+        "__uuid__": "49183faf-0bf5-4c36-a5cf-d9ed05d0e3f8",
         "__expectedType__": "cc.Material"
       }
     ],
@@ -139,7 +139,7 @@
       "__id__": 5
     },
     "_mesh": {
-      "__uuid__": "1263d74c-8167-4928-91a6-4e2672411f47@801ec",
+      "__uuid__": "1263d74c-8167-4928-91a6-4e2672411f47@17020",
       "__expectedType__": "cc.Mesh"
     },
     "_shadowCastingMode": 0,
@@ -155,7 +155,7 @@
   },
   {
     "__type__": "cc.CompPrefabInfo",
-    "fileId": "37q/PQE+NDorRvsJUPY4Lo"
+    "fileId": "dcdZApgKlKo7JPd44LmPuQ"
   },
   {
     "__type__": "cc.ModelBakeSettings",
@@ -185,7 +185,7 @@
     "asset": {
       "__id__": 0
     },
-    "fileId": "7eDG599npMzoBd5UT3rdAH",
+    "fileId": "bc+wrh3blH/LPG4XxZ58Mr",
     "instance": null,
     "targetOverrides": null,
     "nestedPrefabInstanceRoots": null
@@ -204,7 +204,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 10,
+      "width": 20,
       "height": 20
     },
     "_anchorPoint": {
@@ -243,7 +243,7 @@
     },
     "_size": {
       "__type__": "cc.Size",
-      "width": 10,
+      "width": 20,
       "height": 20
     },
     "_id": ""

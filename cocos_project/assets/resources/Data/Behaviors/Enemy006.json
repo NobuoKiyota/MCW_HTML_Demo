@@ -2,29 +2,23 @@
     "id": "Enemy006",
     "nodes": [
         {
-            "id": 4,
-            "type": "Loop",
+            "id": 2,
+            "type": "Move",
             "params": {
-                "count": -1,
-                "target": 5
+                "pattern": "homing",
+                "angle": 270,
+                "speed": 2,
+                "turn": 5
+            },
+            "next": 8
+        },
+        {
+            "id": 8,
+            "type": "Attack",
+            "params": {
+                "shotPatternId": "1Shot04"
             },
             "next": null
-        },
-        {
-            "id": 5,
-            "type": "Punch",
-            "params": {
-                "axis": "x",
-                "degrees": -30,
-                "outDuration": 0.05,
-                "inDuration": 0.12
-            },
-            "next": 4
-        },
-        {
-            "id": 1,
-            "type": "Start",
-            "next": 6
         },
         {
             "id": 6,
@@ -38,53 +32,36 @@
             "next": 2
         },
         {
-            "id": 2,
-            "type": "Move",
-            "params": {
-                "pattern": "homing",
-                "angle": 270,
-                "speed": 2,
-                "turn": 5
-            },
-            "next": null
+            "id": 1,
+            "type": "Start",
+            "next": 6
         }
     ],
     "_editor": {
         "nodePositions": {
             "1": [
-                80,
-                400
+                0,
+                40
             ],
             "2": [
-                480,
-                400
-            ],
-            "4": [
-                59,
-                178
-            ],
-            "5": [
-                299,
-                98
+                415,
+                43
             ],
             "6": [
-                240,
-                400
+                175,
+                43
+            ],
+            "8": [
+                655,
+                43
             ]
         },
-        "nodeStyles": {},
-        "groups": [
-            {
-                "title": "Fire",
-                "bounding": [
-                    7,
-                    9,
-                    549,
-                    316
-                ],
-                "color": "#3f789e",
-                "font_size": 24
+        "nodeStyles": {
+            "8": {
+                "color": "#5a2a2a",
+                "bgcolor": "#3a1c1c"
             }
-        ]
+        },
+        "groups": []
     }
 }

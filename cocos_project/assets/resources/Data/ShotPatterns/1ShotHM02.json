@@ -1,11 +1,6 @@
 {
-    "id": "1Shot02",
+    "id": "1ShotHM02",
     "nodes": [
-        {
-            "id": 1,
-            "type": "Start",
-            "next": 2
-        },
         {
             "id": 4,
             "type": "Loop",
@@ -16,23 +11,29 @@
             "next": null
         },
         {
+            "id": 1,
+            "type": "Start",
+            "next": 6
+        },
+        {
             "id": 3,
             "type": "Wait",
             "params": {
-                "seconds": 0.4
+                "seconds": 1.5
             },
             "next": 4
         },
         {
-            "id": 2,
-            "type": "Fire",
+            "id": 6,
+            "type": "Missile",
             "params": {
-                "aim": "fixed",
                 "angle": 270,
-                "speed": 7,
-                "damage": 7,
+                "speed": 10,
+                "damage": 10,
+                "homing": true,
+                "turnRate": 0.05,
                 "pierceCount": 0,
-                "prefabName": "Bullet02",
+                "prefabName": "Bullet07",
                 "color": "",
                 "glowIntensity": 1
             },
@@ -45,10 +46,6 @@
                 40,
                 80
             ],
-            "2": [
-                220,
-                80
-            ],
             "3": [
                 468,
                 83
@@ -56,6 +53,10 @@
             "4": [
                 713,
                 82
+            ],
+            "6": [
+                200,
+                160
             ]
         },
         "nodeStyles": {},

@@ -8,3 +8,8 @@ Enemy006,Data/Behaviors/Enemy006,Homing toward Player (was MPID009)
 Enemy007,Data/Behaviors/Enemy007,Enemy007
 DebriMove02,Data/Behaviors/DebriMove02,Copied from DebriMove01
 Enemy001,Data/Behaviors/Enemy001,
+Enemy002,Data/Behaviors/Enemy002,Copied from Enemy001
+Enemy003,Data/Behaviors/Enemy003,Copied from Enemy002
+Enemy004,Data/Behaviors/Enemy004,Copied from Enemy003
+Enemy005,Data/Behaviors/Enemy005,Copied from Enemy004
+Enemy008,Data/Behaviors/Enemy008,Copied from Enemy006

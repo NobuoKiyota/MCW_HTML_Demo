@@ -1,5 +1,5 @@
 {
-    "id": "1Shot02",
+    "id": "SPREAD04",
     "nodes": [
         {
             "id": 1,
@@ -19,22 +19,26 @@
             "id": 3,
             "type": "Wait",
             "params": {
-                "seconds": 0.4
+                "seconds": 1
             },
             "next": 4
         },
         {
             "id": 2,
-            "type": "Fire",
+            "type": "MultiFire",
             "params": {
                 "aim": "fixed",
                 "angle": 270,
-                "speed": 7,
-                "damage": 7,
+                "count": 7,
+                "angleSpread": 30,
+                "staggerDelay": 0,
+                "speed": 8,
+                "damage": 5,
                 "pierceCount": 0,
-                "prefabName": "Bullet02",
+                "prefabName": "Bullet04",
                 "color": "",
-                "glowIntensity": 1
+                "glowIntensity": 1,
+                "angleOffset": 0
             },
             "next": 3
         }
@@ -51,10 +55,10 @@
             ],
             "3": [
                 468,
-                83
+                81
             ],
             "4": [
-                713,
+                732,
                 82
             ]
         },

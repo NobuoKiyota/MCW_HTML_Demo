@@ -5,55 +5,17 @@
   "__editorExtras__": {},
   "_native": "",
   "_effectAsset": {
-    "__uuid__": "c8f66d17-351a-48da-a12c-0212d28575c4",
+    "__uuid__": "a3cd009f-0ab0-420d-9278-b9fdab939bbc",
     "__expectedType__": "cc.EffectAsset"
   },
-  "_techIdx": 0,
+  "_techIdx": 2,
   "_defines": [
-    {},
-    {},
-    {},
-    {},
-    {},
+    {
+      "USE_TEXTURE": true
+    },
     {}
   ],
   "_states": [
-    {
-      "rasterizerState": {},
-      "depthStencilState": {},
-      "blendState": {
-        "targets": [
-          {}
-        ]
-      }
-    },
-    {
-      "rasterizerState": {},
-      "depthStencilState": {},
-      "blendState": {
-        "targets": [
-          {}
-        ]
-      }
-    },
-    {
-      "rasterizerState": {},
-      "depthStencilState": {},
-      "blendState": {
-        "targets": [
-          {}
-        ]
-      }
-    },
-    {
-      "rasterizerState": {},
-      "depthStencilState": {},
-      "blendState": {
-        "targets": [
-          {}
-        ]
-      }
-    },
     {
       "rasterizerState": {},
       "depthStencilState": {},
@@ -75,21 +37,18 @@
   ],
   "_props": [
     {
+      "mainTexture": {
+        "__uuid__": "8a103a3b-41b8-4e3b-a921-21694a664d18@6c48a",
+        "__expectedType__": "cc.Texture2D"
+      },
       "mainColor": {
         "__type__": "cc.Color",
-        "r": 93,
-        "g": 112,
-        "b": 51,
+        "r": 255,
+        "g": 194,
+        "b": 0,
         "a": 255
-      },
-      "occlusion": 1,
-      "roughness": 0.249,
-      "metallic": 0.418
+      }
     },
-    {},
-    {},
-    {},
-    {},
     {}
   ]
 }
