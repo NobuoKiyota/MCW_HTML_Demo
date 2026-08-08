@@ -1,10 +1,18 @@
 {
-    "id": "1Shot03",
+    "id": "1ShotAim01",
     "nodes": [
         {
             "id": 1,
             "type": "Start",
             "next": 2
+        },
+        {
+            "id": 3,
+            "type": "Wait",
+            "params": {
+                "seconds": 0.5
+            },
+            "next": 4
         },
         {
             "id": 4,
@@ -16,23 +24,15 @@
             "next": null
         },
         {
-            "id": 3,
-            "type": "Wait",
-            "params": {
-                "seconds": 0.35
-            },
-            "next": 4
-        },
-        {
             "id": 2,
             "type": "Fire",
             "params": {
-                "aim": "fixed",
+                "aim": "atPlayer",
                 "angle": 270,
-                "speed": 10,
-                "damage": 6,
+                "speed": 7,
+                "damage": 8,
                 "pierceCount": 0,
-                "prefabName": "Bullet03",
+                "prefabName": "Bullet01",
                 "color": "",
                 "glowIntensity": 1,
                 "count": 1

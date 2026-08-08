@@ -4,7 +4,8 @@
 // assets/scripts/CSVHelper.ts. Keep this list in sync if new CSV tables are added there.
 const CSV_FILES = [
     { label: 'Enemies', file: 'Enemies.csv' },
-    { label: 'Drops', file: 'Drops.csv' },
+    { label: 'DropTableIDManager', file: 'DropTables.csv' },
+    { label: 'ItemManager', file: 'Items.csv' },
     { label: 'Behaviors', file: 'Behaviors.csv' },
     { label: 'ShotPatterns', file: 'ShotPatterns.csv' },
     { label: 'Sounds', file: 'Sounds.csv' },
@@ -17,14 +18,20 @@ const CSV_FILES = [
 // cross-linking (behaviorId/shotPatternId/dropId - see assets/scripts/GameDatabase.ts).
 const SCHEMA = {
     'Enemies.csv': {
-        BehaviorID: { file: 'Behaviors.csv', column: 'ID' },
-        ShotPatternID: { file: 'ShotPatterns.csv', column: 'ID' },
-        DropID: { file: 'Drops.csv', column: 'ID' },
+        BehaviorID: { file: 'Behaviors.csv', column: 'ID', isSelect: true },
+        ShotPatternID: { file: 'ShotPatterns.csv', column: 'ID', isSelect: true },
+        DropTableID: { file: 'DropTables.csv', column: 'ID', isSelect: true },
     },
-    'Drops.csv': {
-        // Drops.csv has no separate item-master table, so this suggests from whatever
-        // ItemID values already exist elsewhere in this same column.
-        ItemID: { file: 'Drops.csv', column: 'ItemID' },
+    'DropTables.csv': {
+        ItemID_1: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
+        ItemID_2: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
+        ItemID_3: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
+        ItemID_4: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
+        ItemID_5: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
+    },
+    'Items.csv': {
+        Type: { fixedList: ['Score', 'Heal', 'Misc', 'Buff', 'PowerUp', 'Weapon', 'Material'], isSelect: true },
+        EffectType: { fixedList: ['Heal', 'PowerUp', 'RapidFire', 'Credit', 'Exp', 'Score', 'Material', 'UnlockTrigger', 'None'], isSelect: true },
     },
 };
 
@@ -42,8 +49,15 @@ const COLUMN_LABELS = {
 // どちらを編集しているかを切り替える(LGraph/LGraphCanvasインスタンスは1つを使い回す)。
 // main.js(IPCハンドラ)は元のまま2つの拡張機能(master-manager/behavior-editor)に分かれて残っている
 // (Editor.Message.requestはパッケージ名で届くので、どちらのパネルから呼んでも問題ない)。
-let viewMode = 'csv'; // 'csv' | 'graph'
+let viewMode = 'csv'; // 'csv' | 'graph' | 'shot-manager'
 let graphDomain = 'behavior'; // 'behavior' | 'shot' (viewMode==='graph'の時のみ意味を持つ)
+
+// ShotManager 側の状態
+let shotManagerItems = [];
+let bulletPrefabOptions = [];
+let smDirty = false;
+let smSortKey = null;
+let smSortDir = 1;
 
 // ==================================================================================
 // --- Master Manager (CSVテーブル編集) 側の状態 -------------------------------------
@@ -83,7 +97,7 @@ const COL_WIDTHS_KEY = 'master-manager-col-widths';
 const DEFAULT_COL_WIDTH = 90;
 // BehaviorID/ShotPatternIDのような長めのID文字列が入る列は、記憶済み幅が無い初回表示でも
 // 値が欠けて見えないよう、既定幅をやや広めにしておく(90pxだと"SP_NORMAL"等が入りきらない)。
-const WIDE_DEFAULT_COLUMNS = { BehaviorID: 120, ShotPatternID: 120, DropID: 100 };
+const WIDE_DEFAULT_COLUMNS = { BehaviorID: 120, ShotPatternID: 120, DropTableID: 130, DropID: 100, ItemID_1: 110, ItemID_2: 110, ItemID_3: 110, ItemID_4: 110, ItemID_5: 110 };
 let colWidths = {}; // { "file::column": widthPx }
 
 function loadColWidths() {
@@ -130,9 +144,13 @@ async function loadRefOptions(file) {
     const schema = SCHEMA[file];
     if (!schema) return;
     for (const colName of Object.keys(schema)) {
-        const { file: refFile, column: refColumn } = schema[colName];
+        const { file: refFile, column: refColumn, includeNone } = schema[colName];
         const values = await fetchColumnValues(refFile, refColumn);
-        refOptions[colName] = Array.from(new Set(values));
+        const setList = Array.from(new Set(values));
+        if (includeNone) {
+            if (!setList.includes('None')) setList.unshift('None');
+        }
+        refOptions[colName] = setList;
     }
 }
 
@@ -173,10 +191,110 @@ async function saveFile(panel) {
     renderTable(panel);
 }
 
+function generateNextId(baseId, existingIds) {
+    if (!baseId) baseId = 'NewItem';
+    
+    // 末尾の数字を検索（例: "A001" -> prefix="A", numStr="001", num=1, padLength=3）
+    const match = baseId.match(/^(.*?)(0*(\d+))$/);
+    
+    let prefix = '';
+    let num = 1;
+    let padLength = 0;
+    
+    if (match && match[2]) {
+        prefix = match[1];
+        num = parseInt(match[3], 10) + 1;
+        padLength = match[2].length;
+    } else {
+        prefix = baseId;
+        num = 1;
+        padLength = 1;
+    }
+
+    let candidate = '';
+    while (true) {
+        let numStr = String(num);
+        if (numStr.length < padLength) {
+            numStr = numStr.padStart(padLength, '0');
+        }
+        candidate = prefix + numStr;
+        if (!existingIds.includes(candidate)) {
+            break;
+        }
+        num++;
+    }
+    return candidate;
+}
+
 function setStatus(panel, text, isError) {
     if (!panel.$.status) return;
     panel.$.status.textContent = text;
     panel.$.status.style.color = isError ? '#ff6b6b' : '#8fd68f';
+}
+
+function updateRowWarning(tr, rowIndex) {
+    if (currentFile !== 'DropTables.csv' || !tr) return;
+    const row = rows[rowIndex];
+    let totalRate = 0;
+    for (let i = 1; i <= 5; i++) {
+        const itemColIdx = headers.indexOf(`ItemID_${i}`);
+        const rateColIdx = headers.indexOf(`Rate_${i}`);
+        if (itemColIdx >= 0 && rateColIdx >= 0) {
+            const itemVal = row[itemColIdx];
+            const rateVal = parseFloat(row[rateColIdx]);
+            if (itemVal && itemVal !== 'None' && itemVal.trim() !== '' && !isNaN(rateVal)) {
+                totalRate += rateVal;
+            }
+        }
+    }
+
+    const idColIdx = headers.indexOf('ID');
+    if (idColIdx >= 0) {
+        const idTd = tr.children[idColIdx];
+        if (idTd) {
+            const idInput = idTd.querySelector('input');
+            let badge = idTd.querySelector('.warn-badge');
+            if (Math.abs(totalRate - 1.0) > 0.001) {
+                const warnText = `⚠️ Rate合計が 1.0 になっていません (現在の有効合計: ${totalRate.toFixed(2)})`;
+                idTd.style.backgroundColor = 'rgba(255, 193, 7, 0.25)';
+                idTd.style.display = 'flex';
+                idTd.style.alignItems = 'center';
+                if (idInput) {
+                    idInput.style.color = '#ffe066';
+                    idInput.style.fontWeight = 'bold';
+                    idInput.style.flex = '1';
+                    idInput.style.minWidth = '0';
+                    idInput.title = warnText;
+                }
+                idTd.title = warnText;
+
+                if (!badge) {
+                    badge = document.createElement('span');
+                    badge.className = 'warn-badge';
+                    badge.textContent = '⚠️';
+                    badge.style.marginRight = '4px';
+                    badge.style.fontSize = '12px';
+                    badge.style.cursor = 'help';
+                    badge.style.flexShrink = '0';
+                    idTd.insertBefore(badge, idInput);
+                }
+                badge.title = warnText;
+            } else {
+                idTd.style.backgroundColor = '';
+                idTd.style.display = '';
+                idTd.style.alignItems = '';
+                if (idInput) {
+                    idInput.style.color = '';
+                    idInput.style.fontWeight = '';
+                    idInput.style.flex = '';
+                    idInput.style.minWidth = '';
+                    idInput.title = '';
+                }
+                idTd.title = '';
+                if (badge) badge.remove();
+            }
+        }
+    }
 }
 
 // CSVテーブル部分のみを再描画する(タブバーはrenderTabBarが別途担当)。
@@ -193,9 +311,13 @@ function renderTable(panel) {
 
     const thead = document.createElement('thead');
     const headRow = document.createElement('tr');
+    let totalInitWidth = 0;
+
     headers.forEach((h, colIndex) => {
         const th = document.createElement('th');
-        th.style.width = `${getColWidth(currentFile, h)}px`;
+        const colW = getColWidth(currentFile, h);
+        th.style.width = `${colW}px`;
+        totalInitWidth += colW;
 
         const label = document.createElement('span');
         label.className = 'th-label sortable';
@@ -227,11 +349,14 @@ function renderTable(panel) {
             const onMove = (moveEvent) => {
                 const newWidth = Math.max(40, Math.round(startWidth + (moveEvent.clientX - startX)));
                 th.style.width = `${newWidth}px`;
+                updateTableTotalWidth(table);
             };
             const onUp = () => {
                 document.removeEventListener('mousemove', onMove);
                 document.removeEventListener('mouseup', onUp);
-                setColWidth(currentFile, h, Math.round(th.getBoundingClientRect().width));
+                const finalWidth = Math.round(th.getBoundingClientRect().width);
+                setColWidth(currentFile, h, finalWidth);
+                updateTableTotalWidth(table);
             };
             document.addEventListener('mousemove', onMove);
             document.addEventListener('mouseup', onUp);
@@ -240,9 +365,14 @@ function renderTable(panel) {
 
         headRow.appendChild(th);
     });
-    headRow.appendChild(document.createElement('th')); // delete-row column
+    const delTh = document.createElement('th');
+    delTh.style.width = '70px';
+    headRow.appendChild(delTh); // delete/duplicate-row column
+    totalInitWidth += 70;
+
     thead.appendChild(headRow);
     table.appendChild(thead);
+    table.style.width = `${totalInitWidth}px`;
 
     // One <datalist> per reference column, shared by every row's input in that column.
     Object.keys(refOptions).forEach(colName => {
@@ -259,48 +389,147 @@ function renderTable(panel) {
     const tbody = document.createElement('tbody');
     rows.forEach((row, rowIndex) => {
         const tr = document.createElement('tr');
+
+        // DropTables.csv の場合、Rate_1〜Rate_5 の合計チェック
+        let rateSumWarn = null;
+        if (currentFile === 'DropTables.csv') {
+            let totalRate = 0;
+            for (let i = 1; i <= 5; i++) {
+                const itemColIdx = headers.indexOf(`ItemID_${i}`);
+                const rateColIdx = headers.indexOf(`Rate_${i}`);
+                if (itemColIdx >= 0 && rateColIdx >= 0) {
+                    const itemVal = row[itemColIdx];
+                    const rateVal = parseFloat(row[rateColIdx]);
+                    if (itemVal && itemVal !== 'None' && itemVal.trim() !== '' && !isNaN(rateVal)) {
+                        totalRate += rateVal;
+                    }
+                }
+            }
+            if (Math.abs(totalRate - 1.0) > 0.001) {
+                rateSumWarn = totalRate;
+            }
+        }
+
         headers.forEach((h, colIndex) => {
             const td = document.createElement('td');
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.value = row[colIndex] || '';
-            if (refOptions[h]) {
-                input.setAttribute('list', `datalist-${h}`);
-                // A pre-filled value makes the browser's native datalist popup filter
-                // suggestions down to prefix-matches of that value, hiding every other
-                // candidate. Clear on focus so the full suggestion list shows, and restore
-                // the original value on blur if the user left without picking/typing
-                // anything - otherwise focusing a cell would silently blank it out.
-                input.addEventListener('focus', (e) => {
-                    e.target.dataset.prevValue = e.target.value;
-                    e.target.value = '';
+            td.style.position = 'relative';
+
+            const schemaConfig = SCHEMA[currentFile] ? SCHEMA[currentFile][h] : null;
+            const currentVal = row[colIndex] || '';
+
+            if (schemaConfig && schemaConfig.isSelect) {
+                const select = document.createElement('select');
+                const rawList = schemaConfig.fixedList ? schemaConfig.fixedList : (refOptions[h] || []);
+                const optList = Array.from(rawList);
+                if (currentVal && !optList.includes(currentVal)) {
+                    optList.unshift(currentVal);
+                }
+                optList.forEach(optVal => {
+                    const opt = document.createElement('option');
+                    opt.value = optVal;
+                    opt.textContent = optVal;
+                    if (optVal === currentVal) opt.selected = true;
+                    select.appendChild(opt);
                 });
-                input.addEventListener('blur', (e) => {
-                    if (e.target.value === '' && e.target.dataset.prevValue) {
-                        e.target.value = e.target.dataset.prevValue;
+
+                select.addEventListener('change', (e) => {
+                    rows[rowIndex][colIndex] = e.target.value;
+                    dirty = true;
+                    setStatus(panel, 'Unsaved changes.', false);
+                    if (currentFile === 'DropTables.csv') {
+                        updateRowWarning(tr, rowIndex);
                     }
                 });
+                td.appendChild(select);
+            } else {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.value = currentVal;
+
+                if (h === 'ID' && rateSumWarn !== null) {
+                    td.style.backgroundColor = 'rgba(255, 193, 7, 0.25)';
+                    td.style.display = 'flex';
+                    td.style.alignItems = 'center';
+                    input.style.color = '#ffe066';
+                    input.style.fontWeight = 'bold';
+                    input.style.flex = '1';
+                    input.style.minWidth = '0';
+                    const warnText = `⚠️ Rate合計が 1.0 になっていません (現在の有効合計: ${rateSumWarn.toFixed(2)})`;
+                    td.title = warnText;
+                    input.title = warnText;
+
+                    const warnBadge = document.createElement('span');
+                    warnBadge.className = 'warn-badge';
+                    warnBadge.textContent = '⚠️';
+                    warnBadge.style.marginRight = '4px';
+                    warnBadge.style.fontSize = '12px';
+                    warnBadge.style.cursor = 'help';
+                    warnBadge.style.flexShrink = '0';
+                    warnBadge.title = warnText;
+                    td.appendChild(warnBadge);
+                }
+
+                if (refOptions[h]) {
+                    input.setAttribute('list', `datalist-${h}`);
+                    input.addEventListener('focus', (e) => {
+                        e.target.dataset.prevValue = e.target.value;
+                        e.target.value = '';
+                    });
+                    input.addEventListener('blur', (e) => {
+                        if (e.target.value === '' && e.target.dataset.prevValue) {
+                            e.target.value = e.target.dataset.prevValue;
+                        }
+                    });
+                }
+                const handleInputChange = (e) => {
+                    rows[rowIndex][colIndex] = e.target.value;
+                    dirty = true;
+                    setStatus(panel, 'Unsaved changes.', false);
+                    if (currentFile === 'DropTables.csv') {
+                        updateRowWarning(tr, rowIndex);
+                    }
+                };
+                input.addEventListener('input', handleInputChange);
+                input.addEventListener('change', handleInputChange);
+                td.appendChild(input);
             }
-            input.addEventListener('change', (e) => {
-                rows[rowIndex][colIndex] = e.target.value;
-                dirty = true;
-                setStatus(panel, 'Unsaved changes.', false);
-            });
-            td.appendChild(input);
             tr.appendChild(td);
         });
-        const delTd = document.createElement('td');
+        const actionTd = document.createElement('td');
+        actionTd.style.whiteSpace = 'nowrap';
+
+        // 複製ボタン (📋)
+        const dupBtn = document.createElement('button');
+        dupBtn.className = 'btn-dup-row';
+        dupBtn.textContent = '📋';
+        dupBtn.title = '行を複製 (IDを自動インクリメント)';
+        dupBtn.addEventListener('click', () => {
+            const newRow = [...row];
+            const idColIdx = headers.indexOf('ID') >= 0 ? headers.indexOf('ID') : 0;
+            const existingIds = rows.map(r => r[idColIdx]);
+            const nextId = generateNextId(row[idColIdx], existingIds);
+            newRow[idColIdx] = nextId;
+
+            rows.splice(rowIndex + 1, 0, newRow);
+            dirty = true;
+            setStatus(panel, `Duplicated row '${nextId}'. Unsaved changes.`, false);
+            renderTable(panel);
+        });
+        actionTd.appendChild(dupBtn);
+
+        // 削除ボタン (✕)
         const delBtn = document.createElement('button');
         delBtn.className = 'btn-del-row';
         delBtn.textContent = '✕';
+        delBtn.title = '行を削除';
         delBtn.addEventListener('click', () => {
             rows.splice(rowIndex, 1);
             dirty = true;
             setStatus(panel, 'Unsaved changes.', false);
             renderTable(panel);
         });
-        delTd.appendChild(delBtn);
-        tr.appendChild(delTd);
+        actionTd.appendChild(delBtn);
+        tr.appendChild(actionTd);
         tbody.appendChild(tr);
     });
     table.appendChild(tbody);
@@ -1340,10 +1569,13 @@ async function initLiteGraph(panel) {
 // --- タブ切り替え(CSVテーブル ⇔ Behavior Graph ⇔ Shot Pattern) --------------------------
 // ==================================================================================
 
-// CSVテーブル側に未保存の変更がある時だけ確認を挟む(グラフ側はUndo履歴があるので確認なしで良い)。
+// CSV/ShotManager側に未保存の変更がある時だけ確認を挟む(グラフ側はUndo履歴があるので確認なしで良い)。
 function confirmDiscardIfDirty() {
     if (viewMode === 'csv' && dirty) {
         return confirm(`${currentFile} has unsaved changes. Discard them?`);
+    }
+    if (viewMode === 'shot-manager' && smDirty) {
+        return confirm(`ShotManager has unsaved changes. Discard them?`);
     }
     return true;
 }
@@ -1358,6 +1590,12 @@ function renderTabBar(panel) {
         btn.addEventListener('click', () => switchToCsv(panel, file));
         tabBar.appendChild(btn);
     });
+
+    const smBtn = document.createElement('button');
+    smBtn.className = 'tab-btn tab-btn-graph' + (viewMode === 'shot-manager' ? ' active' : '');
+    smBtn.textContent = '🎯 ShotManager';
+    smBtn.addEventListener('click', () => switchToShotManager(panel));
+    tabBar.appendChild(smBtn);
 
     const behaviorBtn = document.createElement('button');
     behaviorBtn.className = 'tab-btn tab-btn-graph' + (viewMode === 'graph' && graphDomain === 'behavior' ? ' active' : '');
@@ -1374,11 +1612,11 @@ function renderTabBar(panel) {
 
 function updateViewVisibility(panel) {
     const isGraph = viewMode === 'graph';
-    panel.$.mmView.style.display = isGraph ? 'none' : 'flex';
+    const isSm = viewMode === 'shot-manager';
+    panel.$.mmView.style.display = viewMode === 'csv' ? 'flex' : 'none';
     panel.$.beView.style.display = isGraph ? 'flex' : 'none';
+    if (panel.$.smView) panel.$.smView.style.display = isSm ? 'flex' : 'none';
     if (isGraph) {
-        // display:noneの間はcanvasの実サイズが0になっているため、表示された直後にレイアウトが
-        // 確定してからリサイズし直す(初期表示が引き伸びて見える問題と同じ原因)。
         requestAnimationFrame(() => {
             if (litegraphCanvas && litegraphCanvas.resize) litegraphCanvas.resize();
         });
@@ -1400,8 +1638,6 @@ async function switchToGraph(panel, domain) {
     graphDomain = domain;
 
     if (domainChanged) {
-        // Behavior/Shotはノード語彙が異なるため、ドメイン切り替え時は選択中のグラフをクリアする
-        // (前ドメインのグラフを出しっぱなしにすると、Add Nodeで再現できないノードが残って紛らわしい)。
         setActiveNodePalette(domain);
         currentId = null;
         panel.$.currentIdLabel.textContent = '(none)';
@@ -1415,10 +1651,316 @@ async function switchToGraph(panel, domain) {
     await refreshGraphList(panel);
 }
 
+async function switchToShotManager(panel) {
+    if (!confirmDiscardIfDirty()) return;
+    viewMode = 'shot-manager';
+    renderTabBar(panel);
+    updateViewVisibility(panel);
+    await loadShotManagerData(panel);
+}
+
+async function loadShotManagerData(panel) {
+    setStatus(panel, 'Loading ShotManager data...', false);
+    const [resData, resPrefabs] = await Promise.all([
+        Editor.Message.request('behavior-editor', 'list-shot-manager-data'),
+        Editor.Message.request('behavior-editor', 'list-bullet-prefabs'),
+    ]);
+
+    if (resPrefabs && resPrefabs.ok) {
+        bulletPrefabOptions = resPrefabs.list || [];
+    }
+
+    if (!resData || !resData.ok) {
+        setStatus(panel, `ShotManager load failed: ${resData ? resData.error : 'unknown error'}`, true);
+        return;
+    }
+
+    shotManagerItems = resData.list || [];
+    smDirty = false;
+    renderShotManagerTable(panel);
+    setStatus(panel, `Loaded ${shotManagerItems.length} ShotPatterns for ShotManager.`, false);
+}
+
+async function saveShotManagerData(panel) {
+    setStatus(panel, 'Saving ShotManager data...', false);
+    const res = await Editor.Message.request('behavior-editor', 'save-shot-manager-data', shotManagerItems);
+    if (res && res.ok) {
+        smDirty = false;
+        setStatus(panel, `Successfully saved ${shotManagerItems.length} ShotPatterns in ShotManager!`, false);
+    } else {
+        setStatus(panel, `Save ShotManager failed: ${res ? res.error : 'unknown error'}`, true);
+    }
+}
+
+async function jumpToShotPattern(panel, id) {
+    if (!confirmDiscardIfDirty()) return;
+    await switchToGraph(panel, 'shot');
+    await loadGraphItem(panel, id);
+}
+
+const SM_COLUMNS = [
+    { key: 'id', label: 'ID', defaultWidth: 130 },
+    { key: 'type', label: 'Type', defaultWidth: 95 },
+    { key: 'count', label: 'Count', defaultWidth: 55 },
+    { key: 'speed', label: 'SP', defaultWidth: 55 },
+    { key: 'damage', label: 'DMG', defaultWidth: 55 },
+    { key: 'seconds', label: 'WT', defaultWidth: 55 },
+    { key: 'prefabName', label: 'PrefabName', defaultWidth: 110 },
+    { key: 'note', label: 'Comment', defaultWidth: 220 },
+];
+
+function sortShotManagerItems(key) {
+    shotManagerItems.sort((a, b) => {
+        const va = a[key] !== undefined ? a[key] : '';
+        const vb = b[key] !== undefined ? b[key] : '';
+        const na = parseFloat(va);
+        const nb = parseFloat(vb);
+        let cmp;
+        if (va !== '' && vb !== '' && !isNaN(na) && !isNaN(nb)) {
+            cmp = na - nb;
+        } else {
+            cmp = String(va).localeCompare(String(vb), undefined, { numeric: true, sensitivity: 'base' });
+        }
+        return cmp * smSortDir;
+    });
+}
+
+function updateTableTotalWidth(table) {
+    if (!table) return;
+    let total = 0;
+    const ths = table.querySelectorAll('thead th');
+    ths.forEach(th => {
+        const w = th.getBoundingClientRect().width;
+        if (w > 0) total += w;
+        else if (th.style.width) total += parseFloat(th.style.width);
+    });
+    if (total > 0) {
+        table.style.width = `${Math.ceil(total)}px`;
+    }
+}
+
+function renderShotManagerTable(panel) {
+    const wrap = panel.$.smTableWrap || (panel.shadowRoot ? panel.shadowRoot.querySelector('.sm-table-wrap') : (panel.querySelector ? panel.querySelector('.sm-table-wrap') : null));
+    if (!wrap) {
+        console.error('[ShotManager] .sm-table-wrap element not found in panel!');
+        return;
+    }
+
+    wrap.innerHTML = '';
+    if (shotManagerItems.length === 0) {
+        wrap.innerHTML = '<div style="padding: 20px; color: #888;">No ShotPattern JSON files found.</div>';
+        return;
+    }
+
+    const table = document.createElement('table');
+    table.className = 'sm-table';
+
+    let datalistHtml = '<datalist id="sm-bullet-prefabs">';
+    bulletPrefabOptions.forEach(p => {
+        datalistHtml += `<option value="${p}">${p}</option>`;
+    });
+    datalistHtml += '</datalist>';
+
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+
+    let totalInitWidth = 0;
+    SM_COLUMNS.forEach((col) => {
+        const th = document.createElement('th');
+        const savedW = colWidths[`ShotManager.csv::${col.key}`];
+        const finalW = (savedW && savedW > 0) ? savedW : col.defaultWidth;
+        th.style.width = `${finalW}px`;
+        totalInitWidth += finalW;
+
+        const labelSpan = document.createElement('span');
+        labelSpan.className = 'th-label sortable';
+        const sortArrow = smSortKey === col.key ? (smSortDir === 1 ? ' ▲' : ' ▼') : '';
+        labelSpan.textContent = col.label + sortArrow;
+        labelSpan.title = 'Click to sort';
+
+        labelSpan.addEventListener('click', () => {
+            smSortDir = (smSortKey === col.key) ? -smSortDir : 1;
+            smSortKey = col.key;
+            sortShotManagerItems(col.key);
+            setStatus(panel, `Sorted by '${col.label}' (${smSortDir === 1 ? 'asc' : 'desc'}).`, false);
+            renderShotManagerTable(panel);
+        });
+        th.appendChild(labelSpan);
+
+        // Column Resize Handle
+        const handle = document.createElement('div');
+        handle.className = 'col-resize-handle';
+        handle.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const startX = e.clientX;
+            const startWidth = th.getBoundingClientRect().width;
+
+            const onMove = (moveEvent) => {
+                const newWidth = Math.max(30, Math.round(startWidth + (moveEvent.clientX - startX)));
+                th.style.width = `${newWidth}px`;
+                updateTableTotalWidth(table);
+            };
+            const onUp = () => {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                const finalWidth = Math.round(th.getBoundingClientRect().width);
+                setColWidth('ShotManager.csv', col.key, finalWidth);
+                updateTableTotalWidth(table);
+            };
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+        th.appendChild(handle);
+
+        headRow.appendChild(th);
+    });
+
+    // Action Header
+    const thAction = document.createElement('th');
+    thAction.style.width = '80px';
+    thAction.textContent = 'Action';
+    headRow.appendChild(thAction);
+    totalInitWidth += 80;
+
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+    table.style.width = `${totalInitWidth}px`;
+
+    const tbody = document.createElement('tbody');
+
+    shotManagerItems.forEach((item) => {
+        const tr = document.createElement('tr');
+
+        // ID
+        const tdId = document.createElement('td');
+        tdId.textContent = item.id;
+        tdId.style.fontWeight = 'bold';
+        tdId.style.color = '#61afef';
+        tr.appendChild(tdId);
+
+        // Type
+        const tdType = document.createElement('td');
+        const selType = document.createElement('select');
+        ['Fire', 'MultiFire', 'Missile', 'RadialFire', 'NWayFire'].forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t;
+            opt.textContent = t;
+            if (t === item.type) opt.selected = true;
+            selType.appendChild(opt);
+        });
+        selType.addEventListener('change', (e) => {
+            item.type = e.target.value;
+            smDirty = true;
+            setStatus(panel, 'ShotManager has unsaved changes.', false);
+        });
+        tdType.appendChild(selType);
+        tr.appendChild(tdType);
+
+        // Count
+        const tdCount = document.createElement('td');
+        const inputCount = document.createElement('input');
+        inputCount.type = 'number';
+        inputCount.step = '1';
+        inputCount.min = '1';
+        inputCount.value = item.count !== undefined ? item.count : 1;
+        inputCount.addEventListener('input', (e) => {
+            item.count = Number(e.target.value);
+            smDirty = true;
+            setStatus(panel, 'ShotManager has unsaved changes.', false);
+        });
+        tdCount.appendChild(inputCount);
+        tr.appendChild(tdCount);
+
+        // SP (Speed)
+        const tdSp = document.createElement('td');
+        const inputSp = document.createElement('input');
+        inputSp.type = 'number';
+        inputSp.step = '0.1';
+        inputSp.value = item.speed !== undefined ? item.speed : 0;
+        inputSp.addEventListener('input', (e) => {
+            item.speed = Number(e.target.value);
+            smDirty = true;
+            setStatus(panel, 'ShotManager has unsaved changes.', false);
+        });
+        tdSp.appendChild(inputSp);
+        tr.appendChild(tdSp);
+
+        // DMG (Damage)
+        const tdDmg = document.createElement('td');
+        const inputDmg = document.createElement('input');
+        inputDmg.type = 'number';
+        inputDmg.step = '1';
+        inputDmg.value = item.damage !== undefined ? item.damage : 0;
+        inputDmg.addEventListener('input', (e) => {
+            item.damage = Number(e.target.value);
+            smDirty = true;
+            setStatus(panel, 'ShotManager has unsaved changes.', false);
+        });
+        tdDmg.appendChild(inputDmg);
+        tr.appendChild(tdDmg);
+
+        // WT (Wait Sec)
+        const tdWt = document.createElement('td');
+        const inputWt = document.createElement('input');
+        inputWt.type = 'number';
+        inputWt.step = '0.05';
+        inputWt.value = item.seconds !== undefined ? item.seconds : 0;
+        inputWt.addEventListener('input', (e) => {
+            item.seconds = Number(e.target.value);
+            smDirty = true;
+            setStatus(panel, 'ShotManager has unsaved changes.', false);
+        });
+        tdWt.appendChild(inputWt);
+        tr.appendChild(tdWt);
+
+        // PrefabName
+        const tdPrefab = document.createElement('td');
+        const inputPrefab = document.createElement('input');
+        inputPrefab.type = 'text';
+        inputPrefab.setAttribute('list', 'sm-bullet-prefabs');
+        inputPrefab.value = item.prefabName || '';
+        inputPrefab.addEventListener('input', (e) => {
+            item.prefabName = e.target.value;
+            smDirty = true;
+            setStatus(panel, 'ShotManager has unsaved changes.', false);
+        });
+        tdPrefab.appendChild(inputPrefab);
+        tr.appendChild(tdPrefab);
+
+        // Comment (Note)
+        const tdNote = document.createElement('td');
+        const inputNote = document.createElement('input');
+        inputNote.type = 'text';
+        inputNote.value = item.note || '';
+        inputNote.placeholder = 'Comment...';
+        inputNote.addEventListener('input', (e) => {
+            item.note = e.target.value;
+            smDirty = true;
+            setStatus(panel, 'ShotManager has unsaved changes.', false);
+        });
+        tdNote.appendChild(inputNote);
+        tr.appendChild(tdNote);
+
+        // Jump Action
+        const tdAction = document.createElement('td');
+        const btnJump = document.createElement('button');
+        btnJump.className = 'sm-btn-jump';
+        btnJump.textContent = '🔍 Jump';
+        btnJump.addEventListener('click', () => jumpToShotPattern(panel, item.id));
+        tdAction.appendChild(btnJump);
+        tr.appendChild(tdAction);
+
+        tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    wrap.insertAdjacentHTML('beforeend', datalistHtml);
+}
+
 module.exports = Editor.Panel.define({
     listeners: {
-        // panelActiveはGraph側のキーボードショートカット(Ctrl+S/Delete/Ctrl+Z/Ctrl+Shift+Z)と
-        // Undo履歴ポーリング/説明バー更新を「このパネルが表示中の時だけ」に絞るためのフラグ。
         show() {
             console.log('[MasterManager Panel] Show');
             panelActive = true;
@@ -1448,6 +1990,16 @@ module.exports = Editor.Panel.define({
                         <button class="btn-add-row">➕ Add Row</button>
                         <button class="btn-save">💾 Save</button>
                     </div>
+                </div>
+            </div>
+
+            <div class="sm-view" style="display: none;">
+                <div class="sm-toolbar">
+                    <button class="sm-btn-refresh">🔄 Reload</button>
+                    <button class="sm-btn-save">💾 Save</button>
+                </div>
+                <div class="sm-table-scroll">
+                    <div class="sm-table-wrap"></div>
                 </div>
             </div>
 
@@ -1498,11 +2050,6 @@ module.exports = Editor.Panel.define({
         :host {
             display: flex;
             flex-direction: column;
-            height: 100%;
-            box-sizing: border-box;
-            background-color: #242424;
-            color: #ffffff;
-            font-family: sans-serif;
             font-size: 12px;
         }
         .panel-root {
@@ -1633,10 +2180,47 @@ module.exports = Editor.Panel.define({
             background: #28a745;
             color: #fff;
             border: none;
-            border-radius: 4px;
             font-weight: bold;
             cursor: pointer;
         }
+        .btn-dup-row {
+            background: #2d5f8a;
+            color: #fff;
+            border: 1px solid #3a75aa;
+            border-radius: 3px;
+            cursor: pointer;
+            padding: 2px 6px;
+            font-size: 11px;
+            margin-right: 4px;
+        }
+        .btn-dup-row:hover { background: #3a75aa; }
+        .btn-del-row {
+            background: #a72828;
+            color: #fff;
+            border: 1px solid #882121;
+            border-radius: 3px;
+            cursor: pointer;
+            padding: 2px 6px;
+            font-size: 11px;
+        }
+        .btn-del-row:hover { background: #c82333; }
+
+        /* --- ShotManager 側 --- */
+        .sm-view { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 8px; }
+        .sm-toolbar { flex-shrink: 0; display: flex; gap: 8px; align-items: center; }
+        .sm-btn-refresh { padding: 6px 14px; background: #2d5f8a; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+        .sm-btn-refresh:hover { background: #3a75aa; }
+        .sm-btn-save { padding: 6px 14px; background: #28a745; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        .sm-btn-save:hover { background: #218838; }
+        .sm-table-scroll { flex: 1; overflow: auto; background: #1a1a1a; border-radius: 6px; padding: 8px; }
+        .sm-table-wrap { display: inline-block; }
+        .sm-table { border-collapse: collapse; table-layout: fixed; }
+        .sm-table th, .sm-table td { border: 1px solid #3d3d3d; padding: 2px 4px; text-align: left; white-space: nowrap; overflow: hidden; }
+        .sm-table th { background: #2a2a2a; position: sticky; top: 0; z-index: 10; box-sizing: border-box; }
+        .sm-table td input, .sm-table td select { background: #2a2a2a; border: 1px solid #444; color: #fff; padding: 3px 5px; border-radius: 3px; width: 100%; box-sizing: border-box; font-size: 12px; }
+        .sm-table td input:focus, .sm-table td select:focus { border-color: #4da6ff; outline: none; }
+        .sm-btn-jump { background: #007acc; color: #fff; border: 1px solid #005999; border-radius: 3px; cursor: pointer; padding: 2px 8px; font-size: 11px; font-weight: bold; }
+        .sm-btn-jump:hover { background: #005999; }
 
         /* --- Behavior Graph / Shot Pattern (ノードグラフ編集) 側 --- */
         .be-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -1764,6 +2348,11 @@ module.exports = Editor.Panel.define({
         addRowBtn: '.btn-add-row',
         saveBtn: '.btn-save',
 
+        smView: '.sm-view',
+        smTableWrap: '.sm-table-wrap',
+        smRefreshBtn: '.sm-btn-refresh',
+        smSaveBtn: '.sm-btn-save',
+
         beView: '.be-view',
         nodeDescBar: '.node-desc-bar',
         behaviorList: '.behavior-list',
@@ -1811,6 +2400,17 @@ module.exports = Editor.Panel.define({
             renderTable(this);
         });
         this.$.saveBtn.addEventListener('click', () => saveFile(this));
+
+        // --- ShotManager ボタン ---
+        if (this.$.smRefreshBtn) {
+            this.$.smRefreshBtn.addEventListener('click', () => {
+                if (smDirty && !confirm('ShotManager has unsaved changes. Reload from disk?')) return;
+                loadShotManagerData(this);
+            });
+        }
+        if (this.$.smSaveBtn) {
+            this.$.smSaveBtn.addEventListener('click', () => saveShotManagerData(this));
+        }
 
         // --- Graph(Behavior/Shot共通) ボタン ---
         this.$.beNewBtn.addEventListener('click', () => createNew(this));

@@ -1,5 +1,5 @@
 import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab, resources, director, JsonAsset } from 'cc';
-import { EnemyData, BehaviorData, ShotPatternData, DropData, SoundData, BehaviorGraph, ShotGraph } from './GameDataTypes';
+import { EnemyData, BehaviorData, ShotPatternData, DropData, SoundData, BehaviorGraph, ShotGraph, ItemData, DropTableData } from './GameDataTypes';
 import { CSVHelper } from './CSVHelper';
 import { SoundManager } from './SoundManager';
 import { IMissionData } from './Constants'; // New
@@ -27,6 +27,8 @@ export class GameDatabase extends Component {
     public behaviors: BehaviorData[] = [];
     public shotPatterns: ShotPatternData[] = [];
     public drops: DropData[] = [];
+    public items: ItemData[] = [];
+    public dropTables: DropTableData[] = [];
     public sounds: SoundData[] = [];
     public missions: IMissionData[] = []; // New
 
@@ -42,6 +44,12 @@ export class GameDatabase extends Component {
 
     @property({ type: TextAsset, tooltip: "CSV: Drops" })
     public dropCsv: TextAsset = null;
+
+    @property({ type: TextAsset, tooltip: "CSV: Items" })
+    public itemCsv: TextAsset = null;
+
+    @property({ type: TextAsset, tooltip: "CSV: DropTables" })
+    public dropTableCsv: TextAsset = null;
 
     @property({ type: TextAsset, tooltip: "CSV: Sounds" })
     public soundCsv: TextAsset = null;
@@ -113,9 +121,25 @@ export class GameDatabase extends Component {
         this.behaviors = [];
         this.shotPatterns = [];
         this.drops = [];
+        this.items = [];
+        this.dropTables = [];
         this.sounds = []; // Clear old sounds
         this.enemies = []; // Clear runtime list
         this.missions = []; // Clear mission list
+
+        if (this.itemCsv) this.parseItemCSV(this.itemCsv.text);
+        else {
+            resources.load("Excels/Items", TextAsset, (err, asset) => {
+                if (!err && asset) this.parseItemCSV(asset.text);
+            });
+        }
+
+        if (this.dropTableCsv) this.parseDropTableCSV(this.dropTableCsv.text);
+        else {
+            resources.load("Excels/DropTables", TextAsset, (err, asset) => {
+                if (!err && asset) this.parseDropTableCSV(asset.text);
+            });
+        }
 
         if (this.behaviorCsv) this.parseBehaviorCSV(this.behaviorCsv.text);
         if (this.shotPatternCsv) this.parseShotPatternCSV(this.shotPatternCsv.text);
@@ -139,12 +163,52 @@ export class GameDatabase extends Component {
             });
         }
 
-        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.behaviors.length} Behaviors, ${this.shotPatterns.length} ShotPatterns, ${this.drops.length} Drops, ${this.missions.length} Missions`);
+        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.items.length} Items, ${this.dropTables.length} DropTables, ${this.behaviors.length} Behaviors, ${this.shotPatterns.length} ShotPatterns, ${this.drops.length} Drops, ${this.missions.length} Missions`);
 
         this.isReady = true;
 
         // Notify Manager that Database is ready (Optional, if needed for tight coupling)
         // GameManager.instance.onDatabaseReady();
+    }
+
+    private parseItemCSV(text: string) {
+        const data = CSVHelper.parse(text);
+        this.items = data.map(row => {
+            const item = new ItemData();
+            item.id = row.ID;
+            item.name = row.Name || row.ID;
+            item.prefabName = row.PrefabName || row.ID;
+            item.type = row.Type || "";
+            item.effectType = row.EffectType || "None";
+            item.effectValue = row.EffectValue !== undefined && row.EffectValue !== "" ? parseFloat(row.EffectValue) : 0;
+            item.duration = row.Duration !== undefined && row.Duration !== "" ? parseFloat(row.Duration) : 0;
+            item.min = row.Min !== undefined && row.Min !== "" ? parseInt(row.Min) : 1;
+            item.max = row.Max !== undefined && row.Max !== "" ? parseInt(row.Max) : 1;
+            item.weight = row.Weight !== undefined && row.Weight !== "" ? parseFloat(row.Weight) : 10;
+            item.note = row.Note || "";
+            return item;
+        });
+        console.log(`[GameDatabase] Loaded ${this.items.length} Items.`);
+    }
+
+    private parseDropTableCSV(text: string) {
+        const data = CSVHelper.parse(text);
+        this.dropTables = data.map(row => {
+            const dt = new DropTableData();
+            dt.id = row.ID;
+            dt.note = row.Note || "";
+            dt.slots = [];
+            for (let i = 1; i <= 5; i++) {
+                const itemId = row[`ItemID_${i}`];
+                const rateVal = row[`Rate_${i}`];
+                if (itemId && itemId !== "" && itemId !== "None") {
+                    const rate = rateVal !== undefined && rateVal !== "" ? parseFloat(rateVal) : 1.0;
+                    dt.slots.push({ itemId, rate });
+                }
+            }
+            return dt;
+        });
+        console.log(`[GameDatabase] Loaded ${this.dropTables.length} DropTables.`);
     }
 
     private parseBehaviorCSV(text: string) {
@@ -157,8 +221,6 @@ export class GameDatabase extends Component {
             return d;
         });
 
-        // グラフJSONは resources 経由の非同期ロードなので、CSVパースとは別に読み込みをキックする。
-        // ローカルの小さいJSONのため通常は即時に近い速度で完了する。
         for (const d of this.behaviors) {
             this.loadBehaviorGraph(d);
         }
@@ -247,14 +309,16 @@ export class GameDatabase extends Component {
 
             entry.shotPatternId = row.ShotPatternID;
 
-            entry.dropId = row.DropID;
+            entry.dropTableId = row.DropTableID || row.DropID || "";
 
             entry.model3DPath = row.Model3DPath || "";
             entry.model3DYRot = row.Model3DYRot || 0;
+            entry.scale = row.Scale !== undefined && row.Scale !== "" ? parseFloat(row.Scale) : 1.0;
 
             // Link Data (Cache)
             entry._behavior = this.getBehaviorData(entry.behaviorId);
             entry._shotPattern = this.getShotPatternData(entry.shotPatternId);
+            entry._dropTable = this.getDropTableData(entry.dropTableId);
             entry._drops = this.getDropDataList(entry.dropId);
             entry._isFromCSV = true;
 
@@ -322,6 +386,14 @@ export class GameDatabase extends Component {
 
     public getDropDataList(id: string): DropData[] {
         return this.drops.filter(d => d.id === id); // Returns array (multiple items for same ID)
+    }
+
+    public getItemData(id: string): ItemData | null {
+        return this.items.find(i => i.id === id) || null;
+    }
+
+    public getDropTableData(id: string): DropTableData | null {
+        return this.dropTables.find(dt => dt.id === id) || null;
     }
 
     /**

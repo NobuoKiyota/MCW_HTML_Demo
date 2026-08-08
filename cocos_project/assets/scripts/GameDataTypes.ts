@@ -109,9 +109,89 @@ export class ShotPatternData {
     public _graph: ShotGraph | null = null;
 }
 
+export enum ItemType {
+    Score = "Score",
+    Heal = "Heal",
+    Misc = "Misc",
+    Buff = "Buff",
+    PowerUp = "PowerUp",
+    Weapon = "Weapon",
+    Material = "Material"
+}
+
+export enum ItemEffectType {
+    Heal = "Heal",
+    PowerUp = "PowerUp",
+    RapidFire = "RapidFire",
+    Credit = "Credit",
+    Exp = "Exp",
+    Score = "Score",
+    Material = "Material",
+    UnlockTrigger = "UnlockTrigger",
+    None = "None"
+}
+
+/**
+ * アイテムデータ (ItemMaster)
+ */
+@ccclass('ItemData')
+export class ItemData {
+    @property
+    public id: string = "";
+
+    @property
+    public name: string = "";
+
+    @property
+    public prefabName: string = "";
+
+    @property
+    public type: string = "";
+
+    @property({ tooltip: "効果タイプ: Heal, PowerUp, RapidFire, Credit, Exp, Score, Material, UnlockTrigger, None" })
+    public effectType: string = "None";
+
+    @property({ type: CCFloat, tooltip: "効果の数値 (回復量, スコア, バフ倍率等)" })
+    public effectValue: number = 0;
+
+    @property({ type: CCFloat, tooltip: "効果の持続時間 (秒)" })
+    public duration: number = 0;
+
+    @property({ type: CCInteger })
+    public min: number = 1;
+
+    @property({ type: CCInteger })
+    public max: number = 1;
+
+    @property({ type: CCFloat })
+    public weight: number = 10;
+
+    @property
+    public note: string = "";
+}
+
+export interface DropItemSlot {
+    itemId: string;
+    rate: number;
+}
+
 /**
  * ドロップテーブルデータ (DropTable)
- * 1つのIDに対して複数のアイテムが登録される想定
+ * 最大5つのアイテムID＋確率を管理
+ */
+@ccclass('DropTableData')
+export class DropTableData {
+    @property
+    public id: string = "";
+
+    public slots: DropItemSlot[] = [];
+
+    @property
+    public note: string = "";
+}
+
+/**
+ * ドロップテーブルデータ (旧互換用 DropData)
  */
 @ccclass('DropData')
 export class DropData {
@@ -169,7 +249,10 @@ export class EnemyData {
     public shotPatternId: string = "";
 
     @property({ tooltip: "ドロップテーブルID" })
-    public dropId: string = "";
+    public dropTableId: string = "";
+
+    public get dropId(): string { return this.dropTableId; }
+    public set dropId(v: string) { this.dropTableId = v; }
 
     @property({ tooltip: "3Dモデル(glTF)のresourcesパス。空なら従来通り2Dスプライトのみ表示 (例: Gltf/Enemies/Common/Enemy006)" })
     public model3DPath: string = "";
@@ -177,9 +260,13 @@ export class EnemyData {
     @property({ type: CCFloat, tooltip: "3Dモデルの初期Y軸回転(度)。モデルの向きがゲーム内で逆な場合に180などを指定" })
     public model3DYRot: number = 0;
 
+    @property({ type: CCFloat, tooltip: "敵Prefabノード全体に対する一律スケール倍率(x, y, z等倍率)" })
+    public scale: number = 1.0;
+
     // Runtime Cache (Optional, populated by DB)
     public _behavior: BehaviorData = null;
     public _shotPattern: ShotPatternData = null;
+    public _dropTable: DropTableData = null;
     public _drops: DropData[] = [];
     public _isFromCSV: boolean = false; // Validation Flag
 }

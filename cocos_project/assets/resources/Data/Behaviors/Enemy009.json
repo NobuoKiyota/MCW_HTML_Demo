@@ -1,0 +1,79 @@
+{
+    "id": "Enemy009",
+    "nodes": [
+        {
+            "id": 6,
+            "type": "Spin",
+            "params": {
+                "axis": "y",
+                "degrees": 360,
+                "duration": 0.6,
+                "loop": false
+            },
+            "next": 2
+        },
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 6
+        },
+        {
+            "id": 8,
+            "type": "Wait",
+            "params": {
+                "seconds": 0.1
+            },
+            "next": 7
+        },
+        {
+            "id": 2,
+            "type": "Move",
+            "params": {
+                "pattern": "straight",
+                "angle": 270,
+                "speed": 1,
+                "turn": 2
+            },
+            "next": 8
+        },
+        {
+            "id": 7,
+            "type": "Attack",
+            "params": {
+                "shotPatternId": "1ShotAim01"
+            },
+            "next": null
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "2": [
+                480,
+                80
+            ],
+            "6": [
+                239,
+                84
+            ],
+            "7": [
+                973,
+                87
+            ],
+            "8": [
+                736,
+                86
+            ]
+        },
+        "nodeStyles": {
+            "7": {
+                "color": "#5a2a2a",
+                "bgcolor": "#3a1c1c"
+            }
+        },
+        "groups": []
+    }
+}

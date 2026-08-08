@@ -47,6 +47,9 @@ export class Enemy extends Component {
     @property({ tooltip: "3Dモデルのスケール(一律倍率)。GLBのエクスポート単位とゲーム内スケールが合わない場合にここで調整する。model3DPrefab/CSV経由どちらにも適用される。" })
     public model3DScale: number = 1.0;
 
+    @property({ tooltip: "敵Prefabノード全体に対する一律スケール倍率(x, y, z等倍率)。インスペクターで設定可能。" })
+    public enemyScale: number = 1.0;
+
     @property({ tooltip: "ONの間、横移動によるバンク(左右への傾き)の代わりに常時自機の方向を向く。モデルの正面軸によっては下のOffsetで調整が必要。" })
     public faceTowardPlayer: boolean = false;
 
@@ -81,6 +84,10 @@ export class Enemy extends Component {
         // Basic Stats
         this.hp = data.hp || 10;
         this.maxHp = data.hp || 10;
+
+        // Node Scale (Uniform x, y, z)
+        const scaleVal = (data && data.scale !== undefined && data.scale !== null && !isNaN(Number(data.scale))) ? Number(data.scale) : this.enemyScale;
+        this.node.setScale(scaleVal, scaleVal, scaleVal);
 
         // Behavior(移動): BehaviorGraph(ノードグラフ)ランタイムに一任する。
         const graph = data._behavior ? data._behavior._graph : null;
@@ -409,26 +416,37 @@ export class Enemy extends Component {
         if (gm) {
             let dropped = false;
 
-            // 1. Modular Drop System (CSV Linked)
-            if (this.data && this.data._drops && this.data._drops.length > 0) {
-                console.log(`[Enemy] checking ${this.data._drops.length} drops from CSV...`);
+            // 1. Modular Drop Table System (DropTableID -> up to 5 ItemID + Rate slots)
+            const dropTable = this.data ? (this.data._dropTable || (gm.db ? gm.db.getDropTableData(this.data.dropTableId) : null)) : null;
+
+            if (dropTable && dropTable.slots && dropTable.slots.length > 0) {
+                console.log(`[Enemy] checking ${dropTable.slots.length} drop slots from DropTable '${dropTable.id}'...`);
+                for (const slot of dropTable.slots) {
+                    if (!slot.itemId || slot.itemId === 'None') continue;
+
+                    const rnd = Math.random();
+                    if (rnd <= slot.rate) {
+                        const itemMaster = gm.db ? gm.db.getItemData(slot.itemId) : null;
+                        const minCnt = itemMaster ? itemMaster.min : 1;
+                        const maxCnt = itemMaster ? itemMaster.max : 1;
+                        const count = Math.floor(Math.random() * (maxCnt - minCnt + 1)) + minCnt;
+
+                        console.log(`[Enemy] DROP SUCCESS: ${slot.itemId} x${count} (Roll:${rnd.toFixed(2)} <= Rate:${slot.rate})`);
+                        gm.spawnItem(this.node.position.x, this.node.position.y, slot.itemId, count);
+                        dropped = true;
+                    } else {
+                        console.log(`[Enemy] DROP FAIL: ${slot.itemId} (Roll:${rnd.toFixed(2)} > Rate:${slot.rate})`);
+                    }
+                }
+            }
+            // 1.5 Legacy Drop Fallback
+            else if (this.data && this.data._drops && this.data._drops.length > 0) {
                 for (const drop of this.data._drops) {
                     const rnd = Math.random();
                     if (rnd <= drop.rate) {
-                        console.log(`[Enemy] DROP SUCCESS: ${drop.itemId} (Roll:${rnd.toFixed(2)} <= Rate:${drop.rate})`);
                         gm.spawnItem(this.node.position.x, this.node.position.y, drop.itemId, drop.min);
                         dropped = true;
-                    } else {
-                        console.log(`[Enemy] DROP FAIL: ${drop.itemId} (Roll:${rnd.toFixed(2)} > Rate:${drop.rate})`);
                     }
-                }
-
-                // Temporary Verification Pity: If nothing dropped but we have drop data, force first item.
-                if (!dropped && this.data._drops.length > 0) {
-                    const firstDrop = this.data._drops[0];
-                    console.log(`[Enemy] PITY DROP: Forcing ${firstDrop.itemId} since all rolls failed.`);
-                    gm.spawnItem(this.node.position.x, this.node.position.y, firstDrop.itemId, firstDrop.min);
-                    dropped = true;
                 }
             }
             // 2. Inspector Loot Table (Prefab based)

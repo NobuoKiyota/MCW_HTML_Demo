@@ -34,7 +34,8 @@
                 "pierceCount": 0,
                 "prefabName": "Bullet01",
                 "color": "",
-                "glowIntensity": 1
+                "glowIntensity": 1,
+                "count": 1
             },
             "next": 3
         }

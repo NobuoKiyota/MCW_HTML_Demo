@@ -1,0 +1,25 @@
+ID,Name,PrefabName,Type,EffectType,EffectValue,Duration,Min,Max,Weight,Note
+IT_Money01,Money01,ItemMoney,Score,Credit,10,0,1,1,10,クレジット
+IT_Money02,Money02,ItemMoney,,Credit,20,0,1,1,10,クレジット
+IT_Money03,Money03,ItemMoney,,Credit,30,0,1,1,10,クレジット
+IT_Money04,Money04,ItemMoney,,Credit,40,0,1,1,10,クレジット
+IT_Money05,Money05,ItemMoney,,Credit,50,0,1,1,10,クレジット
+IT_Money06,Money06,ItemMoney,,Credit,60,0,1,1,10,クレジット
+IT_Parts01,Parts01,ItemA,Misc,Material,1,0,1,3,5,機体開発素材A
+IT_Parts02,Parts02,ItemB,Misc,Material,1,0,1,1,5,改造用部品B
+IT_PowerUP01,PowerUp01,ItemPowerUp,PowerUp,PowerUp,0.2,5,1,1,10,攻撃力アップ
+IT_PowerUP02,PowerUp02,ItemPowerUp,PowerUp,PowerUp,0.2,10,1,1,10,攻撃力アップ
+IT_PowerUP03,PowerUp03,ItemPowerUp,PowerUp,PowerUp,0.3,10,1,1,10,攻撃力アップ
+IT_PowerUP04,PowerUp04,ItemPowerUp,PowerUp,PowerUp,0.3,15,1,1,10,攻撃力アップ
+IT_PowerUP05,PowerUp05,ItemPowerUp,PowerUp,PowerUp,0.3,20,1,1,10,攻撃力アップ
+IT_RapidFire01,RapidFire01,ItemRapidFire,Weapon,RapidFire,0.15,10,1,1,10,連射スピードアップ
+IT_RapidFire02,RapidFire02,ItemRapidFire,Weapon,RapidFire,0.15,15,1,1,10,連射スピードアップ
+IT_RapidFire03,RapidFire03,ItemRapidFire,Weapon,RapidFire,0.2,10,1,1,10,連射スピードアップ
+IT_RapidFire04,RapidFire04,ItemRapidFire,Weapon,RapidFire,0.2,15,1,1,10,連射スピードアップ
+IT_RapidFire05,RapidFire05,ItemRapidFire,Weapon,RapidFire,0.25,10,1,1,10,連射スピードアップ
+IT_Repair01,Repair01,ItemRepair,Heal,Heal,20,0,1,1,1,HP回復
+IT_Repair02,Repair02,ItemRepair,Heal,Heal,30,0,1,1,1,HP回復
+IT_Repair03,Repair03,ItemRepair,Heal,Heal,40,0,1,1,1,HP回復
+IT_Repair04,Repair04,ItemRepair,Heal,Heal,50,0,1,1,1,HP回復
+IT_Repair05,Repair01\5,ItemRepair,Heal,Heal,60,0,1,1,1,HP回復
+Mat_EngineCore,Engine Core,ItemA,Material,UnlockTrigger,1,0,1,1,1,新機体解放用コアパーツ

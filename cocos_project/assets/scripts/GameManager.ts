@@ -1210,55 +1210,78 @@ export class GameManager extends Component implements IGameManager {
         if (!this.playState.collectedItemsCount) this.playState.collectedItemsCount = 0;
         this.playState.collectedItemsCount++;
 
-        // UI Notification
+        const db = this.db;
+        const itemMaster = db ? db.getItemData(id) : null;
         const def = GAME_SETTINGS.ECONOMY.ITEMS[id];
-        const name = def ? def.name : id;
+
+        const name = itemMaster ? itemMaster.name : (def ? def.name : id);
+        const effectType = itemMaster ? itemMaster.effectType : (def ? def.type : "None");
+        const effectValue = itemMaster && itemMaster.effectValue > 0 ? itemMaster.effectValue : (def ? def.value || 0 : 0);
+        const duration = itemMaster && itemMaster.duration > 0 ? itemMaster.duration : (def ? def.duration || 0 : 0);
         const rarity = def ? (def.rare || 1) : 1;
 
-        // 1. Instant Effects (HP, Buffer)
         const pCtrl = this.playerNode.getComponent("PlayerController") as any;
 
-        if (id === "ItemRepair") {
-            if (UIManager.instance) UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
-            SoundManager.instance.playSE("itemget01", "System");
-            if (pCtrl && pCtrl.heal) pCtrl.heal(def ? def.value : 20);
-            return;
-        }
+        // Effect Execution based on EffectType (Data-driven)
+        switch (effectType) {
+            case 'Heal':
+                const healAmt = effectValue > 0 ? effectValue * amount : 20;
+                if (UIManager.instance) UIManager.instance.showItemLog(`${name} (+${healAmt} HP)`, rarity, pos);
+                SoundManager.instance.playSE("itemget01", "System");
+                if (pCtrl && pCtrl.heal) pCtrl.heal(healAmt);
+                break;
 
-        if (id === "ItemPowerUp") {
-            if (UIManager.instance) {
-                UIManager.instance.showBuffNotification("POWER UP!", new Color(255, 50, 50), pos);
-                UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
-            }
-            SoundManager.instance.playSE("powerup01", "System");
-            if (pCtrl && pCtrl.applyBuff) pCtrl.applyBuff("Power", def ? def.duration : 10, def ? def.value : 0.5);
-            return;
-        }
+            case 'PowerUp':
+                const pVal = effectValue > 0 ? effectValue : 0.5;
+                const pDur = duration > 0 ? duration : 10;
+                if (UIManager.instance) {
+                    UIManager.instance.showBuffNotification("POWER UP!", new Color(255, 50, 50), pos);
+                    UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
+                }
+                SoundManager.instance.playSE("powerup01", "System");
+                if (pCtrl && pCtrl.applyBuff) pCtrl.applyBuff("Power", pDur, pVal);
+                break;
 
-        if (id === "ItemRapidFire") {
-            if (UIManager.instance) {
-                UIManager.instance.showBuffNotification("RAPID FIRE!", new Color(0, 150, 255), pos);
-                UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
-            }
-            SoundManager.instance.playSE("powerup01", "System");
-            if (pCtrl && pCtrl.applyBuff) pCtrl.applyBuff("Rapid", def ? def.duration : 10, def ? def.value : 0.5);
-            return;
-        }
+            case 'RapidFire':
+                const rVal = effectValue > 0 ? effectValue : 0.5;
+                const rDur = duration > 0 ? duration : 10;
+                if (UIManager.instance) {
+                    UIManager.instance.showBuffNotification("RAPID FIRE!", new Color(0, 150, 255), pos);
+                    UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
+                }
+                SoundManager.instance.playSE("powerup01", "System");
+                if (pCtrl && pCtrl.applyBuff) pCtrl.applyBuff("Rapid", rDur, rVal);
+                break;
 
-        // 2. Resource Items (Credits, Exp)
-        if (id === "Credit") {
-            // Save to persistent data via DataManager
-            DataManager.instance.addResource("credits", amount);
-            SoundManager.instance.playSE("coin01", "System");
-            if (UIManager.instance) UIManager.instance.showItemLog(`Credits +${amount}`, 1, pos);
-        } else if (id === "Exp") {
-            DataManager.instance.addResource("exp", amount);
-            SoundManager.instance.playSE("coin01", "System");
-            if (UIManager.instance) UIManager.instance.showItemLog(`EXP +${amount}`, 1, pos);
-        } else {
-            // General Item
-            if (UIManager.instance) UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
-            SoundManager.instance.playSE("itemget01", "System");
+            case 'Credit':
+                const crAmt = (effectValue > 0 ? effectValue : 10) * amount;
+                if (DataManager.instance) DataManager.instance.addResource("credits", crAmt);
+                SoundManager.instance.playSE("coin01", "System");
+                if (UIManager.instance) UIManager.instance.showItemLog(`Credits +${crAmt}`, 1, pos);
+                break;
+
+            case 'Exp':
+                const expAmt = (effectValue > 0 ? effectValue : 10) * amount;
+                if (DataManager.instance) DataManager.instance.addResource("exp", expAmt);
+                SoundManager.instance.playSE("coin01", "System");
+                if (UIManager.instance) UIManager.instance.showItemLog(`EXP +${expAmt}`, 1, pos);
+                break;
+
+            case 'Material':
+            case 'UnlockTrigger':
+                const matAmt = (effectValue > 0 ? effectValue : 1) * amount;
+                if (DataManager.instance && DataManager.instance.addResource) {
+                    DataManager.instance.addResource(id, matAmt);
+                }
+                SoundManager.instance.playSE("itemget01", "System");
+                if (UIManager.instance) UIManager.instance.showItemLog(`🔩 ${name} +${matAmt}`, rarity, pos);
+                break;
+
+            default:
+                // General Item or None
+                if (UIManager.instance) UIManager.instance.showItemLog(`${name} x${amount}`, rarity, pos);
+                SoundManager.instance.playSE("itemget01", "System");
+                break;
         }
 
         // --- Multi-item Listing for Result screen ---

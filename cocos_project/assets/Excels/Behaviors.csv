@@ -1,15 +1,16 @@
 ID,GraphPath,Note
-DebriMove01,Data/Behaviors/DebriMove01,Basic Straight Down (was MPID001)
 BH_HOVER,Data/Behaviors/BH_HOVER,Straight Up (was MPID002)
-BH_RUSH,Data/Behaviors/BH_RUSH,Right to Left Rush (was MPID003)
 BH_LEFTRIGHT,Data/Behaviors/BH_LEFTRIGHT,Left to Right (was MPID004)
+BH_RUSH,Data/Behaviors/BH_RUSH,Right to Left Rush (was MPID003)
 BH_ZIGZAG,Data/Behaviors/BH_ZIGZAG,Zigzag Down (was MPID005/006)
-Enemy006,Data/Behaviors/Enemy006,Homing toward Player (was MPID009)
-Enemy007,Data/Behaviors/Enemy007,Enemy007
+DebriMove01,Data/Behaviors/DebriMove01,Basic Straight Down (was MPID001)
 DebriMove02,Data/Behaviors/DebriMove02,Copied from DebriMove01
 Enemy001,Data/Behaviors/Enemy001,
 Enemy002,Data/Behaviors/Enemy002,Copied from Enemy001
 Enemy003,Data/Behaviors/Enemy003,Copied from Enemy002
 Enemy004,Data/Behaviors/Enemy004,Copied from Enemy003
 Enemy005,Data/Behaviors/Enemy005,Copied from Enemy004
+Enemy006,Data/Behaviors/Enemy006,Homing toward Player (was MPID009)
+Enemy007,Data/Behaviors/Enemy007,Enemy007
 Enemy008,Data/Behaviors/Enemy008,Copied from Enemy006
+Enemy009,Data/Behaviors/Enemy009,Copied from Enemy001

@@ -1,14 +1,15 @@
 ID,GraphPath,Note
 1Shot01,Data/ShotPatterns/1Shot01,LP:0.5 SP:7 DMG:8
-SP_PLAYER_BASIC,Data/ShotPatterns/SP_PLAYER_BASIC,Player default weapon (was PlayerController.fire())
-SPREAD01,Data/ShotPatterns/SPREAD01,Demo: spread shot (MultiFire
-Empty,Data/ShotPatterns/Empty,
-SPREAD02,Data/ShotPatterns/SPREAD02,5発拡散
 1Shot02,Data/ShotPatterns/1Shot02,LP:0.4 SP:7 DMG:7
 1ShotHM01,Data/ShotPatterns/1ShotHM01,Copied from 1Shot01
 1Shot03,Data/ShotPatterns/1Shot03,LP:0.35 SP:10 DMG:6
 1Shot04,Data/ShotPatterns/1Shot04,LP:0.25 SP:8 DMG:4
 1Shot05,Data/ShotPatterns/1Shot05,LP:0.5 SP:12 DMG:10
-SPREAD04,Data/ShotPatterns/SPREAD04,Copied from SPREAD02
-SPREAD03,Data/ShotPatterns/SPREAD03,Copied from SPREAD02
 1ShotHM02,Data/ShotPatterns/1ShotHM02,Copied from 1ShotHM01
+1ShotAim01,Data/ShotPatterns/1ShotAim01,Copied from 1Shot01
+Empty,Data/ShotPatterns/Empty,
+SP_PLAYER_BASIC,Data/ShotPatterns/SP_PLAYER_BASIC,Player default weapon (was PlayerController.fire())
+SPREAD01,Data/ShotPatterns/SPREAD01,Demo: spread shot (MultiFire
+SPREAD02,Data/ShotPatterns/SPREAD02,5発拡散
+SPREAD03,Data/ShotPatterns/SPREAD03,Copied from SPREAD02
+SPREAD04,Data/ShotPatterns/SPREAD04,Copied from SPREAD02
