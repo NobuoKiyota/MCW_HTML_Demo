@@ -2,17 +2,6 @@
     "id": "Enemy003",
     "nodes": [
         {
-            "id": 6,
-            "type": "Spin",
-            "params": {
-                "axis": "y",
-                "degrees": 360,
-                "duration": 0.6,
-                "loop": false
-            },
-            "next": 2
-        },
-        {
             "id": 1,
             "type": "Start",
             "next": 6
@@ -43,6 +32,17 @@
                 "shotPatternId": "SPREAD01"
             },
             "next": null
+        },
+        {
+            "id": 6,
+            "type": "Spin",
+            "params": {
+                "axis": "y",
+                "degrees": 360,
+                "duration": 2,
+                "loop": false
+            },
+            "next": 2
         }
     ],
     "_editor": {

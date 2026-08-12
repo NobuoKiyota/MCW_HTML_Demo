@@ -191,6 +191,101 @@ export class DropTableData {
 }
 
 /**
+ * 出現テーブルデータ (SpawnTable)
+ * 1つのIDに対して最大8つの敵/デブリID(slots)＋出現数範囲(min/max)＋抽選モード(lot)を持つ。
+ * DropTableData/DropItemSlotと同じ「固定スロット＋Math.random()抽選」パターン。
+ * ミッション側はこのSpawnTableを距離区間ごとに組み合わせて出現パターンを構成する想定
+ * (dist は将来ミッション側の「残り距離がこの値付近」等の条件付けに使うためのフィールドで、
+ * 現時点ではデータとして保持するのみ)。
+ */
+@ccclass('SpawnTableData')
+export class SpawnTableData {
+    @property
+    public id: string = "";
+
+    @property({ type: CCFloat, tooltip: "難易度レベル" })
+    public lv: number = 1;
+
+    @property({ type: CCFloat, tooltip: "同一Lv内での強弱順(小さいほど弱い)。ミッション生成時、選出したSpawnTableをこの値の昇順で並べて再生する" })
+    public subLv: number = 1;
+
+    @property({ type: CCFloat, tooltip: "この行が有効になる距離(ミッション側で合算し、区間合計距離Bとして使用する)" })
+    public dist: number = 0;
+
+    @property({ type: CCInteger, tooltip: "最小出現数" })
+    public min: number = 1;
+
+    @property({ type: CCInteger, tooltip: "最大出現数" })
+    public max: number = 1;
+
+    @property({ tooltip: "抽選モード: One(1種を選び出現数分全てそのID) / Two(2種を選び出現枠ごとにどちらか抽選) / Random(出現枠ごとに全候補から毎回抽選)" })
+    public lot: string = "Random";
+
+    @property({ tooltip: "出現サイクル(1体ずつ生成する間隔のプリセット): Instant(全て同時) / Rapid / Normal / Slow。実際の秒数はGameManager側のプリセット表で計算する(CSVに秒数を直接手打ちしない)" })
+    public cycle: string = "Instant";
+
+    public slots: string[] = []; // TypeID_1..8 のうち "None" 以外の値のみ
+
+    @property
+    public note: string = "";
+}
+
+/**
+ * ミッション難易度テーブル (assets/resources/Excels/MissionDifficulty.csv)
+ * 機体の総改造回数(modCount)がModCountMin以上になった行のうち、最もModCountMinが大きい行を
+ * 採用する形で「現在の難易度Lv」と「ミッション生成時に組み合わせるSpawnTable本数」を決める。
+ * 同じLv内でも改造が進むほど(=ModCountMinが大きい行を踏むほど)TableCountが増えていく想定
+ * (例: Lv1/ModCountMin2/TableCount4 → 改造が進みLv1/ModCountMin6/TableCount5に切り替わる)。
+ */
+@ccclass('MissionDifficultyData')
+export class MissionDifficultyData {
+    @property({ type: CCInteger, tooltip: "難易度レベル" })
+    public lv: number = 1;
+
+    @property({ type: CCInteger, tooltip: "この行が適用される総改造回数の下限(この値以上で適用)" })
+    public modCountMin: number = 0;
+
+    @property({ type: CCInteger, tooltip: "ミッション生成時に組み合わせるSpawnTableの本数" })
+    public tableCount: number = 3;
+
+    @property
+    public note: string = "";
+}
+
+/**
+ * 機体永続強化パラメータ定義 (assets/resources/Excels/PlayerUpgrade.csv)
+ * PlayerManager(実装予定)が、MinValue/MaxValue/GrowthType/MaxLvから各Lv1..MaxLvの実値・必要コストを
+ * べき指数カーブで自動計算する際の元データ。GrowthTypeの5種と指数の対応はMasterManagerパネルの
+ * プレビュー計算式(index.js)と実行時計算式(将来PlayerManager.ts側に実装)で一致させる必要がある。
+ */
+@ccclass('PlayerUpgradeParamData')
+export class PlayerUpgradeParamData {
+    @property
+    public paramId: string = "";
+
+    @property
+    public label: string = "";
+
+    @property({ type: CCFloat, tooltip: "Lv1(未強化)時点の値" })
+    public minValue: number = 0;
+
+    @property({ type: CCFloat, tooltip: "MaxLv到達時の値" })
+    public maxValue: number = 0;
+
+    @property({ tooltip: "成長傾向: 超早熟/早熟/標準/晩成/超晩成" })
+    public growthType: string = "標準";
+
+    @property({ type: CCInteger, tooltip: "コスト計算の基準となるパラメータ価値(★の数)" })
+    public starValue: number = 1;
+
+    @property({ tooltip: "強化に必要なアイテムの分類(装甲強化パーツ/高性能エンジンパーツ/電脳強化パーツ)" })
+    public materialCategory: string = "";
+
+    @property({ type: CCInteger, tooltip: "最大レベル" })
+    public maxLv: number = 20;
+}
+
+/**
  * ドロップテーブルデータ (旧互換用 DropData)
  */
 @ccclass('DropData')
@@ -233,6 +328,9 @@ export class EnemyData {
 
     @property({ type: CCInteger, tooltip: "防御力 (固定値減少)" })
     public defense: number = 0;
+
+    @property({ type: CCInteger, tooltip: "Playerとの機体接触時に与える固定ダメージ(CDMG)" })
+    public contactDamage: number = 10;
 
     @property({ type: CCInteger, tooltip: "撃破時のスコア" })
     public score: number = 100;

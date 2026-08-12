@@ -263,9 +263,13 @@
       "__id__": 16
     },
     "invincible": false,
-    "model3DPrefab": null,
+    "model3DPrefab": {
+      "__uuid__": "45d04b2f-81bc-4a82-9062-132e4c61a339",
+      "__expectedType__": "cc.Prefab"
+    },
     "model3DPrefabYRot": 0,
     "model3DScale": 1,
+    "enemyScale": 1,
     "faceTowardPlayer": false,
     "faceTowardPlayerOffset": 0,
     "_id": ""

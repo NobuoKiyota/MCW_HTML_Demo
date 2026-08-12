@@ -55,9 +55,9 @@
     },
     "_lscale": {
       "__type__": "cc.Vec3",
-      "x": 1.5,
-      "y": 1.5,
-      "z": 1.5
+      "x": 1,
+      "y": 1,
+      "z": 1
     },
     "_mobility": 0,
     "_layer": 1073741824,
@@ -163,10 +163,10 @@
     ],
     "value": {
       "__type__": "cc.Quat",
-      "x": 0.7071067811865475,
+      "x": 0.6087614290087207,
       "y": 0,
       "z": 0,
-      "w": 0.7071067811865476
+      "w": 0.7933533402912352
     }
   },
   {
@@ -179,7 +179,7 @@
     ],
     "value": {
       "__type__": "cc.Vec3",
-      "x": 90,
+      "x": 75,
       "y": 0,
       "z": 0
     }
@@ -194,9 +194,9 @@
     ],
     "value": {
       "__type__": "cc.Vec3",
-      "x": 8,
-      "y": 8,
-      "z": 8
+      "x": 1,
+      "y": 1,
+      "z": 1
     }
   },
   {
@@ -213,13 +213,13 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 60,
-      "height": 60
+      "width": 4,
+      "height": 4
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
       "x": 0.5,
-      "y": 0.5
+      "y": 0
     },
     "_id": ""
   },
@@ -240,9 +240,13 @@
       "__id__": 14
     },
     "invincible": false,
-    "model3DPrefab": null,
+    "model3DPrefab": {
+      "__uuid__": "9b544d1c-7858-4f08-9bdd-fe27e8532c04",
+      "__expectedType__": "cc.Prefab"
+    },
     "model3DPrefabYRot": 0,
     "model3DScale": 1,
+    "enemyScale": 1,
     "faceTowardPlayer": false,
     "faceTowardPlayerOffset": 0,
     "_id": ""
@@ -267,14 +271,14 @@
     "_group": 1,
     "_density": 1,
     "_sensor": false,
-    "_friction": 0.2,
+    "_friction": 2.7,
     "_restitution": 0,
     "_offset": {
       "__type__": "cc.Vec2",
       "x": 0,
-      "y": 0
+      "y": 2.2
     },
-    "_radius": 30,
+    "_radius": 2,
     "_id": ""
   },
   {
@@ -325,7 +329,6 @@
     },
     "fileId": "e7UD4cDjhDPb5JvncQ/okt",
     "instance": null,
-    "targetOverrides": null,
     "nestedPrefabInstanceRoots": [
       {
         "__id__": 2

@@ -1,0 +1,55 @@
+ID,Name,PrefabName,Type,EffectType,EffectValue,Duration,Min,Max,Weight,Note
+IT_Money01,Money01,ItemMoney,Score,Credit,10,0,1,1,10,クレジット
+IT_Money02,Money02,ItemMoney,,Credit,20,0,1,1,10,クレジット
+IT_Money03,Money03,ItemMoney,,Credit,30,0,1,1,10,クレジット
+IT_Money04,Money04,ItemMoney,,Credit,40,0,1,1,10,クレジット
+IT_Money05,Money05,ItemMoney,,Credit,50,0,1,1,10,クレジット
+IT_Money06,Money06,ItemMoney,,Credit,60,0,1,1,10,クレジット
+IT_Parts01,Parts01,ItemA,Misc,Material,1,0,1,3,5,機体開発素材A
+IT_Parts02,Parts02,ItemB,Misc,Material,1,0,1,1,5,改造用部品B
+IT_PowerUP01,PowerUp01,ItemPowerUp,PowerUp,PowerUp,0.2,5,1,1,10,攻撃力アップ
+IT_PowerUP02,PowerUp02,ItemPowerUp,PowerUp,PowerUp,0.2,10,1,1,10,攻撃力アップ
+IT_PowerUP03,PowerUp03,ItemPowerUp,PowerUp,PowerUp,0.3,10,1,1,10,攻撃力アップ
+IT_PowerUP04,PowerUp04,ItemPowerUp,PowerUp,PowerUp,0.3,15,1,1,10,攻撃力アップ
+IT_PowerUP05,PowerUp05,ItemPowerUp,PowerUp,PowerUp,0.3,20,1,1,10,攻撃力アップ
+IT_RapidFire01,RapidFire01,ItemRapidFire,Weapon,RapidFire,0.15,10,1,1,10,連射スピードアップ
+IT_RapidFire02,RapidFire02,ItemRapidFire,Weapon,RapidFire,0.15,15,1,1,10,連射スピードアップ
+IT_RapidFire03,RapidFire03,ItemRapidFire,Weapon,RapidFire,0.2,10,1,1,10,連射スピードアップ
+IT_RapidFire04,RapidFire04,ItemRapidFire,Weapon,RapidFire,0.2,15,1,1,10,連射スピードアップ
+IT_RapidFire05,RapidFire05,ItemRapidFire,Weapon,RapidFire,0.25,10,1,1,10,連射スピードアップ
+IT_Repair01,Repair01,ItemRepair,Heal,Heal,20,0,1,1,1,HP回復
+IT_Repair02,Repair02,ItemRepair,Heal,Heal,30,0,1,1,1,HP回復
+IT_Repair03,Repair03,ItemRepair,Heal,Heal,40,0,1,1,1,HP回復
+IT_Repair04,Repair04,ItemRepair,Heal,Heal,50,0,1,1,1,HP回復
+IT_Repair05,Repair01\5,ItemRepair,Heal,Heal,60,0,1,1,1,HP回復
+Mat_EngineCore,Engine Core,ItemA,Material,UnlockTrigger,1,0,1,1,1,新機体解放用コアパーツ
+PT_ArmorLv01,Armor reinforcement_Lv01,ItemA,Material,Material,1,0,1,1,1,装甲強化パーツLv01
+PT_ArmorLv02,Armor reinforcement_Lv02,ItemA,Material,Material,1,0,1,1,1,装甲強化パーツLv02
+PT_ArmorLv03,Armor reinforcement_Lv03,ItemA,Material,Material,1,0,1,1,1,装甲強化パーツLv03
+PT_ArmorLv04,Armor reinforcement_Lv04,ItemA,Material,Material,1,0,1,1,1,装甲強化パーツLv04
+PT_ArmorLv05,Armor reinforcement_Lv05,ItemA,Material,Material,1,0,1,1,1,装甲強化パーツLv05
+PT_ArmorLv06,Armor reinforcement_Lv06,ItemA,Material,Material,1,0,1,1,1,装甲強化パーツLv06
+PT_ArmorLv07,Armor reinforcement_Lv07,ItemA,Material,Material,1,0,1,1,1,装甲強化パーツLv07
+PT_ArmorLv08,Armor reinforcement_Lv08,ItemA,Material,Material,1,0,1,1,1,装甲強化パーツLv08
+PT_ArmorLv09,Armor reinforcement_Lv09,ItemA,Material,Material,1,0,1,1,1,装甲強化パーツLv09
+PT_ArmorLv10,Armor reinforcement_Lv10,ItemA,Material,Material,1,0,1,1,1,装甲強化パーツLv10
+PT_CyberLv01,CyberneticEnhancement_Lv01,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv01
+PT_CyberLv02,CyberneticEnhancement_Lv02,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv02
+PT_CyberLv03,CyberneticEnhancement_Lv03,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv03
+PT_CyberLv04,CyberneticEnhancement_Lv04,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv04
+PT_CyberLv05,CyberneticEnhancement_Lv05,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv05
+PT_CyberLv06,CyberneticEnhancement_Lv06,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv06
+PT_CyberLv07,CyberneticEnhancement_Lv07,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv07
+PT_CyberLv08,CyberneticEnhancement_Lv08,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv08
+PT_CyberLv09,CyberneticEnhancement_Lv09,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv09
+PT_CyberLv10,CyberneticEnhancement_Lv10,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv10
+PT_EngineLv01,High-performanceEngine_Lv01,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv01
+PT_EngineLv02,High-performanceEngine_Lv02,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv02
+PT_EngineLv03,High-performanceEngine_Lv03,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv03
+PT_EngineLv04,High-performanceEngine_Lv04,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv04
+PT_EngineLv05,High-performanceEngine_Lv05,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv05
+PT_EngineLv06,High-performanceEngine_Lv06,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv06
+PT_EngineLv07,High-performanceEngine_Lv07,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv07
+PT_EngineLv08,High-performanceEngine_Lv08,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv08
+PT_EngineLv09,High-performanceEngine_Lv09,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv09
+PT_EngineLv10,High-performanceEngine_Lv10,ItemA,Material,Material,1,0,1,1,1,高性能エンジンパーツLv10

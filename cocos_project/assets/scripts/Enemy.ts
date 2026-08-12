@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Vec3, math, Sprite, Color, director, find, Layers, Prefab, resources, instantiate, tween } from 'cc';
+import { _decorator, Component, Node, Vec3, math, Sprite, Color, director, find, Layers, Prefab, resources, instantiate, tween, Collider2D, IPhysics2DContact, Contact2DType } from 'cc';
 // import { GameManager } from './GameManager'; // Circular Dependency
 import { GAME_SETTINGS, IGameManager, GameState } from './Constants';
 import { SoundManager } from './SoundManager';
@@ -16,6 +16,8 @@ export class Enemy extends Component {
     // Runtime Stats (No Inspector)
     public hp: number = 10;
     public maxHp: number = 10;
+    // Playerとの機体接触時に与える固定ダメージ(Enemies.csvのContactDamage/CDMG列由来)。
+    public contactDamage: number = 10;
 
     @property({ tooltip: "テスト用: trueの間は被弾してもダメージ・死亡処理を一切行わない" })
     public invincible: boolean = false;
@@ -69,6 +71,16 @@ export class Enemy extends Component {
 
     onLoad() {
         console.log(`[Enemy] onLoad: ${this.node.uuid}`);
+
+        // Bullet.tsと同じパターン: onBeginContactはメソッドを定義しただけでは呼ばれず、
+        // Collider2Dへ明示的にリスナー登録する必要がある(Box/Circle/Polygon問わず拾えるよう
+        // 具象型ではなく基底のCollider2Dで取得する)。
+        const collider = this.getComponent(Collider2D);
+        if (collider) {
+            collider.on(Contact2DType.BEGIN_CONTACT, this.onBeginContact, this);
+        } else {
+            console.warn(`[Enemy] onLoad: No Collider2D found on '${this.node.name}' - Player contact damage will not work for this enemy.`);
+        }
     }
 
     start() {
@@ -84,6 +96,7 @@ export class Enemy extends Component {
         // Basic Stats
         this.hp = data.hp || 10;
         this.maxHp = data.hp || 10;
+        this.contactDamage = (data.contactDamage !== undefined && data.contactDamage !== null) ? data.contactDamage : 10;
 
         // Node Scale (Uniform x, y, z)
         const scaleVal = (data && data.scale !== undefined && data.scale !== null && !isNaN(Number(data.scale))) ? Number(data.scale) : this.enemyScale;
@@ -335,6 +348,26 @@ export class Enemy extends Component {
         this._shotRuntime = new ShotRuntime(patternData._graph, this._gm, this.node, true);
     }
 
+    // Playerの機体(Collider2D)と直接接触した際に固定ダメージ(contactDamage)を与える。
+    // Bullet.tsのonBeginContact(弾のCollider2Dが持つ)と同じ「相手ノード or その親からPlayerController
+    // を探す」というフォールバック探索を踏襲している(Player機の当たり判定がPlayerController本体の
+    // ノードにあるか、その子ノードにあるかを問わず動くようにするため)。Enemy自身がダメージを受ける
+    // わけではない(invincibleフラグはEnemyがダメージを受ける側の判定にのみ関係するため、ここでは見ない)。
+    onBeginContact(selfCollider: Collider2D, otherCollider: Collider2D, contact: IPhysics2DContact | null) {
+        console.log(`[Enemy] onBeginContact: '${this.node.name}' touched '${otherCollider.node.name}'.`);
+
+        let player = otherCollider.getComponent("PlayerController") as any;
+        if (!player && otherCollider.node.parent) {
+            player = otherCollider.node.parent.getComponent("PlayerController") as any;
+        }
+        if (player && typeof player.takeDamage === 'function') {
+            console.log(`[Enemy] onBeginContact: PlayerController found on '${otherCollider.node.name}' (or its parent). Dealing contactDamage=${this.contactDamage}.`);
+            player.takeDamage(this.contactDamage);
+        } else {
+            console.log(`[Enemy] onBeginContact: no PlayerController found on '${otherCollider.node.name}' or its parent - not the Player, ignoring.`);
+        }
+    }
+
     public takeDamage(amount: number) {
         if (this.invincible) return; // テスト用無敵: ダメージ・被弾演出・死亡処理を一切行わない
 
@@ -417,7 +450,13 @@ export class Enemy extends Component {
             let dropped = false;
 
             // 1. Modular Drop Table System (DropTableID -> up to 5 ItemID + Rate slots)
-            const dropTable = this.data ? (this.data._dropTable || (gm.db ? gm.db.getDropTableData(this.data.dropTableId) : null)) : null;
+            // NOTE: this used to read `gm.db`, which doesn't exist on IGameManager (always
+            // undefined) - the itemMaster lookup below silently always returned null, so
+            // every drop's count was pinned to the hardcoded 1/1 fallback regardless of the
+            // Item's actual Min/Max in Items.csv. Fixed to the same gameDatabase-or-singleton
+            // pattern used elsewhere (GameManager.onItemCollected, etc).
+            const db = gm.gameDatabase || GameDatabase.instance;
+            const dropTable = this.data ? (this.data._dropTable || (db ? db.getDropTableData(this.data.dropTableId) : null)) : null;
 
             if (dropTable && dropTable.slots && dropTable.slots.length > 0) {
                 console.log(`[Enemy] checking ${dropTable.slots.length} drop slots from DropTable '${dropTable.id}'...`);
@@ -426,7 +465,7 @@ export class Enemy extends Component {
 
                     const rnd = Math.random();
                     if (rnd <= slot.rate) {
-                        const itemMaster = gm.db ? gm.db.getItemData(slot.itemId) : null;
+                        const itemMaster = db ? db.getItemData(slot.itemId) : null;
                         const minCnt = itemMaster ? itemMaster.min : 1;
                         const maxCnt = itemMaster ? itemMaster.max : 1;
                         const count = Math.floor(Math.random() * (maxCnt - minCnt + 1)) + minCnt;

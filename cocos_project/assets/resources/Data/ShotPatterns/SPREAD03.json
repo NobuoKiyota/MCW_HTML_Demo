@@ -19,7 +19,7 @@
             "id": 3,
             "type": "Wait",
             "params": {
-                "seconds": 1
+                "seconds": 2.5
             },
             "next": 4
         },
@@ -35,10 +35,12 @@
                 "speed": 6,
                 "damage": 7,
                 "pierceCount": 0,
-                "prefabName": "Bullet03",
-                "color": "",
-                "glowIntensity": 1,
-                "angleOffset": 0
+                "prefabName": "Bullet01",
+                "color": "FFFFFF",
+                "glowIntensity": 3,
+                "angleOffset": 0,
+                "scale": 1,
+                "soundId": "SE_EShotSpread01"
             },
             "next": 3
         }

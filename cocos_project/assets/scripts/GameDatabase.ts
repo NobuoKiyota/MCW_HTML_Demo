@@ -1,5 +1,5 @@
 import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab, resources, director, JsonAsset } from 'cc';
-import { EnemyData, BehaviorData, ShotPatternData, DropData, SoundData, BehaviorGraph, ShotGraph, ItemData, DropTableData } from './GameDataTypes';
+import { EnemyData, BehaviorData, ShotPatternData, DropData, SoundData, BehaviorGraph, ShotGraph, ItemData, DropTableData, SpawnTableData, MissionDifficultyData, PlayerUpgradeParamData } from './GameDataTypes';
 import { CSVHelper } from './CSVHelper';
 import { SoundManager } from './SoundManager';
 import { IMissionData } from './Constants'; // New
@@ -29,6 +29,9 @@ export class GameDatabase extends Component {
     public drops: DropData[] = [];
     public items: ItemData[] = [];
     public dropTables: DropTableData[] = [];
+    public spawnTables: SpawnTableData[] = [];
+    public missionDifficulties: MissionDifficultyData[] = [];
+    public playerUpgradeParams: PlayerUpgradeParamData[] = [];
     public sounds: SoundData[] = [];
     public missions: IMissionData[] = []; // New
 
@@ -50,6 +53,15 @@ export class GameDatabase extends Component {
 
     @property({ type: TextAsset, tooltip: "CSV: DropTables" })
     public dropTableCsv: TextAsset = null;
+
+    @property({ type: TextAsset, tooltip: "CSV: SpawnTables" })
+    public spawnTableCsv: TextAsset = null;
+
+    @property({ type: TextAsset, tooltip: "CSV: MissionDifficulty" })
+    public missionDifficultyCsv: TextAsset = null;
+
+    @property({ type: TextAsset, tooltip: "CSV: PlayerUpgrade" })
+    public playerUpgradeCsv: TextAsset = null;
 
     @property({ type: TextAsset, tooltip: "CSV: Sounds" })
     public soundCsv: TextAsset = null;
@@ -123,21 +135,69 @@ export class GameDatabase extends Component {
         this.drops = [];
         this.items = [];
         this.dropTables = [];
+        this.spawnTables = [];
+        this.missionDifficulties = [];
+        this.playerUpgradeParams = [];
         this.sounds = []; // Clear old sounds
         this.enemies = []; // Clear runtime list
         this.missions = []; // Clear mission list
 
+        // Items/DropTables/SpawnTables fall back to an ASYNC resources.load() whenever their
+        // Inspector TextAsset property isn't assigned (the normal case now that they're edited
+        // via the Master Manager extension instead). isReady used to flip true synchronously
+        // right after kicking these off, before the async loads actually resolved - any code
+        // that polls `isReady` and immediately reads e.g. `spawnTables` (BehaviorTestController)
+        // could catch it still empty. Track them with a pending counter so isReady only goes
+        // true once every one of them has actually finished (sync ones complete immediately,
+        // so they never increment this).
+        let pendingAsync = 0;
+        const onAsyncCsvDone = () => {
+            pendingAsync--;
+            if (pendingAsync <= 0) this.finishLoadAllCSV();
+        };
+
         if (this.itemCsv) this.parseItemCSV(this.itemCsv.text);
         else {
+            pendingAsync++;
             resources.load("Excels/Items", TextAsset, (err, asset) => {
                 if (!err && asset) this.parseItemCSV(asset.text);
+                onAsyncCsvDone();
             });
         }
 
         if (this.dropTableCsv) this.parseDropTableCSV(this.dropTableCsv.text);
         else {
+            pendingAsync++;
             resources.load("Excels/DropTables", TextAsset, (err, asset) => {
                 if (!err && asset) this.parseDropTableCSV(asset.text);
+                onAsyncCsvDone();
+            });
+        }
+
+        if (this.spawnTableCsv) this.parseSpawnTableCSV(this.spawnTableCsv.text);
+        else {
+            pendingAsync++;
+            resources.load("Excels/SpawnTables", TextAsset, (err, asset) => {
+                if (!err && asset) this.parseSpawnTableCSV(asset.text);
+                onAsyncCsvDone();
+            });
+        }
+
+        if (this.missionDifficultyCsv) this.parseMissionDifficultyCSV(this.missionDifficultyCsv.text);
+        else {
+            pendingAsync++;
+            resources.load("Excels/MissionDifficulty", TextAsset, (err, asset) => {
+                if (!err && asset) this.parseMissionDifficultyCSV(asset.text);
+                onAsyncCsvDone();
+            });
+        }
+
+        if (this.playerUpgradeCsv) this.parsePlayerUpgradeCSV(this.playerUpgradeCsv.text);
+        else {
+            pendingAsync++;
+            resources.load("Excels/PlayerUpgrade", TextAsset, (err, asset) => {
+                if (!err && asset) this.parsePlayerUpgradeCSV(asset.text);
+                onAsyncCsvDone();
             });
         }
 
@@ -163,7 +223,13 @@ export class GameDatabase extends Component {
             });
         }
 
-        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.items.length} Items, ${this.dropTables.length} DropTables, ${this.behaviors.length} Behaviors, ${this.shotPatterns.length} ShotPatterns, ${this.drops.length} Drops, ${this.missions.length} Missions`);
+        // If Items/DropTables/SpawnTables were all synchronous (Inspector-assigned), this fires
+        // immediately; otherwise onAsyncCsvDone() fires it once the last one resolves.
+        if (pendingAsync === 0) this.finishLoadAllCSV();
+    }
+
+    private finishLoadAllCSV() {
+        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.items.length} Items, ${this.dropTables.length} DropTables, ${this.spawnTables.length} SpawnTables, ${this.missionDifficulties.length} MissionDifficulties, ${this.playerUpgradeParams.length} PlayerUpgradeParams, ${this.behaviors.length} Behaviors, ${this.shotPatterns.length} ShotPatterns, ${this.drops.length} Drops, ${this.missions.length} Missions`);
 
         this.isReady = true;
 
@@ -209,6 +275,61 @@ export class GameDatabase extends Component {
             return dt;
         });
         console.log(`[GameDatabase] Loaded ${this.dropTables.length} DropTables.`);
+    }
+
+    private parseSpawnTableCSV(text: string) {
+        const data = CSVHelper.parse(text);
+        this.spawnTables = data.map(row => {
+            const st = new SpawnTableData();
+            st.id = row.ID;
+            st.lv = row.Lv !== undefined && row.Lv !== "" ? parseFloat(row.Lv) : 1;
+            st.subLv = row.SubLv !== undefined && row.SubLv !== "" ? parseFloat(row.SubLv) : 1;
+            st.dist = row.Dist !== undefined && row.Dist !== "" ? parseFloat(row.Dist) : 0;
+            st.min = row.Min !== undefined && row.Min !== "" ? parseInt(row.Min) : 1;
+            st.max = row.Max !== undefined && row.Max !== "" ? parseInt(row.Max) : 1;
+            st.lot = row.Lot || "Random";
+            st.cycle = row.Cycle || "Instant";
+            st.note = row.Note || "";
+            st.slots = [];
+            for (let i = 1; i <= 8; i++) {
+                const typeId = row[`TypeID_${i}`];
+                if (typeId && typeId !== "" && typeId !== "None") {
+                    st.slots.push(typeId);
+                }
+            }
+            return st;
+        });
+        console.log(`[GameDatabase] Loaded ${this.spawnTables.length} SpawnTables.`);
+    }
+
+    private parseMissionDifficultyCSV(text: string) {
+        const data = CSVHelper.parse(text);
+        this.missionDifficulties = data.map(row => {
+            const md = new MissionDifficultyData();
+            md.lv = row.Lv !== undefined && row.Lv !== "" ? parseInt(row.Lv) : 1;
+            md.modCountMin = row.ModCountMin !== undefined && row.ModCountMin !== "" ? parseInt(row.ModCountMin) : 0;
+            md.tableCount = row.TableCount !== undefined && row.TableCount !== "" ? parseInt(row.TableCount) : 3;
+            md.note = row.Note || "";
+            return md;
+        });
+        console.log(`[GameDatabase] Loaded ${this.missionDifficulties.length} MissionDifficulties.`);
+    }
+
+    private parsePlayerUpgradeCSV(text: string) {
+        const data = CSVHelper.parse(text);
+        this.playerUpgradeParams = data.map(row => {
+            const p = new PlayerUpgradeParamData();
+            p.paramId = row.ParamID;
+            p.label = row.Label || row.ParamID;
+            p.minValue = row.MinValue !== undefined && row.MinValue !== "" ? parseFloat(row.MinValue) : 0;
+            p.maxValue = row.MaxValue !== undefined && row.MaxValue !== "" ? parseFloat(row.MaxValue) : 0;
+            p.growthType = row.GrowthType || "標準";
+            p.starValue = row.StarValue !== undefined && row.StarValue !== "" ? parseInt(row.StarValue) : 1;
+            p.materialCategory = row.MaterialCategory || "";
+            p.maxLv = row.MaxLv !== undefined && row.MaxLv !== "" ? parseInt(row.MaxLv) : 20;
+            return p;
+        });
+        console.log(`[GameDatabase] Loaded ${this.playerUpgradeParams.length} PlayerUpgrade params.`);
     }
 
     private parseBehaviorCSV(text: string) {
@@ -293,6 +414,7 @@ export class GameDatabase extends Component {
             entry.name = row.Name;
             entry.hp = row.HP;
             entry.defense = row.Defense || 0; // New Defense Stat
+            entry.contactDamage = row.ContactDamage !== undefined && row.ContactDamage !== "" ? parseFloat(row.ContactDamage) : 10;
             entry.score = row.Score || 100;
 
             // Prefab Linking
@@ -394,6 +516,25 @@ export class GameDatabase extends Component {
 
     public getDropTableData(id: string): DropTableData | null {
         return this.dropTables.find(dt => dt.id === id) || null;
+    }
+
+    public getSpawnTableData(id: string): SpawnTableData | null {
+        return this.spawnTables.find(st => st.id === id) || null;
+    }
+
+    /**
+     * 総改造回数(modCount)から、現在適用すべきMissionDifficulty行を取得する。
+     * ModCountMinがmodCount以下の行のうち、ModCountMinが最大のものを採用する
+     * (=改造が進むほどより高いしきい値の行に切り替わっていく)。
+     */
+    public getMissionDifficultyForModCount(modCount: number): MissionDifficultyData | null {
+        const candidates = this.missionDifficulties.filter(md => md.modCountMin <= modCount);
+        if (candidates.length === 0) return null;
+        return candidates.reduce((best, cur) => cur.modCountMin > best.modCountMin ? cur : best);
+    }
+
+    public getPlayerUpgradeParam(paramId: string): PlayerUpgradeParamData | null {
+        return this.playerUpgradeParams.find(p => p.paramId === paramId) || null;
     }
 
     /**

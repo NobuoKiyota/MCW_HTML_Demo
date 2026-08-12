@@ -169,10 +169,10 @@
     ],
     "value": {
       "__type__": "cc.Quat",
-      "x": 0.7071067811865475,
+      "x": 0.6087614290087207,
       "y": 0,
       "z": 0,
-      "w": 0.7071067811865476
+      "w": 0.7933533402912352
     }
   },
   {
@@ -185,7 +185,7 @@
     ],
     "value": {
       "__type__": "cc.Vec3",
-      "x": 90,
+      "x": 75,
       "y": 0,
       "z": 0
     }
@@ -200,9 +200,9 @@
     ],
     "value": {
       "__type__": "cc.Vec3",
-      "x": 8,
-      "y": 8,
-      "z": 8
+      "x": 1,
+      "y": 1,
+      "z": 1
     }
   },
   {
@@ -235,7 +235,7 @@
       "0"
     ],
     "value": {
-      "__uuid__": "00484aef-e630-490e-b9a7-11c9a570cbc6",
+      "__uuid__": "03621392-a89a-4e30-9ea0-fee85a63105c@23d8d",
       "__expectedType__": "cc.Material"
     }
   },
@@ -253,13 +253,13 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 60,
-      "height": 60
+      "width": 6,
+      "height": 6
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
       "x": 0.5,
-      "y": 0.5
+      "y": 0
     },
     "_id": ""
   },
@@ -280,9 +280,13 @@
       "__id__": 17
     },
     "invincible": false,
-    "model3DPrefab": null,
+    "model3DPrefab": {
+      "__uuid__": "47deb116-2239-4f75-9073-f03291a7a511",
+      "__expectedType__": "cc.Prefab"
+    },
     "model3DPrefabYRot": 0,
     "model3DScale": 1,
+    "enemyScale": 1,
     "faceTowardPlayer": false,
     "faceTowardPlayerOffset": 0,
     "_id": ""
@@ -312,9 +316,9 @@
     "_offset": {
       "__type__": "cc.Vec2",
       "x": 0,
-      "y": 7.7
+      "y": 3
     },
-    "_radius": 10,
+    "_radius": 3,
     "_id": ""
   },
   {

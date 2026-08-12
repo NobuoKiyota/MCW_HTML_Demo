@@ -19,7 +19,7 @@
             "id": 3,
             "type": "Wait",
             "params": {
-                "seconds": 0.15
+                "seconds": 0.2
             },
             "next": 4
         },
@@ -29,13 +29,15 @@
             "params": {
                 "aim": "fixed",
                 "angle": 90,
-                "speed": 7,
+                "speed": 16,
                 "damage": 10,
                 "pierceCount": 0,
                 "prefabName": "PBullet01",
-                "color": "",
+                "color": "8ADEFF",
                 "glowIntensity": 3,
-                "count": 1
+                "scale": 1,
+                "count": 1,
+                "soundId": "shoot01"
             },
             "next": 3
         }

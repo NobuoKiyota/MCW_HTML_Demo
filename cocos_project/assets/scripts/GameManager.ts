@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3, Color, game, resources, UITransform, Sprite, BoxCollider2D, LabelOutline, tween, v3, UIOpacity, BlockInputEvents, Graphics, Size, CCInteger, CCFloat, Camera, DirectionalLight, Light, Vec3 as Vec3Type, Layers, Canvas } from 'cc';
+import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3, Vec4, Color, game, resources, UITransform, Sprite, BoxCollider2D, LabelOutline, tween, v3, UIOpacity, BlockInputEvents, Graphics, Size, CCInteger, CCFloat, Camera, DirectionalLight, Light, Vec3 as Vec3Type, Layers, Canvas, JsonAsset } from 'cc';
 import './enginePatches';
 import { UIManager } from './UIManager';
 import { GameState, GAME_SETTINGS, IGameManager } from './Constants'; // Removed Constants
@@ -10,6 +10,7 @@ import { DataManager } from './DataManager';
 import { CocosLogger } from './CocosLogger';
 import { CocosDiagnostic } from './CocosDiagnostic';
 import { MovePoint } from './MovePoint';
+import { VideoBackground } from './VideoBackground';
 
 
 const { ccclass, property } = _decorator;
@@ -22,6 +23,18 @@ const { ccclass, property } = _decorator;
 // (which no longer includes this bit in its visibility) draws the 3D ship and remaining UI_2D
 // content on top without re-drawing the background itself.
 const BG_ONLY_LAYER = 1 << 19;
+
+// SpawnTableData.cycle (Instant/Rapid/Normal/Slow, see MasterManager's Cycle dropdown) ->
+// seconds between each individual spawn within one spawnFromSpawnTable() call. Named presets
+// instead of a hand-typed seconds value in the CSV, so pacing stays consistent across many
+// SpawnTable rows instead of drifting row-by-row (e.g. someone typing 0.3 in one row and 3
+// in another by mistake).
+const CYCLE_INTERVAL_SECONDS: { [key: string]: number } = {
+    Instant: 0,
+    Rapid: 0.15,
+    Normal: 0.4,
+    Slow: 0.8,
+};
 
 @ccclass('GameManager')
 export class GameManager extends Component implements IGameManager {
@@ -47,6 +60,13 @@ export class GameManager extends Component implements IGameManager {
     // ShotRuntime.tsのFire/MultiFire/MissileノードのprefabNameパラメータで見た目を選べるようにする。
     // 未指定/該当なしの場合はbulletPrefab(既定)にフォールバックする。
     public bulletPrefabs: Prefab[] = [];
+    // resources.loadDir("Prefabs/Bullets", ...)完了フラグ。onLoad()からTitle/Homeを経由する通常
+    // フローでは十分先に完了するが、scene-BehaviorTest/scene-MaterialLabのようにGameManagerの
+    // onLoad()直後に即発射が始まるテスト用シーンだと、この非同期ロードが終わる前に最初の数発が
+    // 発射されてしまうことがある(prefabName指定があっても見つからずbulletPrefab既定に化ける)。
+    // spawnBullet()側でこのフラグを見て、未完了ならその発射をスキップする(誤った見た目の弾が
+    // 出るくらいなら、起動直後の数発だけ発射をスキップする方がまだ違和感が少ないため)。
+    private bulletPrefabsReady: boolean = false;
 
     @property(Prefab)
     public itemPrefab: Prefab = null;
@@ -99,6 +119,74 @@ export class GameManager extends Component implements IGameManager {
 
     // Current Active Content Node (Title or Ingame)
     private currentContentNode: Node = null;
+
+    // Ingame(startInGame経由でscene-BehaviorTestも共有)のMP4背景。BackgroundLayerの静止画に
+    // 代わり、BG_ONLY_LAYER(UI_2Dではない)に敷くことでbgCameraだけが描画する - Player3Dモデルを
+    // 隠してしまわないようにするため。切り替えのたびswitchContent()内でdestroy()して作り直す。
+    private videoBG: VideoBackground = new VideoBackground();
+    // 背景動画に掛ける色合い/明るさの周期変化のための経過時間(軽量負荷 - Sprite.colorを
+    // 毎フレームsin波で揺らすだけで、シェーダーや追加デコードは不要)。
+    private _videoBGEffectTime: number = 0;
+
+    // GameManagerEditor(MasterManagerパネル)経由でassets/resources/Data/GameManagerConfig.json
+    // から読み込む倍率。PlayerController.update()がPlayer機3Dモデルの基準スケールに掛ける
+    // (IGameManager経由で公開 - Constants.ts参照)。JSON読み込み完了前にPlayerが生成された
+    // 場合の安全な既定値として1のまま(PlayerController側は毎フレーム再適用するので、後から
+    // この値が更新されても自然に反映される)。
+    public playerShipScaleMultiplier: number = 1;
+    // Player機3DモデルのX/Y軸基準角度(度)。既定X=0/Y=90 - Prefab保存値だとモデルの向きが
+    // 誤っていたための修正(PlayerController.ts参照)。
+    public playerShipBaseRotationX: number = 0;
+    public playerShipBaseRotationY: number = 90;
+
+    // 弾(自機/敵とも共通、Bullet.ts)の発光パルス基礎値。既定値はBullet.ts実装時の固定値と同じ。
+    // IGameManager経由でBullet.update()が毎フレーム参照する(Constants.ts参照)。
+    public bulletPulseSpeed: number = 6;
+    public bulletGlowScale: number = 1.7;
+    public bulletGlowScalePulse: number = 0.25;
+    public bulletGlowAlpha: number = 160;
+    public bulletEmissiveBase: number = 0.6;
+    public bulletEmissiveAmplitude: number = 0.4;
+
+    // ミッション生成(MissionManager実装予定)が1ミッション内で同一SpawnTable IDを重複選出できる
+    // 上限回数。GameManagerConfig.json由来、GameManagerEditorタブで調整する(GlobalRule扱い)。
+    public missionMaxDuplicateSpawnTable: number = 2;
+    // Mission関連パラメータ(仮実装、BehaviorTestController.tsのMission仮生成が参照)。
+    // 既定値はGameManagerConfig.jsonが未ロードの間に使う安全値。
+    public missionMarginStartKm: number = 15;
+    public missionMarginEndKm: number = 15;
+    public missionAssumedMaxSpeedKmPerMin: number = 600;
+    public missionTargetSpeedRatio: number = 0.5;
+    public missionCargoWeightBaseMin: number = 30;
+    public missionCargoWeightBaseMax: number = 50;
+    public missionCargoWeightPerLv: number = 10;
+    public missionCargoPriceBase: number = 30;
+    public missionCargoPricePerLv: number = 20;
+    public missionBonusStepSeconds: number = 2;
+    public missionBonusPercentPerStep: number = 2;
+    public missionBonusCapPercent: number = 20;
+    public missionPenaltyFloorPercent: number = 50;
+    // Player被弾後の無敵時間(フレーム数、弾・Enemy機体接触共通)。PlayerController.tsが参照する。
+    public contactInvincibleFrames: number = 5;
+    // Upgrade GUI(実装予定)のReset返金割合(%)とTN→lerpFactor変換除数。
+    public resetRefundPercent: number = 80;
+    public tnLerpDivisor: number = 600;
+    // PlayerUpgradeManagerのLv別プレビューと同じコスト計算の校正値(単一の情報源)。
+    public upgradeCostUnitScale: number = 1.9;
+    public missionEarlyBaselineCredits: number = 1500;
+    public missionLateBaselineCredits: number = 50000;
+    public upgradeButtonFontSize: number = 24;
+    public upgradeNoticeFontSize: number = 16;
+    public upgradeSharedInfoFontSize: number = 24;
+
+    // 背景動画のKen Burns風ズーム/色合い周期変化/明滅のパラメータ。既定値はこれらの演出を
+    // 最初に実装した際の固定値と同じ - GameManagerEditorタブから調整できる。
+    private videoBGZoomScale: number = 1.08;
+    private videoBGZoomDurationSec: number = 25;
+    private videoBGColorCycleAmplitude: number = 55;
+    private videoBGColorCycleSpeed: number = 0.06;
+    private videoBGBrightnessAmplitude: number = 0.125;
+    private videoBGBrightnessSpeed: number = 0.15;
 
     // Single persistent camera, owned exclusively by GameManager. Never searched-for,
     // reactivated, or recreated per content switch - see applyCameraForState().
@@ -155,6 +243,9 @@ export class GameManager extends Component implements IGameManager {
         // ensure scene basic setup (lighting & camera) in case it was corrupted or missing
         this.ensureSceneSetup();
 
+        this.loadGameManagerConfig();
+        this.loadBulletConfig();
+
         // Fallback for Item Prefab if not assigned in Inspector
         if (!this.itemPrefab) {
             console.log("[GameManager] itemPrefab not assigned. Attempting to load from resources/Prefabs/Item...");
@@ -173,9 +264,11 @@ export class GameManager extends Component implements IGameManager {
         resources.loadDir("Prefabs/Bullets", Prefab, (err, assets) => {
             if (err) {
                 console.log("[GameManager] No Prefabs/Bullets folder found (optional) - using bulletPrefab only.");
+                this.bulletPrefabsReady = true;
                 return;
             }
             this.bulletPrefabs = assets;
+            this.bulletPrefabsReady = true;
             console.log(`[GameManager] Loaded ${assets.length} Bullet Prefab variant(s) from resources/Prefabs/Bullets.`);
         });
 
@@ -358,6 +451,178 @@ export class GameManager extends Component implements IGameManager {
     }
 
     /**
+     * Ingame背景動画に色合いの周期変化+明るさの緩やかな明滅+ズーム(Ken Burns風)を掛ける。
+     * Sprite.color(sin波)とNodeのscale(sin波)だけで完結する(シェーダー不要、追加デコードも
+     * 発生しない)ので負荷はごく僅か。全てのパラメータをGameManagerConfig.json由来のフィールド
+     * から毎フレーム読むので、非同期読み込みが遅れて後から値が更新されても次のフレームから
+     * 自然に追従する(videoBGZoomScale等がstart()時点の一度きりのtweenだと反映され損ねる
+     * ことがある、playerShipScaleMultiplierと同じ理由の対策)。
+     * videoBGが未セットアップ(Title/Home等)の間は videoBG.sprite が null で早期returnする。
+     */
+    private updateVideoBGColorEffect(dt: number) {
+        const sprite = this.videoBG.sprite;
+        if (!sprite) return;
+
+        this._videoBGEffectTime += dt;
+        const t = this._videoBGEffectTime;
+
+        // 3チャンネルを120°ずつ位相をずらしたsin波でゆっくり色相を回す。
+        const amp = this.videoBGColorCycleAmplitude;
+        const hueSpeed = this.videoBGColorCycleSpeed;
+        const base = 255 - amp;
+        const r = base + Math.sin(t * hueSpeed) * amp;
+        const g = base + Math.sin(t * hueSpeed + 2.094) * amp;
+        const b = base + Math.sin(t * hueSpeed + 4.188) * amp;
+
+        // 明るさを(1 - amplitude)〜1.0の範囲で緩やかに明滅させる。
+        const brightAmp = this.videoBGBrightnessAmplitude;
+        const brightness = (1 - brightAmp) + Math.sin(t * this.videoBGBrightnessSpeed) * brightAmp;
+
+        sprite.color = new Color(
+            Math.max(0, Math.min(255, r * brightness)),
+            Math.max(0, Math.min(255, g * brightness)),
+            Math.max(0, Math.min(255, b * brightness)),
+            255
+        );
+
+        // ゆっくりズーム(Ken Burns風)- 拡大→縮小それぞれvideoBGZoomDurationSec秒かける
+        // 往復(cos波で0→1→0)。videoBGZoomScaleが1(演出なし)ならscaleは常に1のまま。
+        const spriteNode = this.videoBG.spriteNode;
+        if (spriteNode && this.videoBGZoomDurationSec > 0) {
+            const zoomFactor = (1 - Math.cos(t * Math.PI / this.videoBGZoomDurationSec)) / 2;
+            const s = 1 + (this.videoBGZoomScale - 1) * zoomFactor;
+            spriteNode.setScale(s, s, s);
+        }
+    }
+
+    /**
+     * "#rrggbb"文字列(GameManagerEditorのcolor入力の値)を、cc.AmbientInfoのgroundAlbedo/skyColor
+     * (Vec4、0〜1正規化 + w=強度)に変換する。Color.fromHEX()でRGBをパースし、wは1.0固定とする
+     * (HDR強度の個別調整はGameManagerConfig.jsonでは今回サポートしない)。
+     */
+    private hexToNormalizedVec4(hex: string): Vec4 {
+        const c = new Color();
+        Color.fromHEX(c, hex);
+        return new Vec4(c.r / 255, c.g / 255, c.b / 255, 1);
+    }
+
+    /**
+     * GameManagerEditor(MasterManagerパネル)で編集したassets/resources/Data/GameManagerConfig.json
+     * を読み込み適用する。playerShipScaleMultiplier/背景動画エフェクト系の数値はGameManager自身の
+     * フィールドに保持し(PlayerController.update()やupdateVideoBGColorEffect()が毎フレーム参照)、
+     * ambientSkyIllum/groundLightingColorはシーンのAmbient(cc.SceneGlobals.ambient)へ直接適用する。
+     * SceneGlobalsはシーン全体に1つなのでswitchContent()のたびに再適用する必要はなく、起動時の
+     * 1回だけでよい。
+     */
+    private loadGameManagerConfig() {
+        resources.load("Data/GameManagerConfig", JsonAsset, (err, asset: JsonAsset) => {
+            if (err || !asset) {
+                console.warn("[GameManager] Failed to load Data/GameManagerConfig.json, using defaults.", err);
+                return;
+            }
+            const config = asset.json as {
+                playerShipScaleMultiplier?: number; playerShipBaseRotationX?: number; playerShipBaseRotationY?: number; ambientSkyIllum?: number; groundLightingColor?: string;
+                videoBGZoomScale?: number; videoBGZoomDurationSec?: number;
+                videoBGColorCycleAmplitude?: number; videoBGColorCycleSpeed?: number;
+                videoBGBrightnessAmplitude?: number; videoBGBrightnessSpeed?: number;
+                missionMaxDuplicateSpawnTable?: number;
+                missionMarginStartKm?: number; missionMarginEndKm?: number;
+                missionAssumedMaxSpeedKmPerMin?: number; missionTargetSpeedRatio?: number;
+                missionCargoWeightBaseMin?: number; missionCargoWeightBaseMax?: number; missionCargoWeightPerLv?: number;
+                missionCargoPriceBase?: number; missionCargoPricePerLv?: number;
+                missionBonusStepSeconds?: number; missionBonusPercentPerStep?: number;
+                missionBonusCapPercent?: number; missionPenaltyFloorPercent?: number;
+                contactInvincibleFrames?: number;
+                resetRefundPercent?: number; tnLerpDivisor?: number;
+                upgradeCostUnitScale?: number; missionEarlyBaselineCredits?: number; missionLateBaselineCredits?: number;
+                upgradeButtonFontSize?: number; upgradeNoticeFontSize?: number; upgradeSharedInfoFontSize?: number;
+            };
+
+            if (typeof config.playerShipScaleMultiplier === 'number') {
+                this.playerShipScaleMultiplier = config.playerShipScaleMultiplier;
+            }
+            if (typeof config.playerShipBaseRotationX === 'number') {
+                this.playerShipBaseRotationX = config.playerShipBaseRotationX;
+            }
+            if (typeof config.playerShipBaseRotationY === 'number') {
+                this.playerShipBaseRotationY = config.playerShipBaseRotationY;
+            }
+            if (typeof config.videoBGZoomScale === 'number') this.videoBGZoomScale = config.videoBGZoomScale;
+            if (typeof config.videoBGZoomDurationSec === 'number') this.videoBGZoomDurationSec = config.videoBGZoomDurationSec;
+            if (typeof config.videoBGColorCycleAmplitude === 'number') this.videoBGColorCycleAmplitude = config.videoBGColorCycleAmplitude;
+            if (typeof config.videoBGColorCycleSpeed === 'number') this.videoBGColorCycleSpeed = config.videoBGColorCycleSpeed;
+            if (typeof config.videoBGBrightnessAmplitude === 'number') this.videoBGBrightnessAmplitude = config.videoBGBrightnessAmplitude;
+            if (typeof config.videoBGBrightnessSpeed === 'number') this.videoBGBrightnessSpeed = config.videoBGBrightnessSpeed;
+            if (typeof config.missionMaxDuplicateSpawnTable === 'number') this.missionMaxDuplicateSpawnTable = config.missionMaxDuplicateSpawnTable;
+            if (typeof config.missionMarginStartKm === 'number') this.missionMarginStartKm = config.missionMarginStartKm;
+            if (typeof config.missionMarginEndKm === 'number') this.missionMarginEndKm = config.missionMarginEndKm;
+            if (typeof config.missionAssumedMaxSpeedKmPerMin === 'number') this.missionAssumedMaxSpeedKmPerMin = config.missionAssumedMaxSpeedKmPerMin;
+            if (typeof config.missionTargetSpeedRatio === 'number') this.missionTargetSpeedRatio = config.missionTargetSpeedRatio;
+            if (typeof config.missionCargoWeightBaseMin === 'number') this.missionCargoWeightBaseMin = config.missionCargoWeightBaseMin;
+            if (typeof config.missionCargoWeightBaseMax === 'number') this.missionCargoWeightBaseMax = config.missionCargoWeightBaseMax;
+            if (typeof config.missionCargoWeightPerLv === 'number') this.missionCargoWeightPerLv = config.missionCargoWeightPerLv;
+            if (typeof config.missionCargoPriceBase === 'number') this.missionCargoPriceBase = config.missionCargoPriceBase;
+            if (typeof config.missionCargoPricePerLv === 'number') this.missionCargoPricePerLv = config.missionCargoPricePerLv;
+            if (typeof config.missionBonusStepSeconds === 'number') this.missionBonusStepSeconds = config.missionBonusStepSeconds;
+            if (typeof config.missionBonusPercentPerStep === 'number') this.missionBonusPercentPerStep = config.missionBonusPercentPerStep;
+            if (typeof config.missionBonusCapPercent === 'number') this.missionBonusCapPercent = config.missionBonusCapPercent;
+            if (typeof config.missionPenaltyFloorPercent === 'number') this.missionPenaltyFloorPercent = config.missionPenaltyFloorPercent;
+            if (typeof config.contactInvincibleFrames === 'number') this.contactInvincibleFrames = config.contactInvincibleFrames;
+            if (typeof config.resetRefundPercent === 'number') this.resetRefundPercent = config.resetRefundPercent;
+            if (typeof config.tnLerpDivisor === 'number') this.tnLerpDivisor = config.tnLerpDivisor;
+            if (typeof config.upgradeCostUnitScale === 'number') this.upgradeCostUnitScale = config.upgradeCostUnitScale;
+            if (typeof config.missionEarlyBaselineCredits === 'number') this.missionEarlyBaselineCredits = config.missionEarlyBaselineCredits;
+            if (typeof config.missionLateBaselineCredits === 'number') this.missionLateBaselineCredits = config.missionLateBaselineCredits;
+            if (typeof config.upgradeButtonFontSize === 'number') this.upgradeButtonFontSize = config.upgradeButtonFontSize;
+            if (typeof config.upgradeNoticeFontSize === 'number') this.upgradeNoticeFontSize = config.upgradeNoticeFontSize;
+            if (typeof config.upgradeSharedInfoFontSize === 'number') this.upgradeSharedInfoFontSize = config.upgradeSharedInfoFontSize;
+
+            const scene = director.getScene();
+            const ambient = scene && (scene as any).globals ? (scene as any).globals.ambient : null;
+            if (ambient) {
+                if (typeof config.ambientSkyIllum === 'number') {
+                    ambient.skyIllum = config.ambientSkyIllum;
+                }
+                if (typeof config.groundLightingColor === 'string') {
+                    ambient.groundAlbedo = this.hexToNormalizedVec4(config.groundLightingColor);
+                }
+                console.log(`[GameManager] Applied Ambient from GameManagerConfig.json (skyIllum=${config.ambientSkyIllum}, groundLightingColor=${config.groundLightingColor}).`);
+            } else {
+                console.warn("[GameManager] Scene has no globals.ambient - could not apply ambientSkyIllum/groundLightingColor.");
+            }
+
+            console.log(`[GameManager] GameManagerConfig loaded. playerShipScaleMultiplier=${this.playerShipScaleMultiplier}`);
+        });
+    }
+
+    /**
+     * 弾(Bullet.ts)専用の発光パルス設定。ShotManagerタブ(MasterManagerパネル)で編集する
+     * assets/resources/Data/BulletConfig.jsonを読み込む。GameManager自体の設定とは無関係な
+     * 弾専用の値のため、GameManagerConfig.jsonから分離した別ファイル・別ローダーにしている
+     * (Bullet.tsはこれまで通りIGameManager経由でGameManagerのbulletXxxフィールドを読むだけで、
+     * 読み込み元ファイルが分かれたこと自体は感知しない)。
+     */
+    private loadBulletConfig() {
+        resources.load("Data/BulletConfig", JsonAsset, (err, asset: JsonAsset) => {
+            if (err || !asset) {
+                console.warn("[GameManager] Failed to load Data/BulletConfig.json, using defaults.", err);
+                return;
+            }
+            const config = asset.json as {
+                bulletPulseSpeed?: number; bulletGlowScale?: number; bulletGlowScalePulse?: number;
+                bulletGlowAlpha?: number; bulletEmissiveBase?: number; bulletEmissiveAmplitude?: number;
+            };
+            if (typeof config.bulletPulseSpeed === 'number') this.bulletPulseSpeed = config.bulletPulseSpeed;
+            if (typeof config.bulletGlowScale === 'number') this.bulletGlowScale = config.bulletGlowScale;
+            if (typeof config.bulletGlowScalePulse === 'number') this.bulletGlowScalePulse = config.bulletGlowScalePulse;
+            if (typeof config.bulletGlowAlpha === 'number') this.bulletGlowAlpha = config.bulletGlowAlpha;
+            if (typeof config.bulletEmissiveBase === 'number') this.bulletEmissiveBase = config.bulletEmissiveBase;
+            if (typeof config.bulletEmissiveAmplitude === 'number') this.bulletEmissiveAmplitude = config.bulletEmissiveAmplitude;
+            console.log(`[GameManager] BulletConfig loaded. bulletPulseSpeed=${this.bulletPulseSpeed}`);
+        });
+    }
+
+    /**
      * Apply patches at runtime to engine classes that are causing preview errors.
      */
     private patchSpriteMethods() {
@@ -380,6 +645,7 @@ export class GameManager extends Component implements IGameManager {
     }
 
     onDestroy() {
+        this.videoBG.destroy();
         if (GameManager.instance === this) {
             GameManager.instance = null;
         }
@@ -420,6 +686,12 @@ export class GameManager extends Component implements IGameManager {
             this.currentContentNode.destroy();
             this.currentContentNode = null;
         }
+
+        // Tear down any Ingame MP4 background before it (and its host node) gets orphaned -
+        // videoBG is a single persistent instance reused across screens, so its internal
+        // HTMLVideoElement/DOM state must be reset here or the next startInGame() setup()
+        // call would silently no-op (see VideoBackground.setup()'s videoElement guard).
+        this.videoBG.destroy();
 
         // Also cleanup old references
         this.playerNode = null;
@@ -690,6 +962,24 @@ export class GameManager extends Component implements IGameManager {
             this.forceBackgroundLayer(starField);
         }
 
+        // MP4背景に統一 - 既存の静止画クロスフェード(BackgroundLayer)はstaticBGNodeとして渡し
+        // 自動非表示にする。UI_2DではなくBG_ONLY_LAYERを指定し、bgCameraだけに描画させる。
+        // 親ノードはrootNode直下ではなく、BackgroundLayer/StarFieldと同じ「Canvas」ラッパー
+        // (wrapper2、cc.Canvasコンポーネント付き)を使う - rootNode直下だとこのCanvas階層の
+        // 外側になってしまい、座標を(0,0,0)に補正しても正しく描画されなかったため。
+        this.videoBG.setup(wrapper2 || rootNode, "VideoBGSpriteNode", "Movies/BGV_Ingame001_Galaxy_Blue", bgLayer, BG_ONLY_LAYER);
+
+        // ズーム/色合い/明滅は毎フレームsin波で計算する(updateVideoBGColorEffect())- Ken Burns風
+        // ズームを開始時に一度きりのtweenで組んでいた旧実装だと、GameManagerEditorの数値が
+        // GameManagerConfig.jsonの非同期読み込み完了より前にこのタイミングを迎えた場合、
+        // 反映されないまま固定されてしまう(playerShipScaleMultiplierで実際に踏んだのと同じ
+        // 競合)。sin波なら_gm側の値が後から更新されても次のフレームから自然に追従する。
+        this._videoBGEffectTime = 0;
+        const videoBGNode = this.videoBG.spriteNode;
+        if (videoBGNode) {
+            videoBGNode.setScale(1, 1, 1);
+        }
+
         // EnemyMovePoint(EMP)収集: "MovePoints" コンテナ配下のMovePointコンポーネント付き子ノードを
         // ID -> ローカル座標のマップにする。他のレイヤーと同様(0,0,0)に矯正してenemyLayerと同じ
         // 座標空間で参照できるようにする。コンテナが無いシーン(未対応の旧シーン等)では単に空のまま。
@@ -768,6 +1058,9 @@ export class GameManager extends Component implements IGameManager {
     }
 
     update(deltaTime: number) {
+        this.videoBG.updateFrame();
+        this.updateVideoBGColorEffect(deltaTime);
+
         if (this.state !== GameState.INGAME || this.isPaused) return;
 
         this.frameCount++;
@@ -791,21 +1084,22 @@ export class GameManager extends Component implements IGameManager {
         // Update Speed Manager (敵のスクロールオフセット計算に使われるため testMode でも継続する)
         this.speedManager.setBaseSpeed(currentSpeed);
 
-        // ミッション距離カウントダウン/ゴール判定はテストシーンでは行わない
-        if (!this.testMode) {
-            // Get Final Speed
-            const finalSpeed = this.speedManager.getCurrentSpeed();
+        // 距離カウントダウン自体はtestModeでも行う(BehaviorTestControllerのSpawnTable
+        // デバッグログが実際に減っていく「残り距離」を表示できるようにするため)。ただし
+        // ゴール判定(Result画面遷移)はtestModeでは行わない - 0になってもテストセッションを
+        // 終わらせたくない、という明示的な要望のため。
+        // Get Final Speed
+        const finalSpeed = this.speedManager.getCurrentSpeed();
 
-            // Conversion logic (similar to engine.js)
-            const physics = GAME_SETTINGS.PHYSICS as any;
-            const distDivisor = physics.MISSION_DIVISOR || 2000;
-            const distDec = (finalSpeed * physics.MISSION_SCALE) / distDivisor;
-            this.playState.distance -= distDec;
+        // Conversion logic (similar to engine.js)
+        const physics = GAME_SETTINGS.PHYSICS as any;
+        const distDivisor = physics.MISSION_DIVISOR || 2000;
+        const distDec = (finalSpeed * physics.MISSION_SCALE) / distDivisor;
+        this.playState.distance -= distDec;
+        if (this.playState.distance < 0) this.playState.distance = 0;
 
-            if (this.playState.distance <= 0) {
-                this.playState.distance = 0;
-                this.triggerGoalSequence();
-            }
+        if (!this.testMode && this.playState.distance <= 0) {
+            this.triggerGoalSequence();
         }
 
         // UI Update (via UIManager)
@@ -957,6 +1251,82 @@ export class GameManager extends Component implements IGameManager {
         if (!id || id === "0") return null;
         const p = this.movePoints.get(id);
         return p ? { x: p.x, y: p.y } : null;
+    }
+
+    /**
+     * SpawnTable(assets/resources/Excels/SpawnTables.csv)のIDを指定して出現テーブルを実行する。
+     * 出現数はMin~Maxからランダムに1つ決め、Lotモードで実際に出す敵/デブリIDを決定する:
+     *   - One:    候補から1種を抽選し、出現数分すべてそのIDで生成
+     *   - Two:    候補から重複無しで2種を抽選し、出現枠ごとに毎回その2種のどちらかを抽選
+     *   - Random: 出現枠ごとに毎回、候補全体からランダムに1つ選ぶ
+     * DropTable抽選(Enemy.die())と同じ「候補配列からMath.random()で選ぶ」パターンを踏襲。
+     * 出現サイクル(table.cycle: Instant/Rapid/Normal/Slow、CYCLE_INTERVAL_SECONDS参照)が
+     * Instant以外の場合、1体ずつinterval秒間隔でscheduleOnceして時間差生成する(一斉湧き防止)。
+     * そのため戻り値のspawnedIdsは「実際に生成済み」ではなく「今回のロールで生成予定」のID一覧
+     * (呼び出し側=BehaviorTestControllerがデバッグログに反映する。Instantの場合のみ、この
+     * 関数が返った時点で実際に生成済み)。見つからない/候補が無い等の異常系はnullを返す。
+     * onSpawnedを渡すと、実際に1体生成される度(Instant/staggeredどちらの経路でも)に呼ばれる
+     * ので、呼び出し側は進捗(例: "3/12")を組み立てられる。
+     */
+    public spawnFromSpawnTable(tableId: string, onSpawned?: () => void): { spawnedIds: string[] } | null {
+        const db = this.gameDatabase || GameDatabase.instance;
+        if (!db || !db.isReady) {
+            console.warn(`[GameManager] spawnFromSpawnTable('${tableId}') skipped: GameDatabase is NOT READY or null.`);
+            return null;
+        }
+
+        const table = db.getSpawnTableData(tableId);
+        if (!table || !table.slots || table.slots.length === 0) {
+            console.warn(`[GameManager] spawnFromSpawnTable('${tableId}') failed: SpawnTableData not found or has no slots.`);
+            return null;
+        }
+
+        const min = Math.min(table.min, table.max);
+        const max = Math.max(table.min, table.max);
+        const count = Math.floor(Math.random() * (max - min + 1)) + min;
+
+        const idsToSpawn: string[] = [];
+        if (table.lot === "One") {
+            const chosen = table.slots[Math.floor(Math.random() * table.slots.length)];
+            for (let i = 0; i < count; i++) idsToSpawn.push(chosen);
+        } else if (table.lot === "Two" && table.slots.length > 1) {
+            // 重複無しで2種抽選 (候補が1種類しかない場合はRandomと同じ扱いにフォールバック)
+            const pool = table.slots.slice();
+            const first = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+            const second = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+            const pair = [first, second];
+            for (let i = 0; i < count; i++) idsToSpawn.push(pair[Math.floor(Math.random() * pair.length)]);
+        } else {
+            // Random (またはTwoでも候補1種類しか無かった場合のフォールバック)
+            for (let i = 0; i < count; i++) idsToSpawn.push(table.slots[Math.floor(Math.random() * table.slots.length)]);
+        }
+
+        // 出現サイクル: Instant(0秒)なら全部同一フレームで即時生成、それ以外は1体ずつ
+        // interval秒間隔でscheduleOnceして時間差生成する(でないと出現数分が一斉湧きになる)。
+        const interval = CYCLE_INTERVAL_SECONDS[table.cycle] ?? 0;
+        const spawnOne = (id: string) => {
+            // Instant以外は数百ms〜数秒後に呼ばれるので、その間にIngameを抜けている可能性がある
+            // (Despawn/シーン切り替え等)。無効な状態で生成しないよう都度チェックする。
+            if (this.state !== GameState.INGAME || !this.enemyLayer) return;
+            const enemyData = db.getEnemyData(id);
+            if (!enemyData || !enemyData.prefab) {
+                console.warn(`[GameManager] spawnFromSpawnTable('${tableId}'): EnemyData '${id}' not found or has no Prefab, skipping.`);
+                return;
+            }
+            this._instantiateEnemy(enemyData);
+            if (onSpawned) onSpawned();
+        };
+
+        if (interval <= 0) {
+            for (const id of idsToSpawn) spawnOne(id);
+        } else {
+            idsToSpawn.forEach((id, i) => {
+                this.scheduleOnce(() => spawnOne(id), interval * i);
+            });
+        }
+
+        console.log(`[GameManager] spawnFromSpawnTable('${tableId}'): Lot=${table.lot}, cycle=${table.cycle}(${interval}s), count=${count}, planned=[${idsToSpawn.join(', ')}]`);
+        return { spawnedIds: idsToSpawn };
     }
 
     public triggerGoalSequence() {
@@ -1154,6 +1524,13 @@ export class GameManager extends Component implements IGameManager {
     // (ShotRuntime.tsのFire/MultiFire/Missileノードのprefab切り替え用)。未指定/該当なしなら
     // 既定のbulletPrefabにフォールバックする。
     public spawnBullet(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean, prefabName?: string): any {
+        // prefabName指定ありなのにbulletPrefabsがまだ非同期ロード中だと、本来存在するはずの
+        // PrefabがgetBulletPrefab()で見つからず、既定のbulletPrefab(見た目が違う)に化けてしまう。
+        // 見た目が違う弾を出すより、起動直後のこの一瞬だけ発射をスキップする方が違和感が少ない。
+        if (prefabName && !this.bulletPrefabsReady) {
+            console.warn(`[GameManager] spawnBullet: prefabName='${prefabName}' requested but bulletPrefabs still loading - skipping this shot.`);
+            return null;
+        }
         const prefab = (prefabName && this.getBulletPrefab(prefabName)) || this.bulletPrefab;
         if (!prefab) {
             console.error("[GameManager] bulletPrefab is NULL! Cannot spawn bullet.");
@@ -1210,7 +1587,7 @@ export class GameManager extends Component implements IGameManager {
         if (!this.playState.collectedItemsCount) this.playState.collectedItemsCount = 0;
         this.playState.collectedItemsCount++;
 
-        const db = this.db;
+        const db = this.gameDatabase || GameDatabase.instance;
         const itemMaster = db ? db.getItemData(id) : null;
         const def = GAME_SETTINGS.ECONOMY.ITEMS[id];
 

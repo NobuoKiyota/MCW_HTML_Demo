@@ -36,6 +36,15 @@
       },
       "save-csv": {
         "methods": ["saveCsv"]
+      },
+      "list-enemy-prefab-names": {
+        "methods": ["listEnemyPrefabNames"]
+      },
+      "load-game-manager-config": {
+        "methods": ["loadGameManagerConfig"]
+      },
+      "save-game-manager-config": {
+        "methods": ["saveGameManagerConfig"]
       }
     }
   }

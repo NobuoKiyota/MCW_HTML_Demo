@@ -37,6 +37,10 @@ export interface ISaveData {
     unlockedShips: string[];
     currentShipId: string;
     capacity: number; // New
+    // 機体ごとの永続強化Lv(PlayerUpgrade.csvのParamID: HP/CP/SP/AC/DF/TN/CR/VOS/WOS)。
+    // upgradeLevelsとは別物(あちらはグリッド改造パーツ用)。未強化なら0(=Lv0、PlayerUpgrade.csvの
+    // MinValue相当)。UpgradeUI.ts(実装予定)が読み書きする。
+    playerParamLevels: { [shipId: string]: { [paramId: string]: number } };
 }
 
 @ccclass('DataManager')
@@ -86,7 +90,8 @@ export class DataManager {
             inventory: {},
             unlockedShips: ['Default'],
             currentShipId: 'Default',
-            capacity: 50
+            capacity: 50,
+            playerParamLevels: {}
         };
     }
 

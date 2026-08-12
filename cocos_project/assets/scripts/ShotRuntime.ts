@@ -1,6 +1,7 @@
-import { Node, Color } from 'cc';
+import { Node, Color, Vec3 } from 'cc';
 import { IGameManager } from './Constants';
 import { ShotGraph, ShotGraphNode } from './GameDataTypes';
+import { SoundManager } from './SoundManager';
 
 // 1フレームで無限ループに陥らないための安全上限 (BehaviorRuntime.tsと同じ理由、postmortem由来)
 const MAX_STEPS_PER_TICK = 64;
@@ -293,16 +294,26 @@ export class ShotRuntime {
         return new Color((n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff, 255);
     }
 
-    // Fire/MultiFire/Missile共通: 発射直後のbulletにcolor/glowIntensityパラメータを適用する。
-    // どちらも未指定ならBullet.ts側の既定(isEnemyベースの色、強度1.0)のまま変化しない。
+    // Fire/MultiFire/Missile共通: 発射直後のbulletにcolor/glowIntensity/scaleパラメータを適用する。
+    // いずれも未指定ならBullet.ts側の既定(isEnemyベースの色、強度1.0、等倍)のまま変化しない。
     private applyVisualParams(bullet: any, p: any) {
         if (!bullet || typeof bullet.applyVisualOverride !== "function") return;
         const color = this.parseHexColor(p && p.color);
         const hasGlow = p && p.glowIntensity != null;
         const glowIntensity = hasGlow ? this.resolveNum(p, "glowIntensity", 1.0) : null;
-        if (color || glowIntensity != null) {
-            bullet.applyVisualOverride(color, glowIntensity);
+        const hasScale = p && p.scale != null;
+        const scale = hasScale ? this.resolveNum(p, "scale", 1.0) : null;
+        if (color || glowIntensity != null || scale != null) {
+            bullet.applyVisualOverride(color, glowIntensity, scale);
         }
+    }
+
+    // Fire/MultiFire/Missile共通: soundId(ShotManagerのSound列、Sounds.csvのID)が設定されていれば
+    // 発射位置で3D再生する。未設定(空文字)なら何もしない(既定は無音、既存パターンへの影響なし)。
+    private playFireSound(p: any, worldPos: Vec3) {
+        if (!p || !p.soundId) return;
+        const group = this._isEnemy ? "Enemy" : "Player";
+        SoundManager.instance.play3dSE(p.soundId, worldPos, group);
     }
 
     private doFire(p: any) {
@@ -330,6 +341,7 @@ export class ShotRuntime {
         if (bullet) {
             bullet.pierceRemaining = pierceCount;
             this.applyVisualParams(bullet, p);
+            this.playFireSound(p, this._ownerNode.position);
             console.log(`[ShotRuntime] Fire OK: pos=(${this._ownerNode.position.x.toFixed(0)},${this._ownerNode.position.y.toFixed(0)}) angle=${angleDeg.toFixed(0)}deg speed=${speed.toFixed(2)} damage=${damage.toFixed(1)} isEnemy=${this._isEnemy}`);
         } else {
             console.warn('[ShotRuntime] Fire FAILED: gm.spawnBullet() returned null (check GameManager.bulletPrefab is assigned).');
@@ -365,6 +377,7 @@ export class ShotRuntime {
         if (bullet) {
             bullet.pierceRemaining = pierceCount;
             this.applyVisualParams(bullet, p);
+            this.playFireSound(p, this._ownerNode.position);
             console.log(`[ShotRuntime] MultiFire pellet ${pelletIndex + 1}/${totalCount} OK: angle=${angleDeg.toFixed(0)}deg speed=${speed.toFixed(2)} damage=${damage.toFixed(1)}`);
         } else {
             console.warn('[ShotRuntime] MultiFire pellet FAILED: gm.spawnBullet() returned null.');
@@ -396,6 +409,7 @@ export class ShotRuntime {
         }
         bullet.pierceRemaining = pierceCount;
         this.applyVisualParams(bullet, p);
+        this.playFireSound(p, this._ownerNode.position);
         console.log(`[ShotRuntime] Missile OK: angle=${angleDeg.toFixed(0)}deg speed=${speed.toFixed(2)} damage=${damage.toFixed(1)} homing=${p.homing === true}`);
 
         if (p.homing === true) {

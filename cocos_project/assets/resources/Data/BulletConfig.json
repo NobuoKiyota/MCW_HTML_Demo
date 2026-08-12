@@ -1,0 +1,8 @@
+{
+  "bulletPulseSpeed": 30,
+  "bulletGlowScale": 2,
+  "bulletGlowScalePulse": 0.6,
+  "bulletGlowAlpha": 50,
+  "bulletEmissiveBase": 0.7,
+  "bulletEmissiveAmplitude": 0.8
+}

@@ -57,7 +57,7 @@ export const GAME_SETTINGS = {
 
     // アイテム定義
     ECONOMY: {
-        INITIAL_MONEY: 500000,
+        INITIAL_MONEY: 0,
         UPGRADE_COST_BASE: 100,
         ITEMS: {
             "ItemMoney": { name: "クレジット", rare: 1, type: "money", value: 100 },
@@ -185,4 +185,69 @@ export interface IGameManager {
     getMovePoint(id: string): { x: number; y: number } | null;
     // 自機発射のホーミングミサイル(ShotRuntime.tsのMissileノード)が最寄りの敵を狙うために使う。
     findNearestEnemyTo(x: number, y: number): any;
+    // GameDatabase参照。GameDatabase.instance(シングルトン)のフォールバックと組み合わせて使う
+    // (Enemy.dieのドロップテーブル抽選、GameManager.onItemCollected/spawnFromSpawnTable等)。
+    gameDatabase: any;
+    // GameManagerEditor(MasterManagerパネル)で編集する assets/resources/Data/GameManagerConfig.json
+    // の値。PlayerController.update()がPlayer機3Dモデルの基準スケールに掛ける倍率として読む。
+    playerShipScaleMultiplier: number;
+    // Player機3DモデルのX/Y軸基準角度(度)。Prefab側の値は使わずこちらを基準にする
+    // (PlayerController.ts参照 - Prefab保存値だとモデルの向きが誤っていた)。
+    playerShipBaseRotationX: number;
+    playerShipBaseRotationY: number;
+    // 同じくGameManagerConfig.json由来。Bullet.ts update()の発光(グロー拡縮/明滅、3Dモデルの
+    // emissiveパルス)を全弾(自機/敵とも)共通で調整する。個別の弾の色/glowIntensity自体は
+    // 引き続きShotPattern側のFire/MultiFire/Missileノードパラメータで上書きできる(こちらは
+    // その上に掛かる全体のパルス演出の基礎値)。
+    bulletPulseSpeed: number;
+    bulletGlowScale: number;
+    bulletGlowScalePulse: number;
+    bulletGlowAlpha: number;
+    bulletEmissiveBase: number;
+    bulletEmissiveAmplitude: number;
+    // SpawnTable(assets/resources/Excels/SpawnTables.csv)のIDを指定して出現テーブルを実行する。
+    // (行動パターン検証用テストシーンのTキーから使用。将来的にはミッション側からも呼ばれる想定)
+    // onSpawnedは実際に1体生成される度(Cycleが非Instantなら時間差で複数回)呼ばれる。
+    spawnFromSpawnTable(tableId: string, onSpawned?: () => void): { spawnedIds: string[] } | null;
+    // ミッション生成時、1ミッション内で同一SpawnTable IDを何回まで重複選出してよいかの上限。
+    // GameManagerConfig.json由来(GameManagerEditorタブで調整)。MissionManager(実装予定)が参照する。
+    missionMaxDuplicateSpawnTable: number;
+    // Mission距離D = 開始margin(A) + SpawnTable合計(B) + 終了margin(C)。A/Cは固定値。
+    missionMarginStartKm: number;
+    missionMarginEndKm: number;
+    // 目標到達時間(秒) = (D / (想定最高速度[km/分] × 速度係数)) × 60。速度係数は「常に最高速度では
+    // 走らない」ことの補正値(0.5=常に最高速度の半分で走ると仮定)。
+    missionAssumedMaxSpeedKmPerMin: number;
+    missionTargetSpeedRatio: number;
+    // 貨物報酬 H = 重量(t, Lv毎にBaseMin~BaseMax+PerLv*(Lv-1)の範囲でランダム) × 単価(PriceBase+PricePerLv*(Lv-1))
+    missionCargoWeightBaseMin: number;
+    missionCargoWeightBaseMax: number;
+    missionCargoWeightPerLv: number;
+    missionCargoPriceBase: number;
+    missionCargoPricePerLv: number;
+    // 目標時間との差(秒)がStepSecondsごとにPercentPerStep%のボーナス/ペナルティ。
+    // ボーナス上限CapPercent%、ペナルティ下限-FloorPercent%(=最低保証)。
+    missionBonusStepSeconds: number;
+    missionBonusPercentPerStep: number;
+    missionBonusCapPercent: number;
+    missionPenaltyFloorPercent: number;
+    // Player被弾(弾・Enemy機体接触共通)後の無敵時間(フレーム数指定)。GameManagerConfig.json由来、
+    // GameManagerEditorタブで調整する。フレーム数を極端に小さくすることで「弱い攻撃をわざと受けて
+    // 無敵時間を稼ぐ」戦法を成立しにくくする意図(既定5フレーム)。
+    contactInvincibleFrames: number;
+    // Upgrade GUI(実装予定)のResetボタンで返金するクレジット/アイテムの割合(%)。既定80。
+    resetRefundPercent: number;
+    // PlayerUpgrade.csvのTNパラメータ(生のpixel/sec値、60~90等)をPlayerController.lerpFactorへ
+    // 変換する際の除数。lerpFactor = TN値 / この値。既定600(TN=60で現行既定のlerpFactor=0.1相当)。
+    tnLerpDivisor: number;
+    // PlayerUpgradeManagerのLv別プレビュー(extensions/master-manager/panels/default/index.js)と
+    // 完全に同じ意味・同じ既定値を持つ、コスト計算の校正値。プレビューとゲーム内実際の必要
+    // クレジット計算が食い違わないよう、この3つはGameManagerConfig.json側を単一の情報源とする。
+    upgradeCostUnitScale: number;
+    missionEarlyBaselineCredits: number;
+    missionLateBaselineCredits: number;
+    // Upgrade GUIの各Labelのフォントサイズ。UpgradeUI.tsが起動時に適用する。
+    upgradeButtonFontSize: number;
+    upgradeNoticeFontSize: number;
+    upgradeSharedInfoFontSize: number;
 }

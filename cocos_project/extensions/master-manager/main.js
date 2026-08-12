@@ -5,14 +5,19 @@ const path = require('path');
 
 function getCsvPath(file) {
     // Guard against path traversal since `file` ultimately comes from panel-side UI state.
+    // Moved from assets/Excels to assets/resources/Excels so GameDatabase.ts's
+    // resources.load("Excels/X", ...) fallback (used whenever a CSV's Inspector TextAsset
+    // property isn't assigned) can actually resolve it - Cocos's resources.load() only
+    // finds assets that live under a folder literally named "resources".
     const base = path.basename(file);
-    return path.join(Editor.Project.path, 'assets', 'Excels', base);
+    return path.join(Editor.Project.path, 'assets', 'resources', 'Excels', base);
 }
 
 // Intentionally simple: only round-trips the plain, comma-delimited, no-quoted-commas CSVs
-// actually used in assets/Excels (verified against their current content). CSVHelper.ts on
-// the runtime side is more permissive (multi-delimiter, quoted fields, comments) to tolerate
-// hand-edited files, but we control both the read and the write here so we don't need that.
+// actually used in assets/resources/Excels (verified against their current content).
+// CSVHelper.ts on the runtime side is more permissive (multi-delimiter, quoted fields,
+// comments) to tolerate hand-edited files, but we control both the read and the write here
+// so we don't need that.
 function parseCSV(text) {
     // Sounds.csv uses "# ..." section-marker comment lines (see CSVHelper.ts's matching
     // skip logic on the runtime side) - without this filter they'd get parsed as a bogus
@@ -32,6 +37,21 @@ function serializeCSV(headers, rows) {
     const lines = [headers.join(',')];
     rows.forEach(r => lines.push(r.join(',')));
     return lines.join('\n') + '\n';
+}
+
+// GameManagerEditor tab (GameManager.ts's loadGameManagerConfig() reads this same file via
+// resources.load("Data/GameManagerConfig", JsonAsset, ...) at runtime).
+function getGameManagerConfigPath() {
+    return path.join(Editor.Project.path, 'assets', 'resources', 'Data', 'GameManagerConfig.json');
+}
+
+// Enemies.csvのPrefabName列が参照する実プレハブ一覧。GameDatabase.ts/loadAllCSV()が
+// resources.loadDir("Prefabs/Enemy", Prefab, ...)で読み込んだ全Prefabをrow.PrefabName(無ければ
+// row.ID)と`p.data.name`で突き合わせているのが実際のマッチング処理 - 手打ちのPrefabNameが
+// このフォルダの実ファイル名と1文字でもズレると静かにマッチせず終わる。ここで実ファイル名を
+// 直接列挙して返し、パネル側でプルダウン化することでそのズレを防ぐ。
+function getEnemyPrefabsDir() {
+    return path.join(Editor.Project.path, 'assets', 'resources', 'Prefabs', 'Enemy');
 }
 
 module.exports = {
@@ -75,7 +95,7 @@ module.exports = {
 
                 // Nudge the Asset DB so GameDatabase's TextAsset picks up the on-disk change
                 // without requiring a manual Assets-panel refresh or editor restart.
-                const url = `db://assets/Excels/${path.basename(file)}`;
+                const url = `db://assets/resources/Excels/${path.basename(file)}`;
                 Editor.Message.request('asset-db', 'refresh-asset', url).catch((err) => {
                     console.warn('[MasterManager Extension] asset-db refresh-asset failed:', err);
                 });
@@ -83,6 +103,50 @@ module.exports = {
                 return { ok: true };
             } catch (err) {
                 console.error('[MasterManager Extension] saveCsv failed:', err);
+                return { ok: false, error: err.message };
+            }
+        },
+
+        // Called by the panel via Editor.Message.request('master-manager', 'load-game-manager-config').
+        loadGameManagerConfig() {
+            try {
+                const text = fs.readFileSync(getGameManagerConfigPath(), 'utf-8');
+                return { ok: true, data: JSON.parse(text) };
+            } catch (err) {
+                console.error('[MasterManager Extension] loadGameManagerConfig failed:', err);
+                return { ok: false, error: err.message };
+            }
+        },
+
+        // Called by the panel via Editor.Message.request('master-manager', 'list-enemy-prefab-names').
+        listEnemyPrefabNames() {
+            try {
+                const dir = getEnemyPrefabsDir();
+                if (!fs.existsSync(dir)) return { ok: true, list: [] };
+                const list = fs.readdirSync(dir)
+                    .filter((f) => f.endsWith('.prefab'))
+                    .map((f) => f.slice(0, -'.prefab'.length));
+                return { ok: true, list };
+            } catch (err) {
+                console.error('[MasterManager Extension] listEnemyPrefabNames failed:', err);
+                return { ok: false, error: err.message };
+            }
+        },
+
+        // Called by the panel via Editor.Message.request('master-manager', 'save-game-manager-config', data).
+        saveGameManagerConfig(data) {
+            try {
+                const text = JSON.stringify(data, null, 2) + '\n';
+                fs.writeFileSync(getGameManagerConfigPath(), text, 'utf-8');
+
+                const url = 'db://assets/resources/Data/GameManagerConfig.json';
+                Editor.Message.request('asset-db', 'refresh-asset', url).catch((err) => {
+                    console.warn('[MasterManager Extension] asset-db refresh-asset failed:', err);
+                });
+
+                return { ok: true };
+            } catch (err) {
+                console.error('[MasterManager Extension] saveGameManagerConfig failed:', err);
                 return { ok: false, error: err.message };
             }
         },

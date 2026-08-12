@@ -19,7 +19,7 @@
             "id": 3,
             "type": "Wait",
             "params": {
-                "seconds": 0.35
+                "seconds": 2
             },
             "next": 4
         },
@@ -27,15 +27,17 @@
             "id": 2,
             "type": "Fire",
             "params": {
-                "aim": "fixed",
+                "aim": "atPlayer",
                 "angle": 270,
                 "speed": 10,
                 "damage": 6,
                 "pierceCount": 0,
-                "prefabName": "Bullet03",
-                "color": "",
-                "glowIntensity": 1,
-                "count": 1
+                "prefabName": "Bullet01",
+                "color": "FFFFFF",
+                "glowIntensity": 3,
+                "count": 1,
+                "scale": 1,
+                "soundId": "SE_EShotBullet01"
             },
             "next": 3
         }

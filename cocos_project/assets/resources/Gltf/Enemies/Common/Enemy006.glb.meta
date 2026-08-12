@@ -205,21 +205,22 @@
           {
             "mainColor": {
               "__type__": "cc.Color",
-              "r": 108,
-              "g": 255,
-              "b": 51,
-              "a": 111
+              "r": 49,
+              "g": 156,
+              "b": 131,
+              "a": 255
             },
-            "albedoScale": {
-              "__type__": "cc.Vec3",
-              "x": 0.550000011920929,
-              "y": 0.5799999833106995,
-              "z": 0.6200000047683716
-            },
-            "occlusion": 0.5,
-            "roughness": 0.429,
-            "metallic": 0.788,
-            "specularIntensity": 0
+            "occlusion": 0.55,
+            "roughness": 0.2,
+            "metallic": 0.75,
+            "specularIntensity": 0.7,
+            "emissive": {
+              "__type__": "cc.Color",
+              "r": 32,
+              "g": 32,
+              "b": 32,
+              "a": 255
+            }
           },
           {},
           {},

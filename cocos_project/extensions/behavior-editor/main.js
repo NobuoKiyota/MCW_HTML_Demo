@@ -9,11 +9,18 @@ const path = require('path');
 // タブから、それぞれこのextensionのメッセージを呼び出す形。
 
 function getBehaviorsCsvPath() {
-    return path.join(Editor.Project.path, 'assets', 'Excels', 'Behaviors.csv');
+    // assets/Excels moved to assets/resources/Excels so GameDatabase.ts's resources.load()
+    // fallback can actually resolve it (only paths under a folder literally named
+    // "resources" are addressable that way) - see master-manager/main.js's getCsvPath().
+    return path.join(Editor.Project.path, 'assets', 'resources', 'Excels', 'Behaviors.csv');
 }
 
 function getShotsCsvPath() {
-    return path.join(Editor.Project.path, 'assets', 'Excels', 'ShotPatterns.csv');
+    return path.join(Editor.Project.path, 'assets', 'resources', 'Excels', 'ShotPatterns.csv');
+}
+
+function getSoundsCsvPath() {
+    return path.join(Editor.Project.path, 'assets', 'resources', 'Excels', 'Sounds.csv');
 }
 
 function getGraphJsonPath(id) {
@@ -71,6 +78,14 @@ function writeCsv(csvPath, assetDbUrl, headers, rows) {
 
 function getBulletPrefabsDir() {
     return path.join(Editor.Project.path, 'assets', 'resources', 'Prefabs', 'Bullets');
+}
+
+// 弾専用の共通発光設定(パルス速度/グローサイズ/アルファ/emissive)。master-manager拡張の
+// GameManagerConfig.jsonと同じ役割だが、弾専用の値はShotManagerタブ(ここ=behavior-editor拡張の
+// 管轄)側で管理する - GameManagerとは無関係な値をGameManagerEditor側に置くのはおかしい、という
+// 判断から分離した。Bullet.ts側はGameManager.loadBulletConfig()経由でこのJSONを読む。
+function getBulletConfigPath() {
+    return path.join(Editor.Project.path, 'assets', 'resources', 'Data', 'BulletConfig.json');
 }
 
 function getLibFilePath(name) {
@@ -299,6 +314,18 @@ function deleteEntry(config, id) {
             return { ok: false, error: `ID '${id}' not found.` };
         }
         writeCsv(config.csvPath(), config.csvAssetUrl, headers, filtered);
+
+        // 以前はCSVの行だけ消してJSON実体を残していた(孤児ファイルが溜まる原因になっていた)。
+        // 一覧から消す=もう使わない、という意図のはずなので、グラフJSON本体も一緒に削除する。
+        const jsonPath = config.graphJsonPath(id);
+        if (fs.existsSync(jsonPath)) {
+            fs.unlinkSync(jsonPath);
+            const url = `db://assets/resources/${config.graphResourcePath(id)}.json`;
+            Editor.Message.request('asset-db', 'refresh-asset', url).catch((err) => {
+                console.warn(`[BehaviorEditor Extension] asset-db refresh-asset (delete, ${config.label}, ${id}) failed:`, err);
+            });
+        }
+
         return { ok: true };
     } catch (err) {
         console.error(`[BehaviorEditor Extension] delete (${config.label}) failed:`, err);
@@ -306,10 +333,136 @@ function deleteEntry(config, id) {
     }
 }
 
+// --- ShotManager: 各ShotPatternの「攻撃ノード(Fire/MultiFire/Missile)」+それに続くWaitノード
+// だけを1行に平坦化して一覧・一括編集するための専用ハンドラ。フルのグラフエディタを開かずに
+// count/speed/damage/prefabName/待機秒数だけサッと直したい、という用途。
+// master-manager/panels/default/index.jsのloadShotManagerData/saveShotManagerDataから呼ばれる
+// (list-shot-manager-data/save-shot-manager-dataメッセージ経由)。
+
+const ATTACK_NODE_TYPES = ['Fire', 'MultiFire', 'Missile', 'RadialFire', 'NWayFire'];
+
+function findAttackNode(graph) {
+    if (!graph || !Array.isArray(graph.nodes)) return null;
+    return graph.nodes.find(n => ATTACK_NODE_TYPES.includes(n.type)) || null;
+}
+
+function findFollowingWaitNode(graph, node) {
+    if (!node || node.next == null) return null;
+    const next = graph.nodes.find(n => n.id === node.next);
+    return (next && next.type === 'Wait') ? next : null;
+}
+
+function listShotManagerData() {
+    const base = listEntries(SHOT_CONFIG);
+    if (!base.ok) return base;
+
+    const list = [];
+    for (const entry of base.list) {
+        try {
+            const filePath = SHOT_CONFIG.graphJsonPath(entry.id);
+            if (!fs.existsSync(filePath)) continue;
+            const graph = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+            const fireNode = findAttackNode(graph);
+            if (!fireNode) continue; // 攻撃ノードが無いパターン(例: Empty)は一覧に出さない
+            const waitNode = findFollowingWaitNode(graph, fireNode);
+            const p = fireNode.params || {};
+            list.push({
+                id: entry.id,
+                nodeId: fireNode.id,
+                waitNodeId: waitNode ? waitNode.id : null,
+                type: fireNode.type,
+                count: p.count !== undefined ? p.count : 1,
+                speed: p.speed !== undefined ? p.speed : 0,
+                damage: p.damage !== undefined ? p.damage : 0,
+                scale: p.scale !== undefined ? p.scale : 1,
+                glowIntensity: p.glowIntensity !== undefined ? p.glowIntensity : 1,
+                color: p.color || '',
+                soundId: p.soundId || '',
+                seconds: (waitNode && waitNode.params && waitNode.params.seconds !== undefined) ? waitNode.params.seconds : 0,
+                prefabName: p.prefabName || '',
+                note: entry.note || '',
+            });
+        } catch (err) {
+            console.error(`[BehaviorEditor Extension] listShotManagerData: failed to read graph for '${entry.id}':`, err);
+        }
+    }
+    return { ok: true, list };
+}
+
+function saveShotManagerData(items) {
+    try {
+        for (const item of items) {
+            const filePath = SHOT_CONFIG.graphJsonPath(item.id);
+            if (!fs.existsSync(filePath)) continue;
+            const graph = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+
+            const fireNode = graph.nodes.find(n => n.id === item.nodeId);
+            if (fireNode) {
+                fireNode.type = item.type;
+                fireNode.params = fireNode.params || {};
+                fireNode.params.count = item.count;
+                fireNode.params.speed = item.speed;
+                fireNode.params.damage = item.damage;
+                fireNode.params.scale = item.scale;
+                fireNode.params.glowIntensity = item.glowIntensity;
+                fireNode.params.color = item.color;
+                fireNode.params.soundId = item.soundId;
+                fireNode.params.prefabName = item.prefabName;
+            }
+            if (item.waitNodeId != null) {
+                const waitNode = graph.nodes.find(n => n.id === item.waitNodeId);
+                if (waitNode) {
+                    waitNode.params = waitNode.params || {};
+                    waitNode.params.seconds = item.seconds;
+                }
+            }
+
+            fs.writeFileSync(filePath, JSON.stringify(graph, null, 4), 'utf-8');
+            const url = `db://assets/resources/${shotGraphResourcePath(item.id)}.json`;
+            Editor.Message.request('asset-db', 'refresh-asset', url).catch((err) => {
+                console.warn(`[BehaviorEditor Extension] asset-db refresh-asset (ShotManager, ${item.id}) failed:`, err);
+            });
+        }
+        return { ok: true };
+    } catch (err) {
+        console.error('[BehaviorEditor Extension] saveShotManagerData failed:', err);
+        return { ok: false, error: err.message };
+    }
+}
+
+// Called by the panel via Editor.Message.request('behavior-editor', 'load-bullet-config').
+function loadBulletConfig() {
+    try {
+        const text = fs.readFileSync(getBulletConfigPath(), 'utf-8');
+        return { ok: true, data: JSON.parse(text) };
+    } catch (err) {
+        console.error('[BehaviorEditor Extension] loadBulletConfig failed:', err);
+        return { ok: false, error: err.message };
+    }
+}
+
+// Called by the panel via Editor.Message.request('behavior-editor', 'save-bullet-config', data).
+function saveBulletConfig(data) {
+    try {
+        const text = JSON.stringify(data, null, 2) + '\n';
+        fs.writeFileSync(getBulletConfigPath(), text, 'utf-8');
+
+        const url = 'db://assets/resources/Data/BulletConfig.json';
+        Editor.Message.request('asset-db', 'refresh-asset', url).catch((err) => {
+            console.warn('[BehaviorEditor Extension] asset-db refresh-asset (BulletConfig) failed:', err);
+        });
+
+        return { ok: true };
+    } catch (err) {
+        console.error('[BehaviorEditor Extension] saveBulletConfig failed:', err);
+        return { ok: false, error: err.message };
+    }
+}
+
 const BEHAVIOR_CONFIG = {
     label: 'Behavior',
     csvPath: getBehaviorsCsvPath,
-    csvAssetUrl: 'db://assets/Excels/Behaviors.csv',
+    csvAssetUrl: 'db://assets/resources/Excels/Behaviors.csv',
     graphJsonPath: getGraphJsonPath,
     graphResourcePath: graphResourcePath,
     defaultGraphFn: defaultGraph,
@@ -318,7 +471,7 @@ const BEHAVIOR_CONFIG = {
 const SHOT_CONFIG = {
     label: 'ShotPattern',
     csvPath: getShotsCsvPath,
-    csvAssetUrl: 'db://assets/Excels/ShotPatterns.csv',
+    csvAssetUrl: 'db://assets/resources/Excels/ShotPatterns.csv',
     graphJsonPath: getShotGraphJsonPath,
     graphResourcePath: shotGraphResourcePath,
     defaultGraphFn: defaultShotGraph,
@@ -365,6 +518,11 @@ module.exports = {
                 return { ok: false, error: err.message };
             }
         },
+        // Editor.Message.request('behavior-editor', 'list-shot-manager-data')
+        listShotManagerData() { return listShotManagerData(); },
+        // Editor.Message.request('behavior-editor', 'save-shot-manager-data', items)
+        saveShotManagerData(items) { return saveShotManagerData(items); },
+
         // Editor.Message.request('behavior-editor', 'list-bullet-prefabs')
         // assets/resources/Prefabs/Bullets/ 配下の.prefabファイル名一覧を返す(拡張子なし)。
         // Shot Pattern エディタのFire/MultiFire/Missileノードの prefabName ドロップダウン用。
@@ -379,6 +537,27 @@ module.exports = {
                 return { ok: true, list };
             } catch (err) {
                 console.error('[BehaviorEditor Extension] listBulletPrefabs failed:', err);
+                return { ok: false, error: err.message };
+            }
+        },
+
+        // Editor.Message.request('behavior-editor', 'load-bullet-config')
+        loadBulletConfig() { return loadBulletConfig(); },
+        // Editor.Message.request('behavior-editor', 'save-bullet-config', data)
+        saveBulletConfig(data) { return saveBulletConfig(data); },
+
+        // Editor.Message.request('behavior-editor', 'list-sound-ids')
+        // Sounds.csvのID列を返す。ShotManagerのSound列ドロップダウン用
+        // (SoundManager.playSE()がSounds.csvのIDをそのまま受け取る想定のため、実ファイル名ではなくID列を使う)。
+        listSoundIds() {
+            try {
+                const { headers, rows } = readCsv(getSoundsCsvPath());
+                const idIdx = headers.indexOf('ID');
+                if (idIdx < 0) return { ok: true, list: [] };
+                const list = rows.map(r => r[idIdx]).filter(v => v && v.trim() !== '');
+                return { ok: true, list };
+            } catch (err) {
+                console.error('[BehaviorEditor Extension] listSoundIds failed:', err);
                 return { ok: false, error: err.message };
             }
         },

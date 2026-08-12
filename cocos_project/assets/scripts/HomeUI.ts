@@ -9,6 +9,7 @@ import { UIManager } from './UIManager';
 import { GameState } from './Constants';
 import { PropertyUI } from './PropertyUI';
 import { HistoryUI } from './HistoryUI';
+import { UpgradeUI } from './UpgradeUI';
 
 const { ccclass, property } = _decorator;
 
@@ -146,7 +147,11 @@ export class HomeUI extends Component {
      */
     public onUpgradeClicked() {
         SoundManager.instance.playSE("click");
-        console.log("[HomeUI] Upgrade Button Clicked (Not Implemented)");
+        if (UpgradeUI.instance) {
+            UpgradeUI.instance.open();
+        } else {
+            console.warn("[HomeUI] UpgradeUI instance not found (is the UpgradeUI node under Home Canvas, with UpgradeUI.ts attached?).");
+        }
     }
 
     /**

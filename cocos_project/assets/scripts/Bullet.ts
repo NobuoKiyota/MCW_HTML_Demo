@@ -13,7 +13,12 @@ export class Bullet extends Component {
 
     private speed: number = 0;
     private angle: number = 0;
-    private life: number = 0;
+    // 実際のゲームプレイでは常にinstantiate()直後にinit()が同期的に呼ばれ、ここを3秒に上書きする
+    // ため0のままでも問題にならない。ただしMaterialLabBulletInit.tsのように「先にシーンへ静的配置
+    // →後から非同期でinit()相当を呼ぶ」パターンだと、init()が呼ばれる前のupdate()が
+    // 「life<=0だから寿命切れ」と誤判定してPlay開始直後に自己破壊してしまっていた。
+    // 未初期化状態の既定値として安全な大きめの値にしておく。
+    private life: number = 999;
 
     private velocity: Vec3 = new Vec3();
     private _tempPos: Vec3 = new Vec3();
@@ -39,10 +44,14 @@ export class Bullet extends Component {
     private _glowSprite: Sprite | null = null;
     private _pulseTime: number = 0;
 
-    // Shot Patternノード(Fire/MultiFire/Missile)のcolor/glowIntensityパラメータで上書きできる
-    // 見た目のベース色と発光強度。applyVisualOverride()で変える。
+    // Shot Patternノード(Fire/MultiFire/Missile)のcolor/glowIntensity/scaleパラメータで上書きできる
+    // 見た目のベース色・発光強度・サイズ倍率。applyVisualOverride()で変える。
     private _baseColor: Color = new Color(255, 255, 255, 255);
     private _glowIntensity: number = 1.0;
+    // Prefab側のNode基準スケール(onLoad()で1度だけ捕捉)。scaleパラメータはこれに掛け算する
+    // 倍率として扱う(1.0=Prefabそのままのサイズ)。子のGlow/Model3Dも同じNode配下なので
+    // this.nodeのスケールを変えるだけで両方に連動する。
+    private _baseNodeScale: Vec3 = new Vec3(1, 1, 1);
 
     // Player/Enemyと同じ規約: "Model3D"という名前の子ノードがPrefabに埋め込まれていれば、
     // 見た目を3Dモデルに差し替えつつ、簡単な演出(常時回転+発光パルス)を自動で掛ける。無ければ何もしない
@@ -58,6 +67,7 @@ export class Bullet extends Component {
         if (collider) {
             collider.on(Contact2DType.BEGIN_CONTACT, this.onBeginContact, this);
         }
+        Vec3.copy(this._baseNodeScale, this.node.scale);
     }
 
     // Init method called by GameManager or Shooter
@@ -65,6 +75,9 @@ export class Bullet extends Component {
         this._gm = gm;
         // console.log(`[Bullet] init: x=${x}, y=${y}, angle=${angle}, speed=${speed}`); // Reduce spam
         this.node.setPosition(x, y, 0);
+        // プール再利用時に前回のapplyVisualOverride(scale)が残らないよう、毎回Prefab基準スケールに
+        // リセットする(scaleパラメータ未指定のShotPatternからの発射ならこのまま等倍で使われる)。
+        this.node.setScale(this._baseNodeScale.x, this._baseNodeScale.y, this._baseNodeScale.z);
         this.angle = angle;
         this.speed = speed;
         this.damage = damage;
@@ -169,16 +182,28 @@ export class Bullet extends Component {
 
         // パルス用の位相は、グロー/3Dモデルいずれか一方しか無い弾Prefabでも共通で進行させる
         // (以前はグローSpriteがある場合しか加算していなかったため、3Dモデルのみの弾では
-        // パルスが完全に止まっていた)。
+        // パルスが完全に止まっていた)。速度・振幅類はGameManagerEditor(GameManagerConfig.json)
+        // 経由で調整可能(IGameManager経由、既定値はこの演出を最初に実装した際の固定値と同じ)。
+        const pulseSpeed = (this._gm && typeof this._gm.bulletPulseSpeed === 'number') ? this._gm.bulletPulseSpeed : 6;
+        const glowScale = (this._gm && typeof this._gm.bulletGlowScale === 'number') ? this._gm.bulletGlowScale : 1.7;
+        const glowScalePulse = (this._gm && typeof this._gm.bulletGlowScalePulse === 'number') ? this._gm.bulletGlowScalePulse : 0.25;
+        const glowAlpha = (this._gm && typeof this._gm.bulletGlowAlpha === 'number') ? this._gm.bulletGlowAlpha : 160;
+        const emissiveBase = (this._gm && typeof this._gm.bulletEmissiveBase === 'number') ? this._gm.bulletEmissiveBase : 0.6;
+        const emissiveAmplitude = (this._gm && typeof this._gm.bulletEmissiveAmplitude === 'number') ? this._gm.bulletEmissiveAmplitude : 0.4;
+
         this._pulseTime += deltaTime;
-        const pulseWave = Math.sin(this._pulseTime * 6);
+        // sin()は山/谷付近で変化率がほぼ0になり長く留まる(イーズイン/アウト)ため、振幅が大きいと
+        // 「明→暗」がパッと切り替わる2値の点滅に見えてしまう(実際に報告された症状)。
+        // asin(sin(x))は同じ周期・範囲(-1〜1)のまま変化率が常に一定な三角波になるので、
+        // 山/谷での停留が無くなり、暗→明→暗を均等な速さで通過する「グラデーション」に見える。
+        const pulseWave = (2 / Math.PI) * Math.asin(Math.sin(this._pulseTime * pulseSpeed));
 
         // グローの拡縮+明滅パルス(呼吸するような発光)。コア本体のSpriteは触らないのでシャープなまま。
         // 同じsin波を拡縮とアルファの両方に使い回すので追加コストはほぼゼロ。
         if (this._glowNode && this._glowNode.isValid && this._glowSprite) {
-            const s = 1.7 + pulseWave * 0.25;
+            const s = glowScale + pulseWave * glowScalePulse;
             this._glowNode.setScale(s, s, 1);
-            const baseAlpha = Math.max(0, Math.min(255, Math.round(160 * this._glowIntensity)));
+            const baseAlpha = Math.max(0, Math.min(255, Math.round(glowAlpha * this._glowIntensity)));
             const flickerAlpha = Math.max(0, Math.min(255, Math.round(baseAlpha * (0.75 + pulseWave * 0.25))));
             const c = this._glowSprite.color;
             this._glowSprite.color = new Color(c.r, c.g, c.b, flickerAlpha);
@@ -197,7 +222,7 @@ export class Bullet extends Component {
                 this._modelBaseScale.z * modelS
             );
             if (this._modelMat) {
-                const emissiveBright = (0.6 + pulseWave * 0.4) * this._glowIntensity;
+                const emissiveBright = (emissiveBase + pulseWave * emissiveAmplitude) * this._glowIntensity;
                 this._modelMat.setProperty("emissiveScale", new Vec3(emissiveBright, emissiveBright, emissiveBright));
             }
         }
@@ -281,11 +306,20 @@ export class Bullet extends Component {
     }
 
     /**
-     * ShotRuntime.tsのFire/MultiFire/Missileノードから、生成直後(init()の後)に呼ばれる想定。
-     * color(nullなら変更しない)とglowIntensity(nullなら変更しない)で見た目を上書きする。
-     * 未呼び出しなら従来通りisEnemyベースの既定色・既定の発光強度のまま。
+     * MaterialLabBulletInit.ts等、init()を疑似的に呼んで発光演出だけ確認したい側から寿命を
+     * 上書きするための公開メソッド(lifeは通常の弾では毎回init()で3秒に固定されるprivateフィールド
+     * のため、外から直接いじれない)。
      */
-    public applyVisualOverride(color: Color | null, glowIntensity: number | null) {
+    public setLifeSeconds(seconds: number) {
+        this.life = seconds;
+    }
+
+    /**
+     * ShotRuntime.tsのFire/MultiFire/Missileノードから、生成直後(init()の後)に呼ばれる想定。
+     * color/glowIntensity/scale(いずれもnullなら変更しない)で見た目を上書きする。
+     * 未呼び出しなら従来通りisEnemyベースの既定色・既定の発光強度・Prefab等倍のまま。
+     */
+    public applyVisualOverride(color: Color | null, glowIntensity: number | null, scale: number | null = null) {
         const sprite = this.getComponent(Sprite);
         if (color) {
             this._baseColor = color;
@@ -293,6 +327,11 @@ export class Bullet extends Component {
         }
         if (glowIntensity != null && Number.isFinite(glowIntensity)) {
             this._glowIntensity = Math.max(0, glowIntensity);
+        }
+        if (scale != null && Number.isFinite(scale)) {
+            // this.nodeを直接スケールするだけで、子(Glow/Model3D)にもCocosの親子継承で連動する。
+            const s = Math.max(0.01, scale);
+            this.node.setScale(this._baseNodeScale.x * s, this._baseNodeScale.y * s, this._baseNodeScale.z * s);
         }
         // 色/強度いずれかが変わった可能性があるので、グローSpriteの色を再計算する
         // (ensureGlowNodeは既存ノードがあれば新規生成せず色だけ更新する)。

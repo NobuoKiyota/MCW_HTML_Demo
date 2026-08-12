@@ -4,6 +4,9 @@
 // assets/scripts/CSVHelper.ts. Keep this list in sync if new CSV tables are added there.
 const CSV_FILES = [
     { label: 'Enemies', file: 'Enemies.csv' },
+    { label: 'SpawnTableManager', file: 'SpawnTables.csv' },
+    { label: 'MissionDifficultyManager', file: 'MissionDifficulty.csv' },
+    { label: 'PlayerUpgradeManager', file: 'PlayerUpgrade.csv' },
     { label: 'DropTableIDManager', file: 'DropTables.csv' },
     { label: 'ItemManager', file: 'Items.csv' },
     { label: 'Behaviors', file: 'Behaviors.csv' },
@@ -21,6 +24,10 @@ const SCHEMA = {
         BehaviorID: { file: 'Behaviors.csv', column: 'ID', isSelect: true },
         ShotPatternID: { file: 'ShotPatterns.csv', column: 'ID', isSelect: true },
         DropTableID: { file: 'DropTables.csv', column: 'ID', isSelect: true },
+        // GameDatabase.tsの実マッチング処理(resources.loadDir("Prefabs/Enemy",...)で読んだ
+        // 全PrefabをrowのPrefabNameとp.data.nameで突き合わせ)と一致する実ファイル名だけを
+        // 選ばせる - 手打ちのタイポで静かにマッチしなくなるのを防ぐ。
+        PrefabName: { ipcList: 'list-enemy-prefab-names', isSelect: true },
     },
     'DropTables.csv': {
         ItemID_1: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
@@ -29,9 +36,32 @@ const SCHEMA = {
         ItemID_4: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
         ItemID_5: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
     },
+    'SpawnTables.csv': {
+        // 敵/デブリの両方がEnemies.csvに登録されている(ID例: DEB001, ENE001)ので、
+        // DropTables.csvのItemID_*と同じ「参照先CSVの別ID列」パターンをそのまま使う。
+        TypeID_1: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
+        TypeID_2: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
+        TypeID_3: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
+        TypeID_4: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
+        TypeID_5: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
+        TypeID_6: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
+        TypeID_7: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
+        TypeID_8: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
+        Lot: { fixedList: ['One', 'Two', 'Random'], isSelect: true },
+        // 実際の秒数はGameManager.ts側のプリセット表(CYCLE_INTERVAL_SECONDS)で計算する。
+        // 手打ちの秒数で破綻しないよう、名前付きプリセットからしか選べないようにする。
+        Cycle: { fixedList: ['Instant', 'Rapid', 'Normal', 'Slow'], isSelect: true },
+    },
     'Items.csv': {
         Type: { fixedList: ['Score', 'Heal', 'Misc', 'Buff', 'PowerUp', 'Weapon', 'Material'], isSelect: true },
         EffectType: { fixedList: ['Heal', 'PowerUp', 'RapidFire', 'Credit', 'Exp', 'Score', 'Material', 'UnlockTrigger', 'None'], isSelect: true },
+    },
+    'PlayerUpgrade.csv': {
+        // 成長傾向5種。値はPLAYER_UPGRADE_GROWTH_EXPONENTS(このファイル内、プレビュー計算式)の
+        // キーと一致させること。実行時計算式(将来PlayerManager.ts)側もこのラベルをそのまま使う想定。
+        GrowthType: { fixedList: ['超早熟', '早熟', '標準', '晩成', '超晩成'], isSelect: true },
+        // fixedListはincludeNoneを見ないので(file参照型のみ対応)、空欄選択肢は明示的にNoneを含める。
+        MaterialCategory: { fixedList: ['None', '装甲強化パーツ', '高性能エンジンパーツ', '電脳強化パーツ'], isSelect: true },
     },
 };
 
@@ -40,6 +70,7 @@ const SCHEMA = {
 const COLUMN_LABELS = {
     Defense: 'DF',
     SpeedMult: 'ESP',
+    ContactDamage: 'CDMG',
 };
 
 // このパネルは元々 Master Manager(CSVテーブル編集)と Behavior Pattern Editor(ノードグラフ編集)の
@@ -55,9 +86,185 @@ let graphDomain = 'behavior'; // 'behavior' | 'shot' (viewMode==='graph'の時�
 // ShotManager 側の状態
 let shotManagerItems = [];
 let bulletPrefabOptions = [];
+let soundIdOptions = [];
 let smDirty = false;
 let smSortKey = null;
 let smSortDir = 1;
+
+// GameManagerEditor 側の状態。assets/resources/Data/GameManagerConfig.json を読み書きする。
+// 新しいパラメータを増やす時はGC_SCHEMAに1行足すだけでよい(UI側の構造は変えなくてよい設計)。
+const GC_SCHEMA = [
+    {
+        key: 'playerShipScaleMultiplier', label: 'Player機 Scale倍率', step: 0.05, min: 0.1, max: 5, default: 1,
+        note: 'Player.prefab内3Dモデルの基準スケールに掛ける倍率(PlayerController.tsが適用)',
+    },
+    {
+        key: 'playerShipBaseRotationX', label: 'Player機 基準X回転(度)', step: 1, min: 0, max: 360, default: 0,
+        note: 'Player機3DモデルのX軸基準角度。Prefab保存値は使わずこちらが基準(PlayerController.tsが適用)',
+    },
+    {
+        key: 'playerShipBaseRotationY', label: 'Player機 基準Y回転(度)', step: 1, min: 0, max: 360, default: 90,
+        note: 'Player機3DモデルのY軸基準角度。Prefab保存値は使わずこちらが基準(PlayerController.tsが適用)',
+    },
+    {
+        key: 'ambientSkyIllum', label: 'Ambient Sky Illum', step: 500, min: 0, max: 100000, default: 20000,
+        note: 'シーンのAmbient(cc.AmbientInfo)のSky Illumを起動時に上書きする(GameManager.tsが適用)',
+    },
+    {
+        key: 'groundLightingColor', type: 'color', label: 'Ground Lighting Color', default: '#333333',
+        note: 'シーンのAmbient(cc.AmbientInfo)のGround Lighting Color(groundAlbedo)を起動時に上書きする(GameManager.tsが適用)',
+    },
+    {
+        key: 'videoBGZoomScale', label: '背景動画 ズーム倍率', step: 0.01, min: 1, max: 1.5, default: 1.08,
+        note: 'Ingame背景動画のKen Burns風ズームの最大倍率(GameManager.tsが適用)',
+    },
+    {
+        key: 'videoBGZoomDurationSec', label: '背景動画 ズーム周期(秒)', step: 1, min: 5, max: 120, default: 25,
+        note: '拡大→縮小それぞれに掛ける秒数(往復1周期はこの2倍)',
+    },
+    {
+        key: 'videoBGColorCycleAmplitude', label: '背景動画 色相振幅', step: 1, min: 0, max: 100, default: 55,
+        note: '背景動画の色合いをsin波で揺らす際のR/G/Bチャンネル振幅(0で色合い変化なし)',
+    },
+    {
+        key: 'videoBGColorCycleSpeed', label: '背景動画 色相速度', step: 0.01, min: 0, max: 1, default: 0.06,
+        note: '色合いが周期変化する速さ(大きいほど速く色が回る)',
+    },
+    {
+        key: 'videoBGBrightnessAmplitude', label: '背景動画 明滅振幅', step: 0.01, min: 0, max: 0.5, default: 0.125,
+        note: '背景動画の明るさをsin波で揺らす振幅(0で明滅なし、最大0.5で0.5〜1.0の範囲)',
+    },
+    {
+        key: 'videoBGBrightnessSpeed', label: '背景動画 明滅速度', step: 0.01, min: 0, max: 1, default: 0.15,
+        note: '明るさが周期変化する速さ',
+    },
+    {
+        key: 'missionMaxDuplicateSpawnTable', label: 'Mission 同一SpawnTable重複上限', step: 1, min: 1, max: 10, default: 2,
+        note: 'ミッション生成時、1ミッション内で同一SpawnTable IDを何回まで重複選出してよいか(GlobalRule、MissionManager実装予定が参照)',
+    },
+    {
+        key: 'missionMarginStartKm', label: 'Mission 開始margin距離(A)', step: 1, min: 0, max: 200, default: 15,
+        note: 'ミッション総距離D = A + SpawnTable合計(B) + 終了margin(C)',
+    },
+    {
+        key: 'missionMarginEndKm', label: 'Mission 終了margin距離(C)', step: 1, min: 0, max: 200, default: 15,
+        note: '同上。開始/終了margin区間は敵を出現させない想定',
+    },
+    {
+        key: 'missionAssumedMaxSpeedKmPerMin', label: 'Mission 想定最高速度(km/分)', step: 10, min: 10, max: 2000, default: 600,
+        note: '目標到達時間の算出に使う想定最高速度。実際のPlayerController速度とは独立した抽象値',
+    },
+    {
+        key: 'missionTargetSpeedRatio', label: 'Mission 目標速度係数', step: 0.05, min: 0.1, max: 1, default: 0.5,
+        note: '目標時間(秒) = (D ÷ (想定最高速度×この係数)) × 60。常に最高速度では走らない前提の補正',
+    },
+    {
+        key: 'missionCargoWeightBaseMin', label: 'Mission 貨物重量下限(Lv1,t)', step: 1, min: 0, max: 500, default: 30,
+        note: 'Lv1の貨物重量ランダム範囲の下限。Lv毎にmissionCargoWeightPerLv×(Lv-1)を加算',
+    },
+    {
+        key: 'missionCargoWeightBaseMax', label: 'Mission 貨物重量上限(Lv1,t)', step: 1, min: 0, max: 500, default: 50,
+        note: 'Lv1の貨物重量ランダム範囲の上限',
+    },
+    {
+        key: 'missionCargoWeightPerLv', label: 'Mission 貨物重量Lv加算(t)', step: 1, min: 0, max: 100, default: 10,
+        note: 'Lvが1上がるごとに重量下限/上限へ加算するt数',
+    },
+    {
+        key: 'missionCargoPriceBase', label: 'Mission 貨物単価(Lv1)', step: 1, min: 0, max: 1000, default: 30,
+        note: 'H = 重量 × 単価。単価 = missionCargoPriceBase + missionCargoPricePerLv×(Lv-1)',
+    },
+    {
+        key: 'missionCargoPricePerLv', label: 'Mission 貨物単価Lv加算', step: 1, min: 0, max: 200, default: 20,
+        note: 'Lvが1上がるごとに単価へ加算する値',
+    },
+    {
+        key: 'missionBonusStepSeconds', label: 'Mission ボーナス刻み秒数', step: 1, min: 1, max: 60, default: 2,
+        note: '目標時間との差がこの秒数を1刻みとしてボーナス/ペナルティ%を計算する',
+    },
+    {
+        key: 'missionBonusPercentPerStep', label: 'Mission 刻みあたり%', step: 1, min: 1, max: 20, default: 2,
+        note: '1刻みあたりのボーナス(早着)/ペナルティ(遅着)パーセント',
+    },
+    {
+        key: 'missionBonusCapPercent', label: 'Mission ボーナス上限%', step: 1, min: 0, max: 100, default: 20,
+        note: '早着ボーナスの上限パーセント',
+    },
+    {
+        key: 'missionPenaltyFloorPercent', label: 'Mission ペナルティ下限%', step: 1, min: 0, max: 100, default: 50,
+        note: '遅着ペナルティの下限(最低保証)。最終倍率は最低でも(100-この値)%は支払われる',
+    },
+    {
+        key: 'contactInvincibleFrames', label: 'Player 被弾後無敵時間(フレーム)', step: 1, min: 0, max: 120, default: 5,
+        note: '弾・Enemy機体接触どちらのダメージでも共通で発生する無敵時間(フレーム数、秒数ではない)。PlayerController.tsが適用',
+    },
+    {
+        key: 'resetRefundPercent', label: 'Upgrade Reset返金割合(%)', step: 1, min: 0, max: 100, default: 80,
+        note: 'Upgrade GUIのResetボタンで、消費済みクレジット/アイテムをこの割合だけ払い戻す',
+    },
+    {
+        key: 'tnLerpDivisor', label: 'TN→lerpFactor 除数', step: 10, min: 100, max: 2000, default: 600,
+        note: 'PlayerUpgrade.csvのTN(生のpixel/sec値)をPlayerController.lerpFactorへ変換する際の除数。lerpFactor = TN ÷ この値',
+    },
+    {
+        key: 'upgradeCostUnitScale', label: 'Upgrade コスト単価係数', step: 0.1, min: 0.1, max: 50, default: 1.9,
+        note: 'PlayerUpgradeManagerのLv別プレビューと共有する校正値。finalLevelCost = StarValue × MaxLv × この値',
+    },
+    {
+        key: 'missionEarlyBaselineCredits', label: 'Upgrade 序盤ミッション基準クレジット', step: 100, min: 100, max: 100000, default: 1500,
+        note: 'PlayerUpgradeManagerのLv別プレビューと共有する校正値。Lv1付近のコスト→実クレジット換算に使う',
+    },
+    {
+        key: 'missionLateBaselineCredits', label: 'Upgrade 終盤ミッション基準クレジット', step: 1000, min: 100, max: 1000000, default: 50000,
+        note: 'PlayerUpgradeManagerのLv別プレビューと共有する校正値。MaxLv付近のコスト→実クレジット換算に使う',
+    },
+    {
+        key: 'upgradeButtonFontSize', label: 'Upgrade BtnUpgrade文字サイズ', step: 1, min: 8, max: 48, default: 24,
+        note: 'UpgradeUIの各行のBtnUpgrade内Labelのフォントサイズ',
+    },
+    {
+        key: 'upgradeNoticeFontSize', label: 'Upgrade 説明文文字サイズ', step: 1, min: 8, max: 48, default: 16,
+        note: 'UpgradeUIの各行のLabelNotice(効果説明文)のフォントサイズ',
+    },
+    {
+        key: 'upgradeSharedInfoFontSize', label: 'Upgrade 共有情報欄文字サイズ', step: 1, min: 8, max: 48, default: 24,
+        note: 'UpgradeUI上部の共有情報欄(クレジット/必要素材)のフォントサイズ',
+    },
+];
+let gcValues = {};
+let gcDirty = false;
+
+// 弾(Bullet)専用の発光パルス設定。assets/resources/Data/BulletConfig.json を読み書きする。
+// GameManagerConfig.jsonに置いていたが、GameManager本体とは無関係な弾専用の値だったため、
+// 弾のデータを扱うShotManagerタブ側に移した(SpawnTableManagerがCycle設定を持つのと同じ考え方)。
+const BULLET_CONFIG_SCHEMA = [
+    {
+        key: 'bulletPulseSpeed', label: '弾 発光パルス速度', step: 0.5, min: 0, max: 30, default: 6,
+        note: '全弾(自機/敵とも)共通のグロー/エミッシブ明滅の速さ(Bullet.tsが適用)',
+    },
+    {
+        key: 'bulletGlowScale', label: '弾 グロー基準サイズ', step: 0.1, min: 0.5, max: 4, default: 1.7,
+        note: 'グローSpriteの基準拡大率(コア本体のSpriteサイズに対する倍率)',
+    },
+    {
+        key: 'bulletGlowScalePulse', label: '弾 グローサイズ振幅', step: 0.05, min: 0, max: 2, default: 0.25,
+        note: 'グローサイズがパルスで拡縮する振幅',
+    },
+    {
+        key: 'bulletGlowAlpha', label: '弾 グロー基準アルファ', step: 5, min: 0, max: 255, default: 160,
+        note: 'グローSpriteの基準不透明度(0〜255、glowIntensity=1.0時)',
+    },
+    {
+        key: 'bulletEmissiveBase', label: '弾 発光強度(基準)', step: 0.05, min: 0, max: 2, default: 0.6,
+        note: '3Dモデル弾のemissiveScale基準値(Materialのemissiveが黒のままだと見た目に反映されない点に注意)',
+    },
+    {
+        key: 'bulletEmissiveAmplitude', label: '弾 発光強度(振幅)', step: 0.05, min: 0, max: 2, default: 0.4,
+        note: '3Dモデル弾のemissiveScaleパルス振幅',
+    },
+];
+let bulletConfigValues = {};
+let bulletConfigDirty = false;
 
 // ==================================================================================
 // --- Master Manager (CSVテーブル編集) 側の状態 -------------------------------------
@@ -97,7 +304,11 @@ const COL_WIDTHS_KEY = 'master-manager-col-widths';
 const DEFAULT_COL_WIDTH = 90;
 // BehaviorID/ShotPatternIDのような長めのID文字列が入る列は、記憶済み幅が無い初回表示でも
 // 値が欠けて見えないよう、既定幅をやや広めにしておく(90pxだと"SP_NORMAL"等が入りきらない)。
-const WIDE_DEFAULT_COLUMNS = { BehaviorID: 120, ShotPatternID: 120, DropTableID: 130, DropID: 100, ItemID_1: 110, ItemID_2: 110, ItemID_3: 110, ItemID_4: 110, ItemID_5: 110 };
+const WIDE_DEFAULT_COLUMNS = {
+    BehaviorID: 120, ShotPatternID: 120, DropTableID: 130, DropID: 100,
+    ItemID_1: 110, ItemID_2: 110, ItemID_3: 110, ItemID_4: 110, ItemID_5: 110,
+    TypeID_1: 100, TypeID_2: 100, TypeID_3: 100, TypeID_4: 100, TypeID_5: 100, TypeID_6: 100, TypeID_7: 100, TypeID_8: 100,
+};
 let colWidths = {}; // { "file::column": widthPx }
 
 function loadColWidths() {
@@ -144,7 +355,23 @@ async function loadRefOptions(file) {
     const schema = SCHEMA[file];
     if (!schema) return;
     for (const colName of Object.keys(schema)) {
-        const { file: refFile, column: refColumn, includeNone } = schema[colName];
+        const entry = schema[colName];
+        // fixedList entries (Lot/Cycle/Type/EffectType etc.) are a static enum, not a
+        // cross-file reference - they have no `file`/`column` to look up. Passing their
+        // (undefined) file into fetchColumnValues() -> load-csv would ask main.js to read
+        // path.basename(undefined), which throws. Use the list as-is instead.
+        if (entry.fixedList) {
+            refOptions[colName] = entry.fixedList.slice();
+            continue;
+        }
+        // ipcList entries (PrefabName等)は他CSVの列ではなく、main.js側のfs.readdirSync()で
+        // 実ファイル名を列挙するIPC呼び出しの結果を使う(タイポ防止のための実体照合)。
+        if (entry.ipcList) {
+            const result = await Editor.Message.request('master-manager', entry.ipcList);
+            refOptions[colName] = (result && result.ok) ? result.list.slice() : [];
+            continue;
+        }
+        const { file: refFile, column: refColumn, includeNone } = entry;
         const values = await fetchColumnValues(refFile, refColumn);
         const setList = Array.from(new Set(values));
         if (includeNone) {
@@ -295,6 +522,220 @@ function updateRowWarning(tr, rowIndex) {
             }
         }
     }
+}
+
+// --- PlayerUpgradeManager: Lv別プレビュー計算式(表示専用、保存はしない) ---
+// GrowthTypeラベル→成長指数。value(Lv)はこの指数でLv/MaxLvを底上げ/寝かせて補間し、
+// cost(Lv)は逆数(2-指数)の形状カーブを使う(早熟ほど終盤の必要コストが相対的に高く、
+// 晩成ほど低くなる)。実行時計算式(将来PlayerManager.ts側)を実装する際もこの対応表と
+// 完全に一致させること(このJSはNode/Electron側、実行時はCocos TS側で完全に別実装になるため)。
+const PLAYER_UPGRADE_GROWTH_EXPONENTS = {
+    '超早熟': 0.35,
+    '早熟': 0.6,
+    '標準': 1.0,
+    '晩成': 1.6,
+    '超晩成': 2.2,
+};
+
+// パーツ分類→アイテムIDプレフィックスの対応(Items.csvに各Lv01~10が登録済みの前提)。
+// 電脳強化パーツ=PT_Cyberという対応は、Items.csv側のNote列が現状「高性能エンジンパーツ」と
+// PT_Engineと同じ説明のままになっているため推測で当てている(要Items.csv側の確認/修正)。
+const PLAYER_UPGRADE_MATERIAL_PREFIX = {
+    '装甲強化パーツ': 'PT_Armor',
+    '高性能エンジンパーツ': 'PT_Engine',
+    '電脳強化パーツ': 'PT_Cyber',
+};
+const PLAYER_UPGRADE_MATERIAL_TIER_COUNT = 10; // Items.csvに登録済みのLv01~10
+const PLAYER_UPGRADE_MATERIAL_START_LV = 10;   // このLv未満はクレジットのみ、以降は素材も必要
+const PLAYER_UPGRADE_MAX_STAR = 8;             // W・OSが現状最大の★8
+
+// 1ミッションの基準クレジット収入(仮値、プレビュー内の入力欄で調整可能)。
+// 「1ミッション ≒ ★5相当のクレジット収入」という取り決めから、コスト比重→実クレジットへ換算する。
+// 序盤(Lv1付近)はEarly、終盤(MaxLv付近)はLateの基準額を使い、その間はLv進行度に応じて線形補間する
+// (ミッション自体の報酬もLvが進むほど上がっていく想定を反映するため、1本の固定レートにはしない)。
+let puMissionEarlyBaselineCredits = 1500;
+let puMissionLateBaselineCredits = 50000;
+
+// Lv(PLAYER_UPGRADE_MATERIAL_START_LV以上)で必要になる素材のTierと個数をStarValueに応じて算出する。
+// tierIndex: StarValueが高いほど多くのTierを使い切る(★8→全10Tier、★2→2~3Tier程度)。
+// quantity: Lv到達点で最小値(3)から始まり、MaxLv到達時にStarValueに比例した個数まで
+// growthTypeと同じ指数カーブで増えていく(早熟/晩成の伸び方をここでも揃えるため)。
+// あくまで初期の暫定式なので、プレビューの数値を見ながら係数を調整していく想定。
+function computeMaterialRequirement(lv, maxLv, growthType, starValue) {
+    if (lv < PLAYER_UPGRADE_MATERIAL_START_LV) return null;
+
+    const g = PLAYER_UPGRADE_GROWTH_EXPONENTS[growthType] !== undefined ? PLAYER_UPGRADE_GROWTH_EXPONENTS[growthType] : 1.0;
+    const span = Math.max(1, maxLv - PLAYER_UPGRADE_MATERIAL_START_LV);
+    const matProgress = Math.min(1, (lv - PLAYER_UPGRADE_MATERIAL_START_LV) / span);
+
+    const qMin = 3;
+    const qMax = qMin + Math.round(starValue * 10 / 3);
+    const quantity = Math.round(qMin + (qMax - qMin) * Math.pow(matProgress, g));
+
+    const tiersToUse = Math.max(1, Math.min(PLAYER_UPGRADE_MATERIAL_TIER_COUNT, Math.round(starValue / PLAYER_UPGRADE_MAX_STAR * PLAYER_UPGRADE_MATERIAL_TIER_COUNT)));
+    const tierIndex = Math.min(tiersToUse, 1 + Math.floor(matProgress * tiersToUse));
+
+    return { tierIndex, quantity };
+}
+
+// コストカーブの序盤が0に近づきすぎないための線形の下駄。1/G乗のカーブだけだと超早熟(G=0.35→
+// costExponent≈2.86)のような極端な成長傾向で序盤コストがほぼ0になってしまうため、線形カーブと
+// ブレンドして最低限のコストを保証する(0.2 = 線形成分の比率、大きくするほど序盤コストの下限が上がる)。
+const PLAYER_UPGRADE_COST_LINEAR_FLOOR = 0.2;
+
+// コストの絶対スケール係数。finalLevelCost = StarValue × MaxLv × この値。プレビュー内の入力欄で
+// 調整できるようにしてあるので、目標とする実クレジット額に合わせて動かして調整する想定。
+// 1.9 は「★8・Lv20が終盤基準クレジット50000のもとで約30万」になるよう逆算した初期値。
+let puCostUnitScale = 1.9;
+
+// 各Lv(1..maxLv)の実値とコストを計算する。
+// コスト指数は必ず1/G(常に正)を使う - progress^costExponentは指数が正である限りLvについて
+// 常に単調増加なので、「前のLvより安くなる」ことが式の上で起こり得ない(線形の下駄を混ぜても
+// 単調増加関数同士の合成なので単調増加性は保たれる)。
+// さらに最終Lv(MaxLv)のコストはStarValue×MaxLvだけで決まり、GrowthTypeでは変えない
+// (GrowthTypeは"そこへの登り方"だけを変える)。これにより、GrowthTypeの組み合わせに関わらず
+// 「★の高いパラメータの最終Lvコストは★の低いパラメータの最終Lvコストを必ず上回る」ことが保証される
+// (トレードオフとして、GrowthType間で合計コスト(20Lv分の総和)は完全には一致しなくなる - 早熟寄りは
+// 終盤に一気に跳ね上がる形になるぶん合計は晩成寄りより低めになる)。
+function computeUpgradeCurve(minValue, maxValue, growthType, maxLv, starValue) {
+    const g = PLAYER_UPGRADE_GROWTH_EXPONENTS[growthType] !== undefined ? PLAYER_UPGRADE_GROWTH_EXPONENTS[growthType] : 1.0;
+    const costExponent = 1 / g; // gは常に正(成長傾向テーブル参照)なので、これも常に正
+    const lvCount = Math.max(1, Math.floor(maxLv) || 20);
+    const finalLevelCost = (starValue || 1) * lvCount * puCostUnitScale;
+    const floorWeight = PLAYER_UPGRADE_COST_LINEAR_FLOOR;
+
+    const result = [];
+    for (let lv = 1; lv <= lvCount; lv++) {
+        const progress = lv / lvCount;
+        const value = minValue + (maxValue - minValue) * Math.pow(progress, g);
+        const shapedProgress = floorWeight * progress + (1 - floorWeight) * Math.pow(progress, costExponent);
+        const cost = finalLevelCost * shapedProgress;
+        result.push({ lv, value, cost });
+    }
+    return result;
+}
+
+// PlayerUpgrade.csvの現在の(未保存分も含む)行内容から、パラメータごとにLv1~MaxLvの
+// 値/コスト比重テーブルを計算して.pu-preview-wrapへ描画する。保存前の値でも即確認できる。
+function renderPlayerUpgradePreview(panel) {
+    const wrap = panel.$.puPreviewWrap;
+    if (!wrap) return;
+    wrap.innerHTML = '';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕ プレビューを閉じる';
+    closeBtn.style.cssText = 'margin-bottom: 8px; background: #333; color: #ccc; border: 1px solid #444; border-radius: 4px; padding: 2px 8px; cursor: pointer;';
+    closeBtn.addEventListener('click', () => { wrap.style.display = 'none'; });
+    wrap.appendChild(closeBtn);
+
+    const idIdx = headers.indexOf('ParamID');
+    const labelIdx = headers.indexOf('Label');
+    const minIdx = headers.indexOf('MinValue');
+    const maxIdx = headers.indexOf('MaxValue');
+    const growthIdx = headers.indexOf('GrowthType');
+    const starIdx = headers.indexOf('StarValue');
+    const maxLvIdx = headers.indexOf('MaxLv');
+    const materialIdx = headers.indexOf('MaterialCategory');
+
+    if (idIdx < 0 || minIdx < 0 || maxIdx < 0) {
+        wrap.textContent = '(PlayerUpgrade.csvの列が見つかりません。ParamID/MinValue/MaxValue列を確認してください)';
+        return;
+    }
+
+    // コスト比重→実クレジットの換算係数。「★1個のコスト比重」を基準単位とし、
+    // 「ミッションの基準クレジット収入 ÷ 5(=★5相当)」がその基準単位いくつ分かで割り出す。
+    // (★1・標準成長・Lv1のコスト比重を基準単位とする - 計算式を変えても自動的に追従する)
+    // ミッション基準額はLv1付近ではEarly、MaxLv付近ではLateに近づくよう線形補間する
+    // (終盤ほどミッション自体の報酬も上がっている、という前提を反映するため)。
+    const referenceUnitCost = computeUpgradeCurve(0, 1, '標準', 20, 1)[0].cost;
+
+    const controlsWrap = document.createElement('div');
+    controlsWrap.style.cssText = 'margin-bottom: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; color: #ccc; font-size: 12px;';
+
+    const makeNumberInput = (labelText, currentValue, onCommit) => {
+        const group = document.createElement('span');
+        group.style.cssText = 'display: inline-flex; align-items: center; gap: 6px;';
+        const label = document.createElement('span');
+        label.textContent = labelText;
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.value = String(currentValue);
+        input.style.cssText = 'width: 90px;';
+        input.addEventListener('change', () => {
+            const v = parseFloat(input.value);
+            if (!isNaN(v) && v > 0) onCommit(v);
+            renderPlayerUpgradePreview(panel);
+        });
+        group.appendChild(label);
+        group.appendChild(input);
+        return group;
+    };
+
+    controlsWrap.appendChild(makeNumberInput('序盤ミッション基準クレジット(仮):', puMissionEarlyBaselineCredits, v => { puMissionEarlyBaselineCredits = v; }));
+    controlsWrap.appendChild(makeNumberInput('終盤ミッション基準クレジット(仮):', puMissionLateBaselineCredits, v => { puMissionLateBaselineCredits = v; }));
+    controlsWrap.appendChild(makeNumberInput('コスト単価係数:', puCostUnitScale, v => { puCostUnitScale = v; }));
+    wrap.appendChild(controlsWrap);
+
+    rows.forEach(row => {
+        const paramId = row[idIdx] || '';
+        const label = labelIdx >= 0 ? row[labelIdx] : '';
+        const minValue = parseFloat(row[minIdx]) || 0;
+        const maxValue = parseFloat(row[maxIdx]) || 0;
+        const growthType = growthIdx >= 0 ? (row[growthIdx] || '標準') : '標準';
+        const starValue = starIdx >= 0 ? (parseFloat(row[starIdx]) || 1) : 1;
+        const maxLv = maxLvIdx >= 0 ? (parseInt(row[maxLvIdx], 10) || 20) : 20;
+        const materialCategory = materialIdx >= 0 ? (row[materialIdx] || '') : '';
+        const materialPrefix = PLAYER_UPGRADE_MATERIAL_PREFIX[materialCategory] || null;
+
+        const curve = computeUpgradeCurve(minValue, maxValue, growthType, maxLv, starValue);
+
+        const table = document.createElement('table');
+        table.className = 'pu-preview-table';
+
+        const caption = document.createElement('caption');
+        caption.textContent = `${paramId}${label ? ' (' + label + ')' : ''} - ${growthType} / ★${starValue} / Lv1~${maxLv}`;
+        table.appendChild(caption);
+
+        const thead = document.createElement('thead');
+        const headTr = document.createElement('tr');
+        ['Lv', '値', 'コスト比重', '実クレジット(仮)', '必要素材(Lv10~)'].forEach(h => {
+            const th = document.createElement('th');
+            th.textContent = h;
+            headTr.appendChild(th);
+        });
+        thead.appendChild(headTr);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        curve.forEach(entry => {
+            const tr = document.createElement('tr');
+            const tdLv = document.createElement('td'); tdLv.textContent = String(entry.lv);
+            const tdVal = document.createElement('td'); tdVal.textContent = entry.value.toFixed(2);
+            const tdCost = document.createElement('td'); tdCost.textContent = entry.cost.toFixed(1);
+
+            const lvProgress = entry.lv / maxLv;
+            const missionBaselineAtLv = puMissionEarlyBaselineCredits + (puMissionLateBaselineCredits - puMissionEarlyBaselineCredits) * lvProgress;
+            const creditsPerUnitAtLv = (missionBaselineAtLv / 5) / referenceUnitCost;
+            const tdCredit = document.createElement('td'); tdCredit.textContent = Math.round(entry.cost * creditsPerUnitAtLv).toLocaleString();
+
+            const tdMat = document.createElement('td');
+            tdMat.style.textAlign = 'left';
+            const matReq = computeMaterialRequirement(entry.lv, maxLv, growthType, starValue);
+            if (!matReq) {
+                tdMat.textContent = '-';
+            } else if (!materialPrefix) {
+                tdMat.textContent = `(MaterialCategory未設定) x${matReq.quantity}`;
+            } else {
+                const itemId = `${materialPrefix}Lv${String(matReq.tierIndex).padStart(2, '0')}`;
+                tdMat.textContent = `${itemId} x${matReq.quantity}`;
+            }
+
+            tr.appendChild(tdLv); tr.appendChild(tdVal); tr.appendChild(tdCost); tr.appendChild(tdCredit); tr.appendChild(tdMat);
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+    });
 }
 
 // CSVテーブル部分のみを再描画する(タブバーはrenderTabBarが別途担当)。
@@ -1046,7 +1487,7 @@ async function renameCurrent(panel) {
 async function deleteCurrent(panel) {
     if (!currentId) return;
     const res = await showModal(panel, {
-        title: `一覧から '${currentId}' の行を削除します(JSON実体は残します)。よろしいですか?`,
+        title: `'${currentId}' を一覧から削除し、JSON実体も削除します。元に戻せません。よろしいですか?`,
         okText: 'Delete',
     });
     if (!res.ok) return;
@@ -1315,7 +1756,7 @@ function registerBehaviorNodeTypes(LiteGraph) {
     function ShotFireNode() {
         this.addInput("In", "flow");
         this.addOutput("Next", "flow");
-        this.properties = { aim: "fixed", angle: 270, speed: 5.0, damage: 10, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0 };
+        this.properties = { aim: "fixed", angle: 270, speed: 5.0, damage: 10, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0, scale: 1.0 };
         addW(this, "combo", "aim", this.properties.aim, (v) => { this.properties.aim = v; }, { values: ["fixed", "atPlayer"] });
         this.addInput("angle", "number");
         addW(this, "number", "angle", this.properties.angle, (v) => { this.properties.angle = v; }, { step: 10 }, "ang");
@@ -1327,16 +1768,17 @@ function registerBehaviorNodeTypes(LiteGraph) {
         addW(this, "number", "pierceCount", this.properties.pierceCount, (v) => { this.properties.pierceCount = v; }, { step: 1, precision: 0 }, "pierce");
         addW(this, 'combo', 'prefabName', this.properties.prefabName, (v) => { this.properties.prefabName = v; }, { values: () => getBulletPrefabOptions() }, 'prefab');
         addW(this, 'text', 'color', this.properties.color, (v) => { this.properties.color = v; }, {}, 'color');
-        this.addInput('glowIntensity', 'number');
-        addW(this, 'number', 'glowIntensity', this.properties.glowIntensity, (v) => { this.properties.glowIntensity = v; }, { step: 0.1, min: 0 }, 'glow');
+        // glowIntensity/scaleはウィジェット非表示(ShotManagerタブのGlow/Scale列で一元管理する方針
+        // のため、グラフ側から個別に触れないようにしている)。値自体はpropertiesに残っているので、
+        // ShotManager経由の編集・保存は引き続き正しく機能する。
     }
     ShotFireNode.title = "Fire";
-    ShotFireNode.desc = "単発を1発撃って即座に次へ進む(ブロックしない)。aim=atPlayerでangleを無視し自機方向へ(敵発射のみ有効、自機発射では無視される)。pierceCount: 0=通常(1ヒットで消滅) / -1=無限貫通 / N=N回ヒットで消滅。prefabName='(default)'ならGameManagerの既定bulletPrefab、それ以外はassets/resources/Prefabs/Bullets/内の同名Prefabを使う。colorは\"#rrggbb\"形式(空欄なら既定の敵/自機色のまま)。glowIntensityは発光の明るさ倍率(既定1.0)。連射させたい場合は直後にWait→Loopで繋ぐ。数値パラメータはRandomノードから配線可能。";
+    ShotFireNode.desc = "単発を1発撃って即座に次へ進む(ブロックしない)。aim=atPlayerでangleを無視し自機方向へ(敵発射のみ有効、自機発射では無視される)。pierceCount: 0=通常(1ヒットで消滅) / -1=無限貫通 / N=N回ヒットで消滅。prefabName='(default)'ならGameManagerの既定bulletPrefab、それ以外はassets/resources/Prefabs/Bullets/内の同名Prefabを使う。colorは\"#rrggbb\"形式(空欄なら既定の敵/自機色のまま)。glowIntensityは発光の明るさ倍率(既定1.0)。scaleは弾の見た目サイズ倍率(既定1.0)。連射させたい場合は直後にWait→Loopで繋ぐ。数値パラメータはRandomノードから配線可能。";
 
     function ShotMultiFireNode() {
         this.addInput("In", "flow");
         this.addOutput("Next", "flow");
-        this.properties = { aim: "fixed", angle: 270, count: 3, angleSpread: 0, staggerDelay: 0, speed: 5.0, damage: 10, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0 };
+        this.properties = { aim: "fixed", angle: 270, count: 3, angleSpread: 0, staggerDelay: 0, speed: 5.0, damage: 10, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0, scale: 1.0 };
         addW(this, "combo", "aim", this.properties.aim, (v) => { this.properties.aim = v; }, { values: ["fixed", "atPlayer"] });
         this.addInput("angle", "number");
         addW(this, "number", "angle", this.properties.angle, (v) => { this.properties.angle = v; }, { step: 10 }, "ang");
@@ -1354,16 +1796,17 @@ function registerBehaviorNodeTypes(LiteGraph) {
         addW(this, "number", "pierceCount", this.properties.pierceCount, (v) => { this.properties.pierceCount = v; }, { step: 1, precision: 0 }, "pierce");
         addW(this, 'combo', 'prefabName', this.properties.prefabName, (v) => { this.properties.prefabName = v; }, { values: () => getBulletPrefabOptions() }, 'prefab');
         addW(this, 'text', 'color', this.properties.color, (v) => { this.properties.color = v; }, {}, 'color');
-        this.addInput('glowIntensity', 'number');
-        addW(this, 'number', 'glowIntensity', this.properties.glowIntensity, (v) => { this.properties.glowIntensity = v; }, { step: 0.1, min: 0 }, 'glow');
+        // glowIntensity/scaleはウィジェット非表示(ShotManagerタブのGlow/Scale列で一元管理する方針
+        // のため、グラフ側から個別に触れないようにしている)。値自体はpropertiesに残っているので、
+        // ShotManager経由の編集・保存は引き続き正しく機能する。
     }
     ShotMultiFireNode.title = "MultiFire";
-    ShotMultiFireNode.desc = "count発を1回のトリガーで撃つ。angleSpread>0かつstaggerDelay=0なら「拡散弾」(中心角angleを軸にcount発を扇状に同時発射)。angleSpread=0かつstaggerDelay>0なら「複数発射」(同じ角度へstaggerDelay秒間隔で連続発射、撃ち切るまでブロックする)。両方組み合わせも可。prefabName/color/glowIntensityで見た目を上書きできる(Fireノードと同じ)。数値パラメータはRandomノードから配線可能。";
+    ShotMultiFireNode.desc = "count発を1回のトリガーで撃つ。angleSpread>0かつstaggerDelay=0なら「拡散弾」(中心角angleを軸にcount発を扇状に同時発射)。angleSpread=0かつstaggerDelay>0なら「複数発射」(同じ角度へstaggerDelay秒間隔で連続発射、撃ち切るまでブロックする)。両方組み合わせも可。prefabName/color/glowIntensity/scaleで見た目を上書きできる(Fireノードと同じ)。数値パラメータはRandomノードから配線可能。";
 
     function ShotMissileNode() {
         this.addInput("In", "flow");
         this.addOutput("Next", "flow");
-        this.properties = { angle: 270, speed: 3.0, damage: 15, homing: false, turnRate: 0.1, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0 };
+        this.properties = { angle: 270, speed: 3.0, damage: 15, homing: false, turnRate: 0.1, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0, scale: 1.0 };
         this.addInput("angle", "number");
         addW(this, "number", "angle", this.properties.angle, (v) => { this.properties.angle = v; }, { step: 10 }, "ang");
         this.addInput("speed", "number");
@@ -1377,11 +1820,12 @@ function registerBehaviorNodeTypes(LiteGraph) {
         addW(this, "number", "pierceCount", this.properties.pierceCount, (v) => { this.properties.pierceCount = v; }, { step: 1, precision: 0 }, "pierce");
         addW(this, 'combo', 'prefabName', this.properties.prefabName, (v) => { this.properties.prefabName = v; }, { values: () => getBulletPrefabOptions() }, 'prefab');
         addW(this, 'text', 'color', this.properties.color, (v) => { this.properties.color = v; }, {}, 'color');
-        this.addInput('glowIntensity', 'number');
-        addW(this, 'number', 'glowIntensity', this.properties.glowIntensity, (v) => { this.properties.glowIntensity = v; }, { step: 0.1, min: 0 }, 'glow');
+        // glowIntensity/scaleはウィジェット非表示(ShotManagerタブのGlow/Scale列で一元管理する方針
+        // のため、グラフ側から個別に触れないようにしている)。値自体はpropertiesに残っているので、
+        // ShotManager経由の編集・保存は引き続き正しく機能する。
     }
     ShotMissileNode.title = "Missile";
-    ShotMissileNode.desc = "低速だが威力の高い弾を1発撃つ。ブロックしない。homing=ONで発射直後にターゲット(自機発射なら最寄りの敵、敵発射なら自機)を自動取得して追尾する(turnRateが旋回の強さ、Bullet.steerForceに対応)。prefabName/color/glowIntensityで見た目を上書きできる(Fireノードと同じ)。数値パラメータはRandomノードから配線可能。";
+    ShotMissileNode.desc = "低速だが威力の高い弾を1発撃つ。ブロックしない。homing=ONで発射直後にターゲット(自機発射なら最寄りの敵、敵発射なら自機)を自動取得して追尾する(turnRateが旋回の強さ、Bullet.steerForceに対応)。prefabName/color/glowIntensity/scaleで見た目を上書きできる(Fireノードと同じ)。数値パラメータはRandomノードから配線可能。";
 
     LiteGraph.registerNodeType("behavior/start", BehaviorStartNode);
     LiteGraph.registerNodeType("behavior/move", BehaviorMoveNode);
@@ -1574,8 +2018,11 @@ function confirmDiscardIfDirty() {
     if (viewMode === 'csv' && dirty) {
         return confirm(`${currentFile} has unsaved changes. Discard them?`);
     }
-    if (viewMode === 'shot-manager' && smDirty) {
+    if (viewMode === 'shot-manager' && (smDirty || bulletConfigDirty)) {
         return confirm(`ShotManager has unsaved changes. Discard them?`);
+    }
+    if (viewMode === 'game-config' && gcDirty) {
+        return confirm(`GameManagerEditor has unsaved changes. Discard them?`);
     }
     return true;
 }
@@ -1608,14 +2055,22 @@ function renderTabBar(panel) {
     shotBtn.textContent = '🔫 Shot Pattern';
     shotBtn.addEventListener('click', () => switchToGraph(panel, 'shot'));
     tabBar.appendChild(shotBtn);
+
+    const gcBtn = document.createElement('button');
+    gcBtn.className = 'tab-btn tab-btn-graph' + (viewMode === 'game-config' ? ' active' : '');
+    gcBtn.textContent = '⚙️ GameManagerEditor';
+    gcBtn.addEventListener('click', () => switchToGameConfig(panel));
+    tabBar.appendChild(gcBtn);
 }
 
 function updateViewVisibility(panel) {
     const isGraph = viewMode === 'graph';
     const isSm = viewMode === 'shot-manager';
+    const isGc = viewMode === 'game-config';
     panel.$.mmView.style.display = viewMode === 'csv' ? 'flex' : 'none';
     panel.$.beView.style.display = isGraph ? 'flex' : 'none';
     if (panel.$.smView) panel.$.smView.style.display = isSm ? 'flex' : 'none';
+    if (panel.$.gcView) panel.$.gcView.style.display = isGc ? 'flex' : 'none';
     if (isGraph) {
         requestAnimationFrame(() => {
             if (litegraphCanvas && litegraphCanvas.resize) litegraphCanvas.resize();
@@ -1629,6 +2084,11 @@ async function switchToCsv(panel, file) {
     updateViewVisibility(panel);
     await loadFile(panel, file);
     renderTabBar(panel);
+
+    // Lv別プレビューはPlayerUpgrade.csv専用。他タブへ切り替えたら古い内容を残さず必ず閉じる。
+    const isPlayerUpgrade = file === 'PlayerUpgrade.csv';
+    if (panel.$.puPreviewBtn) panel.$.puPreviewBtn.style.display = isPlayerUpgrade ? '' : 'none';
+    if (panel.$.puPreviewWrap) panel.$.puPreviewWrap.style.display = 'none';
 }
 
 async function switchToGraph(panel, domain) {
@@ -1661,13 +2121,18 @@ async function switchToShotManager(panel) {
 
 async function loadShotManagerData(panel) {
     setStatus(panel, 'Loading ShotManager data...', false);
-    const [resData, resPrefabs] = await Promise.all([
+    const [resData, resPrefabs, resSounds] = await Promise.all([
         Editor.Message.request('behavior-editor', 'list-shot-manager-data'),
         Editor.Message.request('behavior-editor', 'list-bullet-prefabs'),
+        Editor.Message.request('behavior-editor', 'list-sound-ids'),
+        loadBulletConfig(panel),
     ]);
 
     if (resPrefabs && resPrefabs.ok) {
         bulletPrefabOptions = resPrefabs.list || [];
+    }
+    if (resSounds && resSounds.ok) {
+        soundIdOptions = resSounds.list || [];
     }
 
     if (!resData || !resData.ok) {
@@ -1698,12 +2163,147 @@ async function jumpToShotPattern(panel, id) {
     await loadGraphItem(panel, id);
 }
 
+// ==================================================================================
+// --- GameManagerEditor (assets/resources/Data/GameManagerConfig.json) -------------
+// ==================================================================================
+
+// GameManagerEditorのGC_SCHEMAと、弾専用のBULLET_CONFIG_SCHEMA(ShotManagerタブ内)の両方で
+// 使う汎用のフォーム読み込み/保存/描画。スキーマ配列とその値オブジェクトを渡すだけで動く
+// (「Player機Scale倍率」を足す時も「弾グロー」を足す時も、この3関数は変更不要)。
+async function loadSettingsForm(ipcPkg, loadMsg, schema, values, formEl, label, onLoaded) {
+    const result = await Editor.Message.request(ipcPkg, loadMsg);
+    if (!result || !result.ok) {
+        console.warn(`[MasterManager Panel] ${label} load failed: ${result ? result.error : 'unknown error'}`);
+        Object.keys(values).forEach((k) => delete values[k]);
+        schema.forEach(({ key, default: def }) => { values[key] = def; });
+        renderSettingsForm(formEl, schema, values, onLoaded);
+        return false;
+    }
+    Object.keys(values).forEach((k) => delete values[k]);
+    schema.forEach(({ key, type, default: def }) => {
+        const v = result.data ? result.data[key] : undefined;
+        const expectedType = type === 'color' ? 'string' : 'number';
+        values[key] = (typeof v === expectedType) ? v : def;
+    });
+    renderSettingsForm(formEl, schema, values, onLoaded);
+    return true;
+}
+
+async function saveSettingsForm(ipcPkg, saveMsg, values) {
+    return Editor.Message.request(ipcPkg, saveMsg, values);
+}
+
+function renderSettingsForm(formEl, schema, values, onChange) {
+    if (!formEl) return;
+    formEl.innerHTML = '';
+
+    schema.forEach(({ key, label, type, step, min, max, note }) => {
+        const row = document.createElement('div');
+        row.className = 'gc-row';
+
+        const labelEl = document.createElement('label');
+        labelEl.className = 'gc-label';
+        labelEl.textContent = label;
+        row.appendChild(labelEl);
+
+        const input = document.createElement('input');
+        input.className = 'gc-input';
+        if (type === 'color') {
+            input.type = 'color';
+            input.value = values[key];
+            input.addEventListener('input', (e) => {
+                values[key] = e.target.value;
+                onChange();
+            });
+        } else {
+            input.type = 'number';
+            input.step = step;
+            input.min = min;
+            input.max = max;
+            input.value = values[key];
+            input.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                if (!isNaN(val)) {
+                    values[key] = val;
+                    onChange();
+                }
+            });
+        }
+        row.appendChild(input);
+
+        const noteEl = document.createElement('div');
+        noteEl.className = 'gc-note';
+        noteEl.textContent = note;
+        row.appendChild(noteEl);
+
+        formEl.appendChild(row);
+    });
+}
+
+// --- GameManagerEditor (assets/resources/Data/GameManagerConfig.json) -------------
+
+async function switchToGameConfig(panel) {
+    if (!confirmDiscardIfDirty()) return;
+    viewMode = 'game-config';
+    renderTabBar(panel);
+    updateViewVisibility(panel);
+    await loadGameManagerConfig(panel);
+}
+
+async function loadGameManagerConfig(panel) {
+    setStatus(panel, 'Loading GameManagerConfig...', false);
+    const ok = await loadSettingsForm('master-manager', 'load-game-manager-config', GC_SCHEMA, gcValues, panel.$.gcForm, 'GameManagerConfig', () => {
+        gcDirty = true;
+        setStatus(panel, 'GameManagerConfig has unsaved changes.', false);
+    });
+    gcDirty = false;
+    setStatus(panel, ok ? 'Loaded GameManagerConfig.' : 'GameManagerConfig load failed.', !ok);
+}
+
+async function saveGameManagerConfigForm(panel) {
+    setStatus(panel, 'Saving GameManagerConfig...', false);
+    const result = await saveSettingsForm('master-manager', 'save-game-manager-config', gcValues);
+    if (result && result.ok) {
+        gcDirty = false;
+        setStatus(panel, 'Saved GameManagerConfig.', false);
+    } else {
+        setStatus(panel, `GameManagerConfig save failed: ${result ? result.error : 'unknown error'}`, true);
+    }
+}
+
+// --- 弾(Bullet)共通設定 (assets/resources/Data/BulletConfig.json, ShotManagerタブ内) -------
+
+async function loadBulletConfig(panel) {
+    setStatus(panel, 'Loading BulletConfig...', false);
+    const ok = await loadSettingsForm('behavior-editor', 'load-bullet-config', BULLET_CONFIG_SCHEMA, bulletConfigValues, panel.$.bcForm, 'BulletConfig', () => {
+        bulletConfigDirty = true;
+        setStatus(panel, 'BulletConfig has unsaved changes.', false);
+    });
+    bulletConfigDirty = false;
+    setStatus(panel, ok ? 'Loaded BulletConfig.' : 'BulletConfig load failed.', !ok);
+}
+
+async function saveBulletConfigForm(panel) {
+    setStatus(panel, 'Saving BulletConfig...', false);
+    const result = await saveSettingsForm('behavior-editor', 'save-bullet-config', bulletConfigValues);
+    if (result && result.ok) {
+        bulletConfigDirty = false;
+        setStatus(panel, 'Saved BulletConfig.', false);
+    } else {
+        setStatus(panel, `BulletConfig save failed: ${result ? result.error : 'unknown error'}`, true);
+    }
+}
+
 const SM_COLUMNS = [
     { key: 'id', label: 'ID', defaultWidth: 130 },
     { key: 'type', label: 'Type', defaultWidth: 95 },
     { key: 'count', label: 'Count', defaultWidth: 55 },
     { key: 'speed', label: 'SP', defaultWidth: 55 },
     { key: 'damage', label: 'DMG', defaultWidth: 55 },
+    { key: 'scale', label: 'Scale', defaultWidth: 55 },
+    { key: 'glowIntensity', label: 'Glow', defaultWidth: 55 },
+    { key: 'color', label: 'Color', defaultWidth: 90 },
+    { key: 'soundId', label: 'Sound', defaultWidth: 110 },
     { key: 'seconds', label: 'WT', defaultWidth: 55 },
     { key: 'prefabName', label: 'PrefabName', defaultWidth: 110 },
     { key: 'note', label: 'Comment', defaultWidth: 220 },
@@ -1754,12 +2354,6 @@ function renderShotManagerTable(panel) {
 
     const table = document.createElement('table');
     table.className = 'sm-table';
-
-    let datalistHtml = '<datalist id="sm-bullet-prefabs">';
-    bulletPrefabOptions.forEach(p => {
-        datalistHtml += `<option value="${p}">${p}</option>`;
-    });
-    datalistHtml += '</datalist>';
 
     const thead = document.createElement('thead');
     const headRow = document.createElement('tr');
@@ -1900,6 +2494,74 @@ function renderShotManagerTable(panel) {
         tdDmg.appendChild(inputDmg);
         tr.appendChild(tdDmg);
 
+        // Scale (弾の見た目倍率、既定1.0 - Bullet.tsのapplyVisualOverride()が適用)
+        const tdScale = document.createElement('td');
+        const inputScale = document.createElement('input');
+        inputScale.type = 'number';
+        inputScale.step = '0.1';
+        inputScale.min = '0.1';
+        inputScale.value = item.scale !== undefined ? item.scale : 1;
+        inputScale.addEventListener('input', (e) => {
+            item.scale = Number(e.target.value);
+            smDirty = true;
+            setStatus(panel, 'ShotManager has unsaved changes.', false);
+        });
+        tdScale.appendChild(inputScale);
+        tr.appendChild(tdScale);
+
+        // Glow (発光強度倍率、既定1.0 - Bullet.tsのapplyVisualOverride()が適用)
+        const tdGlow = document.createElement('td');
+        const inputGlow = document.createElement('input');
+        inputGlow.type = 'number';
+        inputGlow.step = '0.1';
+        inputGlow.min = '0';
+        inputGlow.value = item.glowIntensity !== undefined ? item.glowIntensity : 1;
+        inputGlow.addEventListener('input', (e) => {
+            item.glowIntensity = Number(e.target.value);
+            smDirty = true;
+            setStatus(panel, 'ShotManager has unsaved changes.', false);
+        });
+        tdGlow.appendChild(inputGlow);
+        tr.appendChild(tdGlow);
+
+        // Color ("#rrggbb"形式。空欄ならisEnemyベースの既定色(Bullet.ts init())のまま。
+        // ここで明示指定するとapplyVisualOverride()経由でその既定色を上書きする)
+        const tdColor = document.createElement('td');
+        const inputColor = document.createElement('input');
+        inputColor.type = 'text';
+        inputColor.placeholder = '(default)';
+        inputColor.value = item.color || '';
+        inputColor.addEventListener('input', (e) => {
+            item.color = e.target.value;
+            smDirty = true;
+            setStatus(panel, 'ShotManager has unsaved changes.', false);
+        });
+        tdColor.appendChild(inputColor);
+        tr.appendChild(tdColor);
+
+        // Sound (発射時に鳴らすSE。Sounds.csvのID列から自動でプルダウンを作る。空欄なら鳴らさない)
+        const tdSound = document.createElement('td');
+        const selSound = document.createElement('select');
+        const currentSoundVal = item.soundId || '(none)';
+        const soundOptList = ['(none)', ...soundIdOptions];
+        if (currentSoundVal !== '(none)' && !soundOptList.includes(currentSoundVal)) {
+            soundOptList.push(currentSoundVal);
+        }
+        soundOptList.forEach(optVal => {
+            const opt = document.createElement('option');
+            opt.value = optVal;
+            opt.textContent = optVal;
+            if (optVal === currentSoundVal) opt.selected = true;
+            selSound.appendChild(opt);
+        });
+        selSound.addEventListener('change', (e) => {
+            item.soundId = e.target.value === '(none)' ? '' : e.target.value;
+            smDirty = true;
+            setStatus(panel, 'ShotManager has unsaved changes.', false);
+        });
+        tdSound.appendChild(selSound);
+        tr.appendChild(tdSound);
+
         // WT (Wait Sec)
         const tdWt = document.createElement('td');
         const inputWt = document.createElement('input');
@@ -1914,18 +2576,28 @@ function renderShotManagerTable(panel) {
         tdWt.appendChild(inputWt);
         tr.appendChild(tdWt);
 
-        // PrefabName
+        // PrefabName - datalist方式(候補提示のみで選択を強制しない)だと環境によって
+        // プルダウンが機能しないことがあったため、他の参照列と同じ<select>に統一する。
         const tdPrefab = document.createElement('td');
-        const inputPrefab = document.createElement('input');
-        inputPrefab.type = 'text';
-        inputPrefab.setAttribute('list', 'sm-bullet-prefabs');
-        inputPrefab.value = item.prefabName || '';
-        inputPrefab.addEventListener('input', (e) => {
+        const selPrefab = document.createElement('select');
+        const currentPrefabVal = item.prefabName || '(default)';
+        const prefabOptList = ['(default)', ...bulletPrefabOptions];
+        if (currentPrefabVal !== '(default)' && !prefabOptList.includes(currentPrefabVal)) {
+            prefabOptList.push(currentPrefabVal);
+        }
+        prefabOptList.forEach(optVal => {
+            const opt = document.createElement('option');
+            opt.value = optVal;
+            opt.textContent = optVal;
+            if (optVal === currentPrefabVal) opt.selected = true;
+            selPrefab.appendChild(opt);
+        });
+        selPrefab.addEventListener('change', (e) => {
             item.prefabName = e.target.value;
             smDirty = true;
             setStatus(panel, 'ShotManager has unsaved changes.', false);
         });
-        tdPrefab.appendChild(inputPrefab);
+        tdPrefab.appendChild(selPrefab);
         tr.appendChild(tdPrefab);
 
         // Comment (Note)
@@ -1956,7 +2628,6 @@ function renderShotManagerTable(panel) {
 
     table.appendChild(tbody);
     wrap.appendChild(table);
-    wrap.insertAdjacentHTML('beforeend', datalistHtml);
 }
 
 module.exports = Editor.Panel.define({
@@ -1984,11 +2655,13 @@ module.exports = Editor.Panel.define({
                 <div class="table-scroll">
                     <div class="table-wrap"></div>
                 </div>
+                <div class="pu-preview-wrap" style="display: none;"></div>
                 <div class="mm-footer">
                     <div class="footer-buttons">
                         <button class="btn-refresh">🔄 Refresh</button>
                         <button class="btn-add-row">➕ Add Row</button>
                         <button class="btn-save">💾 Save</button>
+                        <button class="pu-btn-preview" style="display: none;">🧮 Lv別プレビュー</button>
                     </div>
                 </div>
             </div>
@@ -1998,9 +2671,25 @@ module.exports = Editor.Panel.define({
                     <button class="sm-btn-refresh">🔄 Reload</button>
                     <button class="sm-btn-save">💾 Save</button>
                 </div>
+                <details class="bc-details">
+                    <summary>🔥 弾 共通発光設定(BulletConfig.json)</summary>
+                    <div class="bc-toolbar">
+                        <button class="bc-btn-refresh">🔄 Reload</button>
+                        <button class="bc-btn-save">💾 Save</button>
+                    </div>
+                    <div class="bc-form gc-form"></div>
+                </details>
                 <div class="sm-table-scroll">
                     <div class="sm-table-wrap"></div>
                 </div>
+            </div>
+
+            <div class="gc-view" style="display: none;">
+                <div class="gc-toolbar">
+                    <button class="gc-btn-refresh">🔄 Reload</button>
+                    <button class="gc-btn-save">💾 Save</button>
+                </div>
+                <div class="gc-form"></div>
             </div>
 
             <div class="be-view" style="display: none;">
@@ -2102,6 +2791,27 @@ module.exports = Editor.Panel.define({
             border-radius: 6px;
             padding: 8px;
         }
+
+        /* --- PlayerUpgradeManager: Lv別プレビュー(表示専用) --- */
+        .pu-preview-wrap {
+            max-height: 45%;
+            overflow: auto;
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 8px;
+        }
+        .pu-preview-wrap h4 { margin: 0 0 6px 0; color: #ccc; font-size: 12px; }
+        .pu-preview-table { border-collapse: collapse; width: 100%; font-size: 11px; margin-bottom: 14px; }
+        .pu-preview-table th, .pu-preview-table td {
+            border: 1px solid #3d3d3d;
+            padding: 2px 6px;
+            text-align: right;
+            white-space: nowrap;
+        }
+        .pu-preview-table th { background: #2a2a2a; color: #8fd68f; position: sticky; top: 0; }
+        .pu-preview-table td:first-child, .pu-preview-table th:first-child { text-align: left; color: #ccc; }
+        .pu-preview-table caption { text-align: left; color: #fff; font-weight: bold; padding: 4px 0; caption-side: top; }
         table {
             border-collapse: collapse;
             width: 100%;
@@ -2220,7 +2930,31 @@ module.exports = Editor.Panel.define({
         .sm-table td input, .sm-table td select { background: #2a2a2a; border: 1px solid #444; color: #fff; padding: 3px 5px; border-radius: 3px; width: 100%; box-sizing: border-box; font-size: 12px; }
         .sm-table td input:focus, .sm-table td select:focus { border-color: #4da6ff; outline: none; }
         .sm-btn-jump { background: #007acc; color: #fff; border: 1px solid #005999; border-radius: 3px; cursor: pointer; padding: 2px 8px; font-size: 11px; font-weight: bold; }
+
+        /* --- GameManagerEditor 側 --- */
+        .gc-view { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 8px; }
+        .gc-toolbar { flex-shrink: 0; display: flex; gap: 8px; align-items: center; }
+        .gc-btn-refresh { padding: 6px 14px; background: #2d5f8a; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+        .gc-btn-refresh:hover { background: #3a75aa; }
+        .gc-btn-save { padding: 6px 14px; background: #28a745; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        .gc-btn-save:hover { background: #218838; }
+        .gc-form { flex: 1; overflow: auto; background: #1a1a1a; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+        .gc-row { display: grid; grid-template-columns: 220px 140px 1fr; align-items: center; gap: 12px; }
+        .gc-label { color: #ddd; font-weight: bold; }
+        .gc-input { background: #2a2a2a; border: 1px solid #444; color: #fff; padding: 5px 8px; border-radius: 3px; font-size: 12px; }
+        .gc-input:focus { border-color: #4da6ff; outline: none; }
+        .gc-note { color: #888; font-size: 11px; }
         .sm-btn-jump:hover { background: #005999; }
+
+        /* --- ShotManager内の弾共通発光設定(BulletConfig.json、折りたたみ) --- */
+        .bc-details { flex-shrink: 0; background: #202020; border-radius: 6px; padding: 6px 10px; }
+        .bc-details summary { cursor: pointer; color: #ddd; font-weight: bold; padding: 4px 0; }
+        .bc-toolbar { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
+        .bc-btn-refresh { padding: 5px 12px; background: #2d5f8a; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+        .bc-btn-refresh:hover { background: #3a75aa; }
+        .bc-btn-save { padding: 5px 12px; background: #28a745; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        .bc-btn-save:hover { background: #218838; }
+        .bc-form.gc-form { flex: none; max-height: 260px; }
 
         /* --- Behavior Graph / Shot Pattern (ノードグラフ編集) 側 --- */
         .be-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -2347,11 +3081,22 @@ module.exports = Editor.Panel.define({
         refreshBtn: '.btn-refresh',
         addRowBtn: '.btn-add-row',
         saveBtn: '.btn-save',
+        puPreviewBtn: '.pu-btn-preview',
+        puPreviewWrap: '.pu-preview-wrap',
 
         smView: '.sm-view',
         smTableWrap: '.sm-table-wrap',
         smRefreshBtn: '.sm-btn-refresh',
         smSaveBtn: '.sm-btn-save',
+
+        bcForm: '.sm-view .bc-form',
+        bcRefreshBtn: '.bc-btn-refresh',
+        bcSaveBtn: '.bc-btn-save',
+
+        gcView: '.gc-view',
+        gcForm: '.gc-view .gc-form',
+        gcRefreshBtn: '.gc-btn-refresh',
+        gcSaveBtn: '.gc-btn-save',
 
         beView: '.be-view',
         nodeDescBar: '.node-desc-bar',
@@ -2400,6 +3145,15 @@ module.exports = Editor.Panel.define({
             renderTable(this);
         });
         this.$.saveBtn.addEventListener('click', () => saveFile(this));
+        if (this.$.puPreviewBtn) {
+            this.$.puPreviewBtn.addEventListener('click', () => {
+                // トグル(開いている時に押すと閉じる)だと、テーブルの値を編集した後の再計算が
+                // 「一度閉じてもう一度開く」という分かりにくい操作になってしまうため、常に
+                // 最新のrows内容で再計算して表示する動作にする。閉じるのはプレビュー内の✕ボタンから。
+                renderPlayerUpgradePreview(this);
+                this.$.puPreviewWrap.style.display = 'block';
+            });
+        }
 
         // --- ShotManager ボタン ---
         if (this.$.smRefreshBtn) {
@@ -2410,6 +3164,28 @@ module.exports = Editor.Panel.define({
         }
         if (this.$.smSaveBtn) {
             this.$.smSaveBtn.addEventListener('click', () => saveShotManagerData(this));
+        }
+
+        // --- 弾 共通発光設定(BulletConfig.json)ボタン ---
+        if (this.$.bcRefreshBtn) {
+            this.$.bcRefreshBtn.addEventListener('click', () => {
+                if (bulletConfigDirty && !confirm('BulletConfig has unsaved changes. Reload from disk?')) return;
+                loadBulletConfig(this);
+            });
+        }
+        if (this.$.bcSaveBtn) {
+            this.$.bcSaveBtn.addEventListener('click', () => saveBulletConfigForm(this));
+        }
+
+        // --- GameManagerEditor ボタン ---
+        if (this.$.gcRefreshBtn) {
+            this.$.gcRefreshBtn.addEventListener('click', () => {
+                if (gcDirty && !confirm('GameManagerEditor has unsaved changes. Reload from disk?')) return;
+                loadGameManagerConfig(this);
+            });
+        }
+        if (this.$.gcSaveBtn) {
+            this.$.gcSaveBtn.addEventListener('click', () => saveGameManagerConfigForm(this));
         }
 
         // --- Graph(Behavior/Shot共通) ボタン ---

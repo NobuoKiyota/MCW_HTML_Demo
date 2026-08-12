@@ -87,6 +87,31 @@
         "methods": [
           "listBulletPrefabs"
         ]
+      },
+      "list-shot-manager-data": {
+        "methods": [
+          "listShotManagerData"
+        ]
+      },
+      "save-shot-manager-data": {
+        "methods": [
+          "saveShotManagerData"
+        ]
+      },
+      "load-bullet-config": {
+        "methods": [
+          "loadBulletConfig"
+        ]
+      },
+      "save-bullet-config": {
+        "methods": [
+          "saveBulletConfig"
+        ]
+      },
+      "list-sound-ids": {
+        "methods": [
+          "listSoundIds"
+        ]
       }
     }
   }
