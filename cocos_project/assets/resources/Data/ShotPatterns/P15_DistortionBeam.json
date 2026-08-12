@@ -1,5 +1,5 @@
 {
-    "id": "SP_PLAYER_BASIC",
+    "id": "P15_DistortionBeam",
     "nodes": [
         {
             "id": 4,
@@ -7,6 +7,26 @@
             "params": {
                 "count": -1,
                 "target": 1
+            },
+            "next": null
+        },
+        {
+            "id": 5,
+            "type": "MultiFire",
+            "params": {
+                "aim": "fixed",
+                "angle": 90,
+                "count": 7,
+                "angleSpread": 10,
+                "staggerDelay": 0,
+                "speed": 16,
+                "damage": 14,
+                "pierceCount": 0,
+                "prefabName": "PBullet01",
+                "color": "8ADEFF",
+                "glowIntensity": 1,
+                "scale": 1,
+                "soundId": "shoot01"
             },
             "next": null
         },
@@ -21,8 +41,8 @@
             "params": {
                 "aim": "fixed",
                 "angle": 90,
-                "speed": 30,
-                "damage": 10,
+                "speed": 18,
+                "damage": 25,
                 "pierceCount": 0,
                 "prefabName": "PBullet01",
                 "color": "8ADEFF",
@@ -37,7 +57,7 @@
             "id": 3,
             "type": "Wait",
             "params": {
-                "seconds": 0.05
+                "seconds": 0.22
             },
             "next": 4
         }
@@ -49,16 +69,20 @@
                 80
             ],
             "2": [
-                170,
-                198
+                224,
+                265
             ],
             "3": [
-                437,
-                194
+                468,
+                187
             ],
             "4": [
                 772,
                 95
+            ],
+            "5": [
+                -37,
+                265
             ]
         },
         "nodeStyles": {},

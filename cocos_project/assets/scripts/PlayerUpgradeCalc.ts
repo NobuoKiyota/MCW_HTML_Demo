@@ -9,6 +9,10 @@ import { IGameManager } from './Constants';
  * 単一の情報源とし、プレビュー側もそこから読み書きする。
  */
 
+// PlayerUpgrade.csvのParamID一覧。UpgradeUI.ts/SideBarUI.tsなど参照する側は全てここからimportし、
+// 個別に配列を複製しない(9パラメータの正式リストはここが唯一の情報源)。
+export const PARAM_IDS = ['HP', 'CP', 'SP', 'AC', 'DF', 'TN', 'CR', 'VOS', 'WOS'];
+
 export const GROWTH_EXPONENTS: { [key: string]: number } = {
     '超早熟': 0.35,
     '早熟': 0.6,

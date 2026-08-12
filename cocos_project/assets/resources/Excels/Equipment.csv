@@ -1,0 +1,7 @@
+ID,Name,Category,ShapeCells,Note
+EQ_WeaponBasic,初期武器,Weapon,00;10;,初期装備の基本武器(2x1)
+EQ_Missile,ミサイル,Weapon,00;01;11;,L字型(1x2+1)
+EQ_PiercingBeam,貫通ビーム,Weapon,00;01;02;,縦一列(1x3)
+EQ_LaserCannon,レーザー砲,Weapon,00;10;01;02;,T字型(1x3+1)
+EQ_ArmorPlate,拡張装甲パーツ,Armor,00;,1x1 装備でHP+10%
+EQ_CoolingSystem,高性能冷却システム,Utility,00;10;01;11;02;12;,2x3 装備で全武器クールタイム-10%

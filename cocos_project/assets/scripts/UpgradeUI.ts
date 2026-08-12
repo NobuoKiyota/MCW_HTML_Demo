@@ -2,13 +2,9 @@ import { _decorator, Component, Node, Label, Button, Color, Graphics, RichText, 
 import { DataManager } from './DataManager';
 import { GameManager } from './GameManager';
 import { SoundManager } from './SoundManager';
-import { getUpgradeStepInfo, computeRefund } from './PlayerUpgradeCalc';
+import { getUpgradeStepInfo, computeRefund, PARAM_IDS } from './PlayerUpgradeCalc';
 
 const { ccclass, property } = _decorator;
-
-// PlayerUpgrade.csvのParamIDと一致させる。Row_<ParamID>という名前の子ノードを探す際の照合リスト
-// (Row_Hp/Row_Cpのように大文字小文字が揃っていない場合があるため、大文字化して比較する)。
-const PARAM_IDS = ['HP', 'CP', 'SP', 'AC', 'DF', 'TN', 'CR', 'VOS', 'WOS'];
 
 // ③Noticeに表示する簡単な英語の効果説明(PlayerUpgrade.csvには持たせず、ここで固定管理する)。
 // 表示枠が狭いため、できるだけ短い語句にする。

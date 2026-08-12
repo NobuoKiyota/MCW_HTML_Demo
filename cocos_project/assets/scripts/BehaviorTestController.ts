@@ -5,6 +5,7 @@ import { GameDatabase } from './GameDatabase';
 import { DataManager } from './DataManager';
 import { Enemy } from './Enemy';
 import { SpawnTableData } from './GameDataTypes';
+import { PlayerWeaponManager } from './PlayerWeaponManager';
 const { ccclass, property } = _decorator;
 
 /**
@@ -28,6 +29,9 @@ export class BehaviorTestController extends Component {
     // Inspectorでの手動割当は不要。IngameプレハブはstartInGame()実行時(=実行時)に生成されるため、
     // 生成後に gameManager.playerNode から自動解決する。
     private playerController: PlayerController = null;
+
+    @property({ type: PlayerWeaponManager, tooltip: "デバッグ用: Group1~6の初期装備武器をInspectorのプルダウンで指定する場合に割り当てる(任意、未割当なら通常通りshotPatternIdの1武器のみ発射)" })
+    public playerWeaponManager: PlayerWeaponManager = null;
 
     @property({ type: Label, tooltip: "選択中のEnemyDataを表示するLabel" })
     public selectedEnemyLabel: Label = null;
@@ -161,6 +165,13 @@ export class BehaviorTestController extends Component {
         }
         if (!this.playerController) {
             console.warn("[BehaviorTestController] Could not resolve PlayerController from gameManager.playerNode.");
+        } else if (this.playerWeaponManager) {
+            // playerControllerが確実に有効になった直後(=Player node生成後)にこの場で直接反映する。
+            // PlayerController側のwaitForShotPattern()は毎リトライ読み直すので順序に厳密な制約は
+            // ないが、コンポーネント間のロード順を推測に頼らずここで同期的に配線する。
+            const ids = this.playerWeaponManager.resolveSelectedShotPatternIds();
+            this.playerController.setExtraShotPatternIds(ids);
+            console.log(`[BehaviorTestController] PlayerWeaponManagerから${ids.length}件の追加ShotPatternIDを反映: [${ids.join(', ')}]`);
         }
 
         this._retryCount = 0;

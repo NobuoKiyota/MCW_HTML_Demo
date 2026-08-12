@@ -1,9 +1,10 @@
 import { _decorator, Component, Node, Label, Color, Sprite, UITransform, Size, Widget, Graphics, LabelOutline, resources, SpriteFrame, Button } from 'cc';
 import { DataManager } from './DataManager';
 import { GameManager } from './GameManager';
-import { GameState, GAME_SETTINGS } from './Constants';
+import { GameState } from './Constants';
 import { UIManager } from './UIManager';
 import { SoundManager } from './SoundManager';
+import { getUpgradeStepInfo } from './PlayerUpgradeCalc';
 
 const { ccclass, property } = _decorator;
 
@@ -64,15 +65,20 @@ export class SideBarUI extends Component {
     // --- Left Panel Elements (Mission & Player) ---
     @property(Label)
     public hpLabel: Label = null;
-    private hpBarNode: Node = null;
+    // Prefab側で手作業レイアウトする場合は、"BarFill"という名前の子ノード(塗りつぶし部分)を
+    // 持つバー背景ノードをここに割り当てる(updateHP()等がgetChildByName("BarFill")で参照する)。
+    @property(Node)
+    public hpBarNode: Node = null;
 
     @property(Label)
     public buffPowerLabel: Label = null;
-    private buffPowerBarNode: Node = null;
+    @property(Node)
+    public buffPowerBarNode: Node = null;
 
     @property(Label)
     public buffRapidLabel: Label = null;
-    private buffRapidBarNode: Node = null;
+    @property(Node)
+    public buffRapidBarNode: Node = null;
 
     @property(Label)
     public missionLabel: Label = null; // DIST: XXXX km
@@ -463,6 +469,18 @@ export class SideBarUI extends Component {
         }
     }
 
+    // PlayerUpgrade.csvの現在Lvにおける実値を取得する(GameDatabase未準備の間は0)。
+    private getUpgradedValue(paramId: string): number {
+        const gm = GameManager.instance;
+        const data = DataManager.instance ? DataManager.instance.data : null;
+        if (!gm || !data) return 0;
+        const shipId = data.currentShipId || 'Default';
+        const shipLevels = data.playerParamLevels[shipId];
+        const currentLv = (shipLevels && shipLevels[paramId]) || 0;
+        const info = getUpgradeStepInfo(paramId, currentLv, gm);
+        return info ? info.currentValue : 0;
+    }
+
     public updateShipInfo() {
         const data = DataManager.instance ? DataManager.instance.data : null;
         if (!data) return;
@@ -478,10 +496,22 @@ export class SideBarUI extends Component {
             this.moneyTitleLabel.string = `CREDITS: ${data.money || 0}`;
         }
 
+        // PlayerUpgrade.csv(HP/CP/SP/AC/DF/TN/CR/VOS/WOS)の現在Lvの実値をそのまま表示する
+        // (以前はGAME_SETTINGS.PLAYERの固定値+data.capacityを見ていたが、Upgrade GUI導入後は
+        // こちらが最新の実値の情報源になる)。CPは積載量としてCargo表示にも使う。
+        const cp = this.getUpgradedValue('CP');
         if (this.shipStatsLabel) {
-            const maxHp = data.maxHp || 100;
-            const ship = GAME_SETTINGS.PLAYER as any;
-            this.shipStatsLabel.string = `MAX HP: ${maxHp}\nACCEL: ${ship.ACCEL || 100}\nSPEED: ${ship.SPEED || 550}\nFRICTION: 0.98\nLERP: 0.1\nCAPACITY: ${data.capacity || 50}`;
+            const hp = this.getUpgradedValue('HP');
+            const sp = this.getUpgradedValue('SP');
+            const ac = this.getUpgradedValue('AC');
+            const df = this.getUpgradedValue('DF');
+            const tn = this.getUpgradedValue('TN');
+            const cr = this.getUpgradedValue('CR');
+            const vos = this.getUpgradedValue('VOS');
+            const wos = this.getUpgradedValue('WOS');
+            this.shipStatsLabel.string =
+                `HP: ${hp.toFixed(0)}\nSP: ${sp.toFixed(0)}\nAC: ${ac.toFixed(0)}\nDF: ${df.toFixed(1)}\n` +
+                `TN: ${tn.toFixed(0)}\nCR: ${cr.toFixed(0)}\nVOS: ${vos.toFixed(0)}%\nWOS: ${wos.toFixed(0)}%`;
         }
 
         if (this.cargoLabel) {
@@ -490,7 +520,7 @@ export class SideBarUI extends Component {
             } else {
                 const gm = GameManager.instance;
                 const currentCargo = gm && gm.currentMission ? gm.currentMission.cargoWeight : 0;
-                this.cargoLabel.string = `CARGO: ${currentCargo} / ${data.capacity || 50}`;
+                this.cargoLabel.string = `CARGO: ${currentCargo} / ${cp.toFixed(0)}`;
             }
         }
 

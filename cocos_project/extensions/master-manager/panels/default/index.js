@@ -7,6 +7,8 @@ const CSV_FILES = [
     { label: 'SpawnTableManager', file: 'SpawnTables.csv' },
     { label: 'MissionDifficultyManager', file: 'MissionDifficulty.csv' },
     { label: 'PlayerUpgradeManager', file: 'PlayerUpgrade.csv' },
+    { label: 'EquipmentManager', file: 'Equipment.csv' },
+    { label: 'WeaponManager', file: 'Weapons.csv' },
     { label: 'DropTableIDManager', file: 'DropTables.csv' },
     { label: 'ItemManager', file: 'Items.csv' },
     { label: 'Behaviors', file: 'Behaviors.csv' },
@@ -62,6 +64,18 @@ const SCHEMA = {
         GrowthType: { fixedList: ['超早熟', '早熟', '標準', '晩成', '超晩成'], isSelect: true },
         // fixedListはincludeNoneを見ないので(file参照型のみ対応)、空欄選択肢は明示的にNoneを含める。
         MaterialCategory: { fixedList: ['None', '装甲強化パーツ', '高性能エンジンパーツ', '電脳強化パーツ'], isSelect: true },
+    },
+    'Equipment.csv': {
+        Category: { fixedList: ['Weapon', 'Armor', 'Utility'], isSelect: true },
+    },
+    'Weapons.csv': {
+        ShotPatternID: { file: 'ShotPatterns.csv', column: 'ID', isSelect: true },
+        Type: { fixedList: ['Fire', 'Wide', 'Missile', 'Laser', 'Wave', 'Circle'], isSelect: true },
+        Penetrate: { fixedList: ['0', '1'], isSelect: true },
+        IsHoming: { fixedList: ['0', '1'], isSelect: true },
+        // GrowthTypeはPlayerUpgrade.csvと同じ5種、値もPLAYER_UPGRADE_GROWTH_EXPONENTSのキーと一致させる
+        // (WeaponManagerのLv別プレビューがそのままこのテーブルを流用する)。
+        GrowthType: { fixedList: ['超早熟', '早熟', '標準', '晩成', '超晩成'], isSelect: true },
     },
 };
 
@@ -622,12 +636,6 @@ function renderPlayerUpgradePreview(panel) {
     if (!wrap) return;
     wrap.innerHTML = '';
 
-    const closeBtn = document.createElement('button');
-    closeBtn.textContent = '✕ プレビューを閉じる';
-    closeBtn.style.cssText = 'margin-bottom: 8px; background: #333; color: #ccc; border: 1px solid #444; border-radius: 4px; padding: 2px 8px; cursor: pointer;';
-    closeBtn.addEventListener('click', () => { wrap.style.display = 'none'; });
-    wrap.appendChild(closeBtn);
-
     const idIdx = headers.indexOf('ParamID');
     const labelIdx = headers.indexOf('Label');
     const minIdx = headers.indexOf('MinValue');
@@ -736,6 +744,231 @@ function renderPlayerUpgradePreview(panel) {
         table.appendChild(tbody);
         wrap.appendChild(table);
     });
+}
+
+// --- WeaponManager: Lv別プレビュー計算式(表示専用、保存はしない) ---
+// PlayerUpgradeCalc.computeUpgradeCurveのvalue部分(=PLAYER_UPGRADE_GROWTH_EXPONENTSを使った
+// progress^G補間)と同じ式を使うが、1武器につきSP/Dmg/Scale/WT/Countの複数ステータスを同時に
+// 同じLv進行度で動かす点が異なる(assets/scripts/WeaponCalc.tsの実行時計算式と完全に一致させること)。
+// Min===Maxの列は成長しない(常に固定値)として扱う - 多くの武器のCount列がこれに該当する。
+function lerpWeaponStat(min, max, growthType, lv, maxLv) {
+    if (min === max) return min;
+    const g = PLAYER_UPGRADE_GROWTH_EXPONENTS[growthType] !== undefined ? PLAYER_UPGRADE_GROWTH_EXPONENTS[growthType] : 1.0;
+    const lvCount = Math.max(1, Math.floor(maxLv) || 1);
+    const progress = Math.max(0, Math.min(1, lv / lvCount));
+    return min + (max - min) * Math.pow(progress, g);
+}
+
+// MaxLvが増えるとLv0~MaxLvの行数が武器ごとに膨らむため(将来1000行超もあり得る)、
+// EquipmentManagerの形状エディタと同じくプルダウンで選んだ1武器分だけを描画する。
+let wpnPreviewSelectedIndex = 0;
+
+// Weapons.csvの現在の(未保存分も含む)行内容から、選択中の1武器のLv0~MaxLvの
+// SP/Dmg/Scale/WT/Countテーブルを計算して.wpn-preview-wrapへ描画する。保存前の値でも即確認できる。
+function renderWeaponPreview(panel) {
+    const wrap = panel.$.wpnPreviewWrap;
+    if (!wrap) return;
+    wrap.innerHTML = '';
+
+    if (rows.length === 0) {
+        wrap.textContent = '(no rows)';
+        return;
+    }
+
+    const idIdx = headers.indexOf('ID');
+    const nameIdx = headers.indexOf('Name');
+    const growthIdx = headers.indexOf('GrowthType');
+    const maxLvIdx = headers.indexOf('MaxLv');
+    const countMinIdx = headers.indexOf('CountMin');
+    const countMaxIdx = headers.indexOf('CountMax');
+    const spMinIdx = headers.indexOf('SPMin');
+    const spMaxIdx = headers.indexOf('SPMax');
+    const dmgMinIdx = headers.indexOf('DmgMin');
+    const dmgMaxIdx = headers.indexOf('DmgMax');
+    const scaleMinIdx = headers.indexOf('ScaleMin');
+    const scaleMaxIdx = headers.indexOf('ScaleMax');
+    const wtMinIdx = headers.indexOf('WTMin');
+    const wtMaxIdx = headers.indexOf('WTMax');
+
+    if (idIdx < 0 || spMinIdx < 0 || spMaxIdx < 0) {
+        wrap.textContent = '(Weapons.csvの列が見つかりません。ID/SPMin/SPMax列を確認してください)';
+        return;
+    }
+
+    if (wpnPreviewSelectedIndex >= rows.length) wpnPreviewSelectedIndex = 0;
+
+    const controls = document.createElement('div');
+    controls.className = 'eq-shape-controls';
+    const label = document.createElement('span');
+    label.textContent = '対象武器:';
+    const select = document.createElement('select');
+    rows.forEach((row, i) => {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        const idVal = row[idIdx] || '(no id)';
+        const nameVal = nameIdx >= 0 ? row[nameIdx] : '';
+        opt.textContent = `${idVal}${nameVal ? ' (' + nameVal + ')' : ''}`;
+        if (i === wpnPreviewSelectedIndex) opt.selected = true;
+        select.appendChild(opt);
+    });
+    select.addEventListener('change', () => {
+        wpnPreviewSelectedIndex = parseInt(select.value, 10) || 0;
+        renderWeaponPreview(panel);
+    });
+    controls.appendChild(label);
+    controls.appendChild(select);
+    wrap.appendChild(controls);
+
+    const row = rows[wpnPreviewSelectedIndex];
+    const id = row[idIdx] || '';
+    const name = nameIdx >= 0 ? row[nameIdx] : '';
+    const growthType = growthIdx >= 0 ? (row[growthIdx] || '標準') : '標準';
+    const maxLv = maxLvIdx >= 0 ? (parseInt(row[maxLvIdx], 10) || 10) : 10;
+    const countMin = countMinIdx >= 0 ? (parseFloat(row[countMinIdx]) || 1) : 1;
+    const countMax = countMaxIdx >= 0 ? (parseFloat(row[countMaxIdx]) || 1) : 1;
+    const spMin = parseFloat(row[spMinIdx]) || 0;
+    const spMax = parseFloat(row[spMaxIdx]) || 0;
+    const dmgMin = dmgMinIdx >= 0 ? (parseFloat(row[dmgMinIdx]) || 0) : 0;
+    const dmgMax = dmgMaxIdx >= 0 ? (parseFloat(row[dmgMaxIdx]) || 0) : 0;
+    const scaleMin = scaleMinIdx >= 0 ? (parseFloat(row[scaleMinIdx]) || 1) : 1;
+    const scaleMax = scaleMaxIdx >= 0 ? (parseFloat(row[scaleMaxIdx]) || 1) : 1;
+    const wtMin = wtMinIdx >= 0 ? (parseFloat(row[wtMinIdx]) || 0) : 0;
+    const wtMax = wtMaxIdx >= 0 ? (parseFloat(row[wtMaxIdx]) || 0) : 0;
+
+    const table = document.createElement('table');
+    table.className = 'pu-preview-table';
+
+    const caption = document.createElement('caption');
+    caption.textContent = `${id}${name ? ' (' + name + ')' : ''} - ${growthType} / Lv0~${maxLv}`;
+    table.appendChild(caption);
+
+    const thead = document.createElement('thead');
+    const headTr = document.createElement('tr');
+    ['Lv', 'Count', 'SP', 'Dmg', 'Scale', 'WT'].forEach(h => {
+        const th = document.createElement('th');
+        th.textContent = h;
+        headTr.appendChild(th);
+    });
+    thead.appendChild(headTr);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    for (let lv = 0; lv <= maxLv; lv++) {
+        const tr = document.createElement('tr');
+        const tdLv = document.createElement('td'); tdLv.textContent = String(lv);
+        const tdCount = document.createElement('td'); tdCount.textContent = String(Math.round(lerpWeaponStat(countMin, countMax, growthType, lv, maxLv)));
+        const tdSp = document.createElement('td'); tdSp.textContent = lerpWeaponStat(spMin, spMax, growthType, lv, maxLv).toFixed(2);
+        const tdDmg = document.createElement('td'); tdDmg.textContent = lerpWeaponStat(dmgMin, dmgMax, growthType, lv, maxLv).toFixed(2);
+        const tdScale = document.createElement('td'); tdScale.textContent = lerpWeaponStat(scaleMin, scaleMax, growthType, lv, maxLv).toFixed(2);
+        const tdWt = document.createElement('td'); tdWt.textContent = lerpWeaponStat(wtMin, wtMax, growthType, lv, maxLv).toFixed(3);
+        tr.appendChild(tdLv); tr.appendChild(tdCount); tr.appendChild(tdSp); tr.appendChild(tdDmg); tr.appendChild(tdScale); tr.appendChild(tdWt);
+        tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+}
+
+// --- EquipmentManager: 形状エディタ(8x8クリックグリッド、表示専用ではなく直接rowsを編集する) ---
+let eqShapeSelectedIndex = 0;
+
+// "xy;xy;...;" 形式(x,yは各1桁、末尾に必ず;を付ける)⇔Set<string>の相互変換。
+// カンマを使わないのはMaster ManagerパネルのCSV読み書きがダブルクォート内カンマに未対応のため。
+// 末尾に;を付けるのは、単一セル("00"等)がCSVHelper側で数値と誤認識されるのを防ぐため
+// (GameDatabase.tsのparseShapeCells()コメント参照 - 両者は同じ規約で一致させる必要がある)。
+function parseShapeCellsJS(text) {
+    const set = new Set();
+    if (!text) return set;
+    String(text).split(';').forEach(s => {
+        s = s.trim();
+        if (s.length === 2) set.add(s);
+    });
+    return set;
+}
+
+function serializeShapeCellsJS(set) {
+    const arr = Array.from(set);
+    if (arr.length === 0) return '';
+    return arr.join(';') + ';';
+}
+
+function renderEquipmentShapeEditor(panel) {
+    const wrap = panel.$.eqShapeWrap;
+    if (!wrap) return;
+    wrap.innerHTML = '';
+
+    if (rows.length === 0) {
+        wrap.textContent = '(no rows)';
+        return;
+    }
+
+    const idIdx = headers.indexOf('ID');
+    const nameIdx = headers.indexOf('Name');
+    const shapeIdx = headers.indexOf('ShapeCells');
+    if (idIdx < 0 || shapeIdx < 0) {
+        wrap.textContent = '(Equipment.csvのID/ShapeCells列が見つかりません)';
+        return;
+    }
+
+    if (eqShapeSelectedIndex >= rows.length) eqShapeSelectedIndex = 0;
+
+    const controls = document.createElement('div');
+    controls.className = 'eq-shape-controls';
+    const label = document.createElement('span');
+    label.textContent = '編集対象:';
+    const select = document.createElement('select');
+    rows.forEach((row, i) => {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        const idVal = row[idIdx] || '(no id)';
+        const nameVal = nameIdx >= 0 ? row[nameIdx] : '';
+        opt.textContent = `${idVal}${nameVal ? ' (' + nameVal + ')' : ''}`;
+        if (i === eqShapeSelectedIndex) opt.selected = true;
+        select.appendChild(opt);
+    });
+    select.addEventListener('change', () => {
+        eqShapeSelectedIndex = parseInt(select.value, 10) || 0;
+        renderEquipmentShapeEditor(panel);
+    });
+    const clearBtn = document.createElement('button');
+    clearBtn.textContent = '全消去';
+    clearBtn.addEventListener('click', () => {
+        rows[eqShapeSelectedIndex][shapeIdx] = '';
+        dirty = true;
+        setStatus(panel, 'Unsaved changes.', false);
+        renderEquipmentShapeEditor(panel);
+    });
+    controls.appendChild(label);
+    controls.appendChild(select);
+    controls.appendChild(clearBtn);
+    wrap.appendChild(controls);
+
+    const currentSet = parseShapeCellsJS(rows[eqShapeSelectedIndex][shapeIdx]);
+
+    const grid = document.createElement('div');
+    grid.className = 'eq-shape-grid';
+    for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+            const key = `${x}${y}`;
+            const cell = document.createElement('div');
+            cell.className = 'eq-shape-cell' + (currentSet.has(key) ? ' filled' : '') + (x === 0 && y === 0 ? ' origin' : '');
+            cell.title = `(${x},${y})`;
+            cell.addEventListener('click', () => {
+                if (currentSet.has(key)) currentSet.delete(key);
+                else currentSet.add(key);
+                rows[eqShapeSelectedIndex][shapeIdx] = serializeShapeCellsJS(currentSet);
+                dirty = true;
+                setStatus(panel, 'Unsaved changes.', false);
+                renderEquipmentShapeEditor(panel);
+            });
+            grid.appendChild(cell);
+        }
+    }
+    wrap.appendChild(grid);
+
+    const info = document.createElement('div');
+    info.style.cssText = 'margin-top: 6px; color: #888; font-size: 11px;';
+    info.textContent = `セル数: ${currentSet.size} / 黄色の枠 = 原点(0,0)`;
+    wrap.appendChild(info);
 }
 
 // CSVテーブル部分のみを再描画する(タブバーはrenderTabBarが別途担当)。
@@ -2089,6 +2322,22 @@ async function switchToCsv(panel, file) {
     const isPlayerUpgrade = file === 'PlayerUpgrade.csv';
     if (panel.$.puPreviewBtn) panel.$.puPreviewBtn.style.display = isPlayerUpgrade ? '' : 'none';
     if (panel.$.puPreviewWrap) panel.$.puPreviewWrap.style.display = 'none';
+
+    // 形状エディタはEquipment.csv専用。
+    const isEquipment = file === 'Equipment.csv';
+    if (panel.$.eqShapeBtn) panel.$.eqShapeBtn.style.display = isEquipment ? '' : 'none';
+    if (panel.$.eqShapeWrap) panel.$.eqShapeWrap.style.display = 'none';
+    eqShapeSelectedIndex = 0;
+
+    // Lv別プレビューはWeapons.csv専用。
+    const isWeapon = file === 'Weapons.csv';
+    if (panel.$.wpnPreviewBtn) panel.$.wpnPreviewBtn.style.display = isWeapon ? '' : 'none';
+    if (panel.$.wpnPreviewWrap) panel.$.wpnPreviewWrap.style.display = 'none';
+    wpnPreviewSelectedIndex = 0;
+
+    // プレビュー系(pu/wpn)共通の「閉じる」ボタン。フッターのボタン群に常設し、
+    // どちらかのプレビューが開いている間だけ表示する。
+    if (panel.$.previewCloseBtn) panel.$.previewCloseBtn.style.display = 'none';
 }
 
 async function switchToGraph(panel, domain) {
@@ -2656,12 +2905,18 @@ module.exports = Editor.Panel.define({
                     <div class="table-wrap"></div>
                 </div>
                 <div class="pu-preview-wrap" style="display: none;"></div>
+                <div class="eq-shape-wrap" style="display: none;"></div>
+                <div class="wpn-preview-wrap pu-preview-wrap" style="display: none;"></div>
                 <div class="mm-footer">
                     <div class="footer-buttons">
                         <button class="btn-refresh">🔄 Refresh</button>
                         <button class="btn-add-row">➕ Add Row</button>
                         <button class="btn-save">💾 Save</button>
+                        <button class="btn-open-csv-path">📂 Open CSV Path</button>
                         <button class="pu-btn-preview" style="display: none;">🧮 Lv別プレビュー</button>
+                        <button class="eq-btn-shape" style="display: none;">🎨 形状エディタ</button>
+                        <button class="wpn-btn-preview" style="display: none;">🧮 Lv別プレビュー</button>
+                        <button class="preview-btn-close" style="display: none;">✕ プレビューを閉じる</button>
                     </div>
                 </div>
             </div>
@@ -2812,6 +3067,32 @@ module.exports = Editor.Panel.define({
         .pu-preview-table th { background: #2a2a2a; color: #8fd68f; position: sticky; top: 0; }
         .pu-preview-table td:first-child, .pu-preview-table th:first-child { text-align: left; color: #ccc; }
         .pu-preview-table caption { text-align: left; color: #fff; font-weight: bold; padding: 4px 0; caption-side: top; }
+
+        /* --- EquipmentManager: 形状エディタ(8x8クリックグリッド) --- */
+        .eq-shape-wrap {
+            max-height: 55%;
+            overflow: auto;
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 8px;
+        }
+        .eq-shape-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: #ccc; font-size: 12px; }
+        .eq-shape-grid {
+            display: grid;
+            grid-template-columns: repeat(8, 32px);
+            grid-template-rows: repeat(8, 32px);
+            gap: 2px;
+            width: fit-content;
+        }
+        .eq-shape-cell {
+            width: 32px; height: 32px;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            cursor: pointer;
+        }
+        .eq-shape-cell.filled { background: #61afef; border-color: #8fd6ff; }
+        .eq-shape-cell.origin { outline: 2px solid #ffd700; outline-offset: -2px; }
         table {
             border-collapse: collapse;
             width: 100%;
@@ -2828,6 +3109,7 @@ module.exports = Editor.Panel.define({
             background: #2a2a2a;
             position: sticky;
             top: 0;
+            z-index: 10;
             box-sizing: border-box;
         }
         .th-label { display: inline-block; overflow: hidden; text-overflow: ellipsis; max-width: 100%; vertical-align: middle; }
@@ -3081,8 +3363,14 @@ module.exports = Editor.Panel.define({
         refreshBtn: '.btn-refresh',
         addRowBtn: '.btn-add-row',
         saveBtn: '.btn-save',
+        openCsvPathBtn: '.btn-open-csv-path',
         puPreviewBtn: '.pu-btn-preview',
         puPreviewWrap: '.pu-preview-wrap',
+        eqShapeBtn: '.eq-btn-shape',
+        eqShapeWrap: '.eq-shape-wrap',
+        wpnPreviewBtn: '.wpn-btn-preview',
+        wpnPreviewWrap: '.wpn-preview-wrap',
+        previewCloseBtn: '.preview-btn-close',
 
         smView: '.sm-view',
         smTableWrap: '.sm-table-wrap',
@@ -3145,13 +3433,46 @@ module.exports = Editor.Panel.define({
             renderTable(this);
         });
         this.$.saveBtn.addEventListener('click', () => saveFile(this));
+        if (this.$.openCsvPathBtn) {
+            this.$.openCsvPathBtn.addEventListener('click', () => {
+                if (currentFile) Editor.Message.request('master-manager', 'reveal-csv', currentFile);
+            });
+        }
         if (this.$.puPreviewBtn) {
             this.$.puPreviewBtn.addEventListener('click', () => {
                 // トグル(開いている時に押すと閉じる)だと、テーブルの値を編集した後の再計算が
                 // 「一度閉じてもう一度開く」という分かりにくい操作になってしまうため、常に
-                // 最新のrows内容で再計算して表示する動作にする。閉じるのはプレビュー内の✕ボタンから。
+                // 最新のrows内容で再計算して表示する動作にする。閉じるのはフッターの✕ボタンから。
                 renderPlayerUpgradePreview(this);
                 this.$.puPreviewWrap.style.display = 'block';
+                if (this.$.previewCloseBtn) this.$.previewCloseBtn.style.display = '';
+            });
+        }
+        if (this.$.eqShapeBtn) {
+            this.$.eqShapeBtn.addEventListener('click', () => {
+                const wrap = this.$.eqShapeWrap;
+                const isHidden = wrap.style.display === 'none';
+                if (isHidden) {
+                    renderEquipmentShapeEditor(this);
+                    wrap.style.display = 'block';
+                } else {
+                    wrap.style.display = 'none';
+                }
+            });
+        }
+        if (this.$.wpnPreviewBtn) {
+            this.$.wpnPreviewBtn.addEventListener('click', () => {
+                // PlayerUpgradeManagerと同じく常に最新のrows内容で再計算して表示する(トグルにしない)。
+                renderWeaponPreview(this);
+                this.$.wpnPreviewWrap.style.display = 'block';
+                if (this.$.previewCloseBtn) this.$.previewCloseBtn.style.display = '';
+            });
+        }
+        if (this.$.previewCloseBtn) {
+            this.$.previewCloseBtn.addEventListener('click', () => {
+                if (this.$.puPreviewWrap) this.$.puPreviewWrap.style.display = 'none';
+                if (this.$.wpnPreviewWrap) this.$.wpnPreviewWrap.style.display = 'none';
+                this.$.previewCloseBtn.style.display = 'none';
             });
         }
 

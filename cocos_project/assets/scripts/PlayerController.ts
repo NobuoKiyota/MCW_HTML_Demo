@@ -38,6 +38,17 @@ export class PlayerController extends Component {
     @property({ tooltip: "使用する発射パターンID (ShotPatterns.csv/Master ManagerのShot Patternタブで編集)" })
     public shotPatternId: string = "SP_PLAYER_BASIC";
 
+    // PlayerWeaponManager(デバッグ用、scene-BehaviorTest等)が同時発射させたい追加の発射パターンID
+    // (Weapons.csvのShotPatternID)を注入するための配列。@propertyではない(Inspectorで直接編集する
+    // ものではなく、BehaviorTestController.beginTest()等がコード経由でsetExtraShotPatternIds()を
+    // 呼んで設定する想定)。waitForShotPattern()は毎リトライでこの配列を読み直すので、
+    // shotPatternIdの解決より後に設定されても(リトライ上限内であれば)拾える。
+    public extraShotPatternIds: string[] = [];
+
+    public setExtraShotPatternIds(ids: string[]) {
+        this.extraShotPatternIds = ids;
+    }
+
     // Speed Zone Params
     @property({ type: Enum({ STEP: 0, LINEAR: 1, SMOOTH: 2, EXP: 3 }), tooltip: "Speed Curve Type based on Y-Pos" })
     public speedCurveType: number = 0; // Default STEP
@@ -91,9 +102,13 @@ export class PlayerController extends Component {
     private targetPos: Vec3 = new Vec3();
     private currentPos: Vec3 = new Vec3();
 
-    // Shot Pattern ランタイム。GameDatabase.isReady + 該当パターンのグラフJSONロード完了を
+    // Shot Pattern ランタイム。GameDatabase.isReady + 各パターンのグラフJSONロード完了を
     // 待ってから構築する(上限付きリトライ、BehaviorTestController.tsと同じパターン)。
-    private _shotRuntime: ShotRuntime | null = null;
+    // shotPatternId(既定装備)に加えextraShotPatternIds(PlayerWeaponManager等が注入する追加装備)
+    // ぶんも同時に発射させるため、単一ではなく配列で保持する。
+    private _shotRuntimes: ShotRuntime[] = [];
+    private _resolvedPatternIds: Set<string> = new Set();
+    private _failedPatternIds: Set<string> = new Set();
     private _shotRuntimeRetryCount: number = 0;
     private static readonly SHOT_RUNTIME_MAX_RETRY = 300;
 
@@ -171,36 +186,54 @@ export class PlayerController extends Component {
         }
 
         this._shotRuntimeRetryCount = 0;
+        this._shotRuntimes = [];
+        this._resolvedPatternIds.clear();
+        this._failedPatternIds.clear();
         this.waitForShotPattern();
     }
 
-    // GameDatabase.isReady かつ該当ShotPatternのグラフJSON非同期ロードが終わるまで待ってから
+    // GameDatabase.isReady かつ各ShotPatternのグラフJSON非同期ロードが終わるまで待ってから
     // ShotRuntimeを構築する(BehaviorTestController.tsのwaitForDatabase()と同じ上限付きリトライ)。
+    // shotPatternId(既定装備)+extraShotPatternIds(追加装備、None/空は除外)をまとめて対象にし、
+    // 1つでも見つからない/読み込みきれないIDがあっても他のIDの発射は止めない。
     private waitForShotPattern() {
         const db = GameDatabase.instance;
+        const targetIds = Array.from(new Set([this.shotPatternId, ...this.extraShotPatternIds].filter(id => id && id !== "None")));
+
         if (db && db.isReady) {
-            const patternData = db.getShotPatternData(this.shotPatternId);
-            if (patternData && patternData._graph) {
-                this._shotRuntime = new ShotRuntime(patternData._graph, this._gm, this.node, false);
-                this._shotRuntime.getSpeedMult = () => 1.0;
-                this._shotRuntime.getDamageMult = () => Math.max(0.1, this.damageMultiplier - this.cargoDamagePenalty);
-                this._shotRuntime.getIntervalMult = () => this.fireRateMultiplier;
-                console.log(`[PlayerController] ShotRuntime ready for pattern '${this.shotPatternId}'.`);
-                return;
+            for (const id of targetIds) {
+                if (this._resolvedPatternIds.has(id) || this._failedPatternIds.has(id)) continue;
+
+                const patternData = db.getShotPatternData(id);
+                if (!patternData) {
+                    // dbはready(ShotPatterns.csvを読み終えている)なのにこのIDが1件も無い
+                    // = Shot Patternエディタでリネーム/削除された、またはタイプミス。
+                    // 何度リトライしても絶対に見つからないので、30秒待たせず即座にエラーを出して諦める
+                    // (このIDだけ諦めて他のIDのリトライは続ける)。
+                    console.error(`[PlayerController] ShotPattern '${id}' が ShotPatterns.csv に存在しません(リネーム/タイプミスの可能性)。この武器は発射されません。`);
+                    this._failedPatternIds.add(id);
+                    continue;
+                }
+                if (!patternData._graph) continue; // _graph(JSON)の非同期ロードがまだ終わっていない。リトライで待つ。
+
+                const runtime = new ShotRuntime(patternData._graph, this._gm, this.node, false);
+                runtime.getSpeedMult = () => 1.0;
+                runtime.getDamageMult = () => Math.max(0.1, this.damageMultiplier - this.cargoDamagePenalty);
+                runtime.getIntervalMult = () => this.fireRateMultiplier;
+                this._shotRuntimes.push(runtime);
+                this._resolvedPatternIds.add(id);
+                console.log(`[PlayerController] ShotRuntime ready for pattern '${id}'.`);
             }
-            if (!patternData) {
-                // dbはready(ShotPatterns.csvを読み終えている)なのにこのIDが1件も無い
-                // = Shot Patternエディタでリネーム/削除された、またはタイプミス。
-                // 何度リトライしても絶対に見つからないので、30秒待たせず即座にエラーを出して諦める。
-                console.error(`[PlayerController] ShotPattern '${this.shotPatternId}' が ShotPatterns.csv に存在しません(リネーム/タイプミスの可能性)。PlayerControllerのshotPatternIdプロパティを確認してください。Player will not fire.`);
-                return;
-            }
-            // patternDataは見つかっているが_graph(JSON)の非同期ロードがまだ終わっていない。リトライで待つ。
+
+            if (targetIds.every(id => this._resolvedPatternIds.has(id) || this._failedPatternIds.has(id))) return;
         }
 
         this._shotRuntimeRetryCount++;
         if (this._shotRuntimeRetryCount > PlayerController.SHOT_RUNTIME_MAX_RETRY) {
-            console.error(`[PlayerController] ShotPattern '${this.shotPatternId}' の読み込みが ${PlayerController.SHOT_RUNTIME_MAX_RETRY} 回のリトライ後も完了しませんでした。諦めます(Player will not fire)。`);
+            const pending = targetIds.filter(id => !this._resolvedPatternIds.has(id) && !this._failedPatternIds.has(id));
+            if (pending.length > 0) {
+                console.error(`[PlayerController] ShotPattern [${pending.join(', ')}] の読み込みが ${PlayerController.SHOT_RUNTIME_MAX_RETRY} 回のリトライ後も完了しませんでした。諦めます。`);
+            }
             return;
         }
         this.scheduleOnce(() => this.waitForShotPattern(), 0.1);
@@ -355,9 +388,10 @@ export class PlayerController extends Component {
             this.speed = math.lerp(this.speed, targetMax, 0.05);
         }
 
-        // 3. Shooting: ShotRuntime(発射パターングラフ)に一任する。
-        if (this._shotRuntime) {
-            this._shotRuntime.tick(deltaTime, this.hp, this.maxHp);
+        // 3. Shooting: ShotRuntime(発射パターングラフ)に一任する。装備数ぶん(通常1、
+        // PlayerWeaponManager経由の追加装備があればそれ以上)、それぞれ独立にtickする。
+        for (const runtime of this._shotRuntimes) {
+            runtime.tick(deltaTime, this.hp, this.maxHp);
         }
 
         // Manual orbit logic removed, now handled by BuffVisualEffect component

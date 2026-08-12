@@ -1,5 +1,5 @@
 import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab, resources, director, JsonAsset } from 'cc';
-import { EnemyData, BehaviorData, ShotPatternData, DropData, SoundData, BehaviorGraph, ShotGraph, ItemData, DropTableData, SpawnTableData, MissionDifficultyData, PlayerUpgradeParamData } from './GameDataTypes';
+import { EnemyData, BehaviorData, ShotPatternData, DropData, SoundData, BehaviorGraph, ShotGraph, ItemData, DropTableData, SpawnTableData, MissionDifficultyData, PlayerUpgradeParamData, EquipmentData, WeaponData } from './GameDataTypes';
 import { CSVHelper } from './CSVHelper';
 import { SoundManager } from './SoundManager';
 import { IMissionData } from './Constants'; // New
@@ -32,6 +32,8 @@ export class GameDatabase extends Component {
     public spawnTables: SpawnTableData[] = [];
     public missionDifficulties: MissionDifficultyData[] = [];
     public playerUpgradeParams: PlayerUpgradeParamData[] = [];
+    public equipment: EquipmentData[] = [];
+    public weapons: WeaponData[] = [];
     public sounds: SoundData[] = [];
     public missions: IMissionData[] = []; // New
 
@@ -62,6 +64,12 @@ export class GameDatabase extends Component {
 
     @property({ type: TextAsset, tooltip: "CSV: PlayerUpgrade" })
     public playerUpgradeCsv: TextAsset = null;
+
+    @property({ type: TextAsset, tooltip: "CSV: Equipment" })
+    public equipmentCsv: TextAsset = null;
+
+    @property({ type: TextAsset, tooltip: "CSV: Weapons" })
+    public weaponCsv: TextAsset = null;
 
     @property({ type: TextAsset, tooltip: "CSV: Sounds" })
     public soundCsv: TextAsset = null;
@@ -138,6 +146,8 @@ export class GameDatabase extends Component {
         this.spawnTables = [];
         this.missionDifficulties = [];
         this.playerUpgradeParams = [];
+        this.equipment = [];
+        this.weapons = [];
         this.sounds = []; // Clear old sounds
         this.enemies = []; // Clear runtime list
         this.missions = []; // Clear mission list
@@ -201,6 +211,24 @@ export class GameDatabase extends Component {
             });
         }
 
+        if (this.equipmentCsv) this.parseEquipmentCSV(this.equipmentCsv.text);
+        else {
+            pendingAsync++;
+            resources.load("Excels/Equipment", TextAsset, (err, asset) => {
+                if (!err && asset) this.parseEquipmentCSV(asset.text);
+                onAsyncCsvDone();
+            });
+        }
+
+        if (this.weaponCsv) this.parseWeaponCSV(this.weaponCsv.text);
+        else {
+            pendingAsync++;
+            resources.load("Excels/Weapons", TextAsset, (err, asset) => {
+                if (!err && asset) this.parseWeaponCSV(asset.text);
+                onAsyncCsvDone();
+            });
+        }
+
         if (this.behaviorCsv) this.parseBehaviorCSV(this.behaviorCsv.text);
         if (this.shotPatternCsv) this.parseShotPatternCSV(this.shotPatternCsv.text);
         if (this.dropCsv) this.parseDropCSV(this.dropCsv.text);
@@ -229,7 +257,7 @@ export class GameDatabase extends Component {
     }
 
     private finishLoadAllCSV() {
-        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.items.length} Items, ${this.dropTables.length} DropTables, ${this.spawnTables.length} SpawnTables, ${this.missionDifficulties.length} MissionDifficulties, ${this.playerUpgradeParams.length} PlayerUpgradeParams, ${this.behaviors.length} Behaviors, ${this.shotPatterns.length} ShotPatterns, ${this.drops.length} Drops, ${this.missions.length} Missions`);
+        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.items.length} Items, ${this.dropTables.length} DropTables, ${this.spawnTables.length} SpawnTables, ${this.missionDifficulties.length} MissionDifficulties, ${this.playerUpgradeParams.length} PlayerUpgradeParams, ${this.equipment.length} Equipment, ${this.weapons.length} Weapons, ${this.behaviors.length} Behaviors, ${this.shotPatterns.length} ShotPatterns, ${this.drops.length} Drops, ${this.missions.length} Missions`);
 
         this.isReady = true;
 
@@ -330,6 +358,63 @@ export class GameDatabase extends Component {
             return p;
         });
         console.log(`[GameDatabase] Loaded ${this.playerUpgradeParams.length} PlayerUpgrade params.`);
+    }
+
+    // ShapeCells文字列("00;10;01"のような、2文字1組(x,y各1桁)を";"区切りで並べた形式)を
+    // {x,y}配列にパースする。カンマを使わないのはMaster Managerパネル側のCSV読み書きが
+    // ダブルクォート内カンマに対応していないため(Equipment.csvの列コメント参照)。
+    private parseShapeCells(text: string): { x: number; y: number }[] {
+        if (!text) return [];
+        return text.split(';')
+            .map(s => s.trim())
+            .filter(s => s.length === 2)
+            .map(s => ({ x: parseInt(s[0], 10), y: parseInt(s[1], 10) }));
+    }
+
+    private parseEquipmentCSV(text: string) {
+        const data = CSVHelper.parse(text);
+        this.equipment = data.map(row => {
+            const e = new EquipmentData();
+            e.id = row.ID;
+            e.name = row.Name || row.ID;
+            e.category = row.Category || "";
+            e.shapeCells = this.parseShapeCells(String(row.ShapeCells || ""));
+            e.note = row.Note || "";
+            return e;
+        });
+        console.log(`[GameDatabase] Loaded ${this.equipment.length} Equipment.`);
+    }
+
+    private parseWeaponCSV(text: string) {
+        const data = CSVHelper.parse(text);
+        this.weapons = data.map(row => {
+            const w = new WeaponData();
+            w.id = row.ID;
+            w.name = row.Name || row.ID;
+            w.shotPatternId = row.ShotPatternID || "";
+            w.group = row.Group !== undefined && row.Group !== "" ? parseInt(row.Group) : 1;
+            w.weight = row.Weight !== undefined && row.Weight !== "" ? parseFloat(row.Weight) : 0;
+            w.starValue = row.StarValue !== undefined && row.StarValue !== "" ? parseInt(row.StarValue) : 1;
+            w.type = row.Type || "Fire";
+            w.penetrate = row.Penetrate !== undefined && row.Penetrate !== "" ? parseInt(row.Penetrate) : 0;
+            w.category = row.Category || "";
+            w.isHoming = row.IsHoming !== undefined && row.IsHoming !== "" ? parseInt(row.IsHoming) : 0;
+            w.countMin = row.CountMin !== undefined && row.CountMin !== "" ? parseInt(row.CountMin) : 1;
+            w.countMax = row.CountMax !== undefined && row.CountMax !== "" ? parseInt(row.CountMax) : 1;
+            w.spMin = row.SPMin !== undefined && row.SPMin !== "" ? parseFloat(row.SPMin) : 0;
+            w.spMax = row.SPMax !== undefined && row.SPMax !== "" ? parseFloat(row.SPMax) : 0;
+            w.dmgMin = row.DmgMin !== undefined && row.DmgMin !== "" ? parseFloat(row.DmgMin) : 0;
+            w.dmgMax = row.DmgMax !== undefined && row.DmgMax !== "" ? parseFloat(row.DmgMax) : 0;
+            w.scaleMin = row.ScaleMin !== undefined && row.ScaleMin !== "" ? parseFloat(row.ScaleMin) : 1;
+            w.scaleMax = row.ScaleMax !== undefined && row.ScaleMax !== "" ? parseFloat(row.ScaleMax) : 1;
+            w.wtMin = row.WTMin !== undefined && row.WTMin !== "" ? parseFloat(row.WTMin) : 0;
+            w.wtMax = row.WTMax !== undefined && row.WTMax !== "" ? parseFloat(row.WTMax) : 0;
+            w.growthType = row.GrowthType || "標準";
+            w.maxLv = row.MaxLv !== undefined && row.MaxLv !== "" ? parseInt(row.MaxLv) : 10;
+            w.note = row.Note || "";
+            return w;
+        });
+        console.log(`[GameDatabase] Loaded ${this.weapons.length} Weapons.`);
     }
 
     private parseBehaviorCSV(text: string) {
@@ -535,6 +620,14 @@ export class GameDatabase extends Component {
 
     public getPlayerUpgradeParam(paramId: string): PlayerUpgradeParamData | null {
         return this.playerUpgradeParams.find(p => p.paramId === paramId) || null;
+    }
+
+    public getEquipmentData(id: string): EquipmentData | null {
+        return this.equipment.find(e => e.id === id) || null;
+    }
+
+    public getWeaponData(id: string): WeaponData | null {
+        return this.weapons.find(w => w.id === id) || null;
     }
 
     /**

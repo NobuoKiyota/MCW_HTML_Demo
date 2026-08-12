@@ -286,6 +286,112 @@ export class PlayerUpgradeParamData {
 }
 
 /**
+ * 装備品の固定形状定義 (assets/resources/Excels/Equipment.csv)
+ * Customize画面のグリッド(最大8x8)に配置する武器/装備のマス形状を、基準セル(0,0)からの
+ * 相対座標リストで持つ。回転は無し(固定向き)。座標は各1桁(0~7)なので、CSV上は
+ * カンマを使わず"xy"を2文字1組として";"区切りで並べる(Master Managerパネル側のCSV
+ * 読み書きがダブルクォート内カンマに対応していないため、カンマは使わない)。
+ * 例: "00;10" = (0,0)と(1,0)の2マス。
+ */
+@ccclass('EquipmentData')
+export class EquipmentData {
+    @property
+    public id: string = "";
+
+    @property
+    public name: string = "";
+
+    @property({ tooltip: "分類: Weapon/Armor/Utility等" })
+    public category: string = "";
+
+    // ShapeCells文字列をパース済みの{x,y}配列。GameDatabase.parseEquipmentCSV()が設定する。
+    public shapeCells: { x: number; y: number }[] = [];
+
+    @property
+    public note: string = "";
+}
+
+/**
+ * 武器マスタデータ (assets/resources/Excels/Weapons.csv)
+ * 装備としてのメタデータ(Weight/StarValue/Group/Category等)＋Lv別成長パラメータを持ち、
+ * ShotPatternIDで実際の発射グラフ(ShotPatternData)と紐付ける。PlayerUpgradeParamDataと同じく
+ * MinValue/MaxValue/GrowthType/MaxLvから各Lvの実値をべき指数カーブで計算する想定だが、
+ * 対象パラメータがSP/Dmg/Scale/WTの4つ(min===maxの列は成長しない扱い)ある点が異なる
+ * (WeaponCalc.ts参照、extensions/master-manager/panels/default/index.jsのプレビュー計算式と一致させること)。
+ */
+@ccclass('WeaponData')
+export class WeaponData {
+    @property
+    public id: string = "";
+
+    @property
+    public name: string = "";
+
+    @property({ tooltip: "発射グラフ(ShotPatternData)のID (assets/resources/Excels/ShotPatterns.csv)" })
+    public shotPatternId: string = "";
+
+    @property({ type: CCInteger, tooltip: "排他グループ(同グループ内は1つしか装備できない、等の将来ルール用)" })
+    public group: number = 1;
+
+    @property({ type: CCFloat, tooltip: "装備コスト(CP消費等)" })
+    public weight: number = 0;
+
+    @property({ type: CCInteger, tooltip: "パラメータ価値(★の数)。ShapeCellsの形状とは非連動" })
+    public starValue: number = 1;
+
+    @property({ tooltip: "攻撃タイプ: Fire/Wide/Missile/Laser/Wave/Circle" })
+    public type: string = "Fire";
+
+    @property({ type: CCInteger, tooltip: "貫通するか(0/1)" })
+    public penetrate: number = 0;
+
+    @property({ tooltip: "武器カテゴリ(将来のグルーピング/表示用の任意ラベル)" })
+    public category: string = "";
+
+    @property({ type: CCInteger, tooltip: "誘導(ホーミング)するか(0/1)" })
+    public isHoming: number = 0;
+
+    @property({ type: CCInteger, tooltip: "Lv1時点の発射数" })
+    public countMin: number = 1;
+
+    @property({ type: CCInteger, tooltip: "MaxLv到達時の発射数" })
+    public countMax: number = 1;
+
+    @property({ type: CCFloat, tooltip: "Lv1時点のSP(発射間隔等)" })
+    public spMin: number = 0;
+
+    @property({ type: CCFloat, tooltip: "MaxLv到達時のSP" })
+    public spMax: number = 0;
+
+    @property({ type: CCFloat, tooltip: "Lv1時点のダメージ" })
+    public dmgMin: number = 0;
+
+    @property({ type: CCFloat, tooltip: "MaxLv到達時のダメージ" })
+    public dmgMax: number = 0;
+
+    @property({ type: CCFloat, tooltip: "Lv1時点のスケール(弾の大きさ/レーザー幅等)" })
+    public scaleMin: number = 1;
+
+    @property({ type: CCFloat, tooltip: "MaxLv到達時のスケール" })
+    public scaleMax: number = 1;
+
+    @property({ type: CCFloat, tooltip: "Lv1時点のWT(装備重量/CP消費等)" })
+    public wtMin: number = 0;
+
+    @property({ type: CCFloat, tooltip: "MaxLv到達時のWT" })
+    public wtMax: number = 0;
+
+    @property({ tooltip: "成長傾向: 超早熟/早熟/標準/晩成/超晩成 (PlayerUpgradeParamDataと同じ対応表)" })
+    public growthType: string = "標準";
+
+    @property({ type: CCInteger, tooltip: "最大レベル" })
+    public maxLv: number = 10;
+
+    @property
+    public note: string = "";
+}
+
+/**
  * ドロップテーブルデータ (旧互換用 DropData)
  */
 @ccclass('DropData')

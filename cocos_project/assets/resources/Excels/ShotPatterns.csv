@@ -13,3 +13,18 @@ SPREAD01,Data/ShotPatterns/SPREAD01,Demo: spread shot (MultiFire
 SPREAD02,Data/ShotPatterns/SPREAD02,5発拡散
 SPREAD03,Data/ShotPatterns/SPREAD03,Copied from SPREAD02
 SPREAD04,Data/ShotPatterns/SPREAD04,Copied from SPREAD02
+P01_BeamGun,Data/ShotPatterns/P01_BeamGun,Copied from SP_PLAYER_BASIC
+P02_WBeamgun,Data/ShotPatterns/P02_WBeamgun,Copied from P01_BeamGun
+P03_3WayBGun,Data/ShotPatterns/P03_3WayBGun,Copied from P02_WBeamgun
+P04_5thShot,Data/ShotPatterns/P04_5thShot,Copied from P03_3WayBGun
+P05_7thShot,Data/ShotPatterns/P05_7thShot,Copied from P04_5thShot
+P06_RapidFire,Data/ShotPatterns/P06_RapidFire,Copied from P05_7thShot
+P07_Over-Stream,Data/ShotPatterns/P07_Over-Stream,
+P08_HeavyShot,Data/ShotPatterns/P08_HeavyShot,Copied from P07_Over-Stream
+P09_Crush-Cores,Data/ShotPatterns/P09_Crush-Cores,Copied from P08_HeavyShot
+P10_SideGun,Data/ShotPatterns/P10_SideGun,Copied from P05_7thShot
+P11_SideCannon,Data/ShotPatterns/P11_SideCannon,Copied from P10_SideGun
+P12_Sovereign,Data/ShotPatterns/P12_Sovereign,Copied from P11_SideCannon
+P13_DiffusionBeam,Data/ShotPatterns/P13_DiffusionBeam,Copied from P09_Crush-Cores
+P14_ScrewBeam,Data/ShotPatterns/P14_ScrewBeam,Copied from P13_DiffusionBeam
+P15_DistortionBeam,Data/ShotPatterns/P15_DistortionBeam,Copied from P14_ScrewBeam

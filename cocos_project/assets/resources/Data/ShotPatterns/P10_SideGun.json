@@ -1,5 +1,5 @@
 {
-    "id": "SP_PLAYER_BASIC",
+    "id": "P10_SideGun",
     "nodes": [
         {
             "id": 4,
@@ -13,7 +13,15 @@
         {
             "id": 1,
             "type": "Start",
-            "next": 2
+            "next": 5
+        },
+        {
+            "id": 3,
+            "type": "Wait",
+            "params": {
+                "seconds": 0.25
+            },
+            "next": 4
         },
         {
             "id": 2,
@@ -21,8 +29,8 @@
             "params": {
                 "aim": "fixed",
                 "angle": 90,
-                "speed": 30,
-                "damage": 10,
+                "speed": 16,
+                "damage": 15,
                 "pierceCount": 0,
                 "prefabName": "PBullet01",
                 "color": "8ADEFF",
@@ -31,15 +39,26 @@
                 "count": 1,
                 "soundId": "shoot01"
             },
-            "next": 3
+            "next": null
         },
         {
-            "id": 3,
-            "type": "Wait",
+            "id": 5,
+            "type": "MultiFire",
             "params": {
-                "seconds": 0.05
+                "aim": "fixed",
+                "angle": 0,
+                "count": 2,
+                "angleSpread": 180,
+                "staggerDelay": 0,
+                "speed": 14,
+                "damage": 8,
+                "pierceCount": 0,
+                "prefabName": "PBullet01",
+                "color": "8ADEFF",
+                "glowIntensity": 1,
+                "scale": 1
             },
-            "next": 4
+            "next": 3
         }
     ],
     "_editor": {
@@ -49,8 +68,8 @@
                 80
             ],
             "2": [
-                170,
-                198
+                -44,
+                372
             ],
             "3": [
                 437,
@@ -59,6 +78,10 @@
             "4": [
                 772,
                 95
+            ],
+            "5": [
+                202,
+                244
             ]
         },
         "nodeStyles": {},

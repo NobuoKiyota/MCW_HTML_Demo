@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { shell } = require('electron');
 
 function getCsvPath(file) {
     // Guard against path traversal since `file` ultimately comes from panel-side UI state.
@@ -103,6 +104,18 @@ module.exports = {
                 return { ok: true };
             } catch (err) {
                 console.error('[MasterManager Extension] saveCsv failed:', err);
+                return { ok: false, error: err.message };
+            }
+        },
+
+        // Called by the panel via Editor.Message.request('master-manager', 'reveal-csv', file).
+        // Opens the OS file explorer with the CSV file selected/highlighted (Explorer on Windows).
+        revealCsv(file) {
+            try {
+                shell.showItemInFolder(getCsvPath(file));
+                return { ok: true };
+            } catch (err) {
+                console.error('[MasterManager Extension] revealCsv failed:', err);
                 return { ok: false, error: err.message };
             }
         },

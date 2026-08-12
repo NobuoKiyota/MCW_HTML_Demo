@@ -1,5 +1,5 @@
 {
-    "id": "SP_PLAYER_BASIC",
+    "id": "P01_BeamGun",
     "nodes": [
         {
             "id": 4,
@@ -21,7 +21,7 @@
             "params": {
                 "aim": "fixed",
                 "angle": 90,
-                "speed": 30,
+                "speed": 16,
                 "damage": 10,
                 "pierceCount": 0,
                 "prefabName": "PBullet01",
@@ -37,7 +37,7 @@
             "id": 3,
             "type": "Wait",
             "params": {
-                "seconds": 0.05
+                "seconds": 0.2
             },
             "next": 4
         }
