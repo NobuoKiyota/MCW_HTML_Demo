@@ -24,31 +24,13 @@
             "next": 4
         },
         {
-            "id": 2,
-            "type": "Fire",
-            "params": {
-                "aim": "fixed",
-                "angle": 90,
-                "speed": 16,
-                "damage": 15,
-                "pierceCount": 0,
-                "prefabName": "PBullet01",
-                "color": "8ADEFF",
-                "glowIntensity": 3,
-                "scale": 1,
-                "count": 1,
-                "soundId": "shoot01"
-            },
-            "next": null
-        },
-        {
             "id": 5,
             "type": "MultiFire",
             "params": {
                 "aim": "fixed",
-                "angle": 0,
-                "count": 2,
-                "angleSpread": 180,
+                "angle": 270,
+                "count": 3,
+                "angleSpread": 120,
                 "staggerDelay": 0,
                 "speed": 14,
                 "damage": 15,
@@ -56,7 +38,11 @@
                 "prefabName": "PBullet01",
                 "color": "8ADEFF",
                 "glowIntensity": 1,
-                "scale": 1
+                "scale": 1,
+                "growScale": 0,
+                "growScaleX": 0,
+                "growScaleY": 0,
+                "soundId": "shoot01"
             },
             "next": 3
         }
@@ -66,10 +52,6 @@
             "1": [
                 40,
                 80
-            ],
-            "2": [
-                -44,
-                372
             ],
             "3": [
                 437,

@@ -68,6 +68,12 @@ export class GameManager extends Component implements IGameManager {
     // 出るくらいなら、起動直後の数発だけ発射をスキップする方がまだ違和感が少ないため)。
     private bulletPrefabsReady: boolean = false;
 
+    // Prefabs/Lasers 配下から名前で引けるレーザービームのPrefabリスト(bulletPrefabsと同じ方式)。
+    // 通常のBullet(飛んでいく弾)とは別物 - LaserBeamコンポーネント付きの、自機に追従し続ける
+    // 持続ビーム用Prefab。ShotRuntime.tsのLaserノードから使う。
+    public laserPrefabs: Prefab[] = [];
+    private laserPrefabsReady: boolean = false;
+
     @property(Prefab)
     public itemPrefab: Prefab = null;
 
@@ -270,6 +276,20 @@ export class GameManager extends Component implements IGameManager {
             this.bulletPrefabs = assets;
             this.bulletPrefabsReady = true;
             console.log(`[GameManager] Loaded ${assets.length} Bullet Prefab variant(s) from resources/Prefabs/Bullets.`);
+        });
+
+        // レーザービーム用Prefab(Prefabs/Lasers)を読み込む。1件も無ければLaserノードは
+        // spawnLaserBeam()側で警告を出すだけに留める(bulletPrefabのような既定フォールバックは無い -
+        // ビジュアルが全く異なるPrefabを間違えて使うより、出さない方がまだ違和感が少ないため)。
+        resources.loadDir("Prefabs/Lasers", Prefab, (err, assets) => {
+            if (err) {
+                console.log("[GameManager] No Prefabs/Lasers folder found (optional) - Laser nodes will not fire until one exists.");
+                this.laserPrefabsReady = true;
+                return;
+            }
+            this.laserPrefabs = assets;
+            this.laserPrefabsReady = true;
+            console.log(`[GameManager] Loaded ${assets.length} Laser Prefab variant(s) from resources/Prefabs/Lasers.`);
         });
 
         // Scene Transition Listeners
@@ -1556,6 +1576,58 @@ export class GameManager extends Component implements IGameManager {
             return bulletComp;
         } else {
             console.error("[GameManager] 'Bullet' component missing on instantiated prefab!");
+            return null;
+        }
+    }
+
+    // prefabNameからPrefabs/Lasers内の該当Prefabを引く。見つからなければnull(spawnBullet()の
+    // getBulletPrefab()と同じ方式だが、既定フォールバックPrefabは持たない)。
+    private getLaserPrefab(name: string): Prefab | null {
+        if (!name) return null;
+        const cleanName = name.replace(".prefab", "");
+        return this.laserPrefabs.find(p => p.data.name === cleanName) || null;
+    }
+
+    // Laser Beam Factory (ShotRuntime.tsのLaserノード用)。通常のBulletと違い、ownerNode
+    // (自機/敵の発射元ノード)の子として生成し、そのまま自機に追従し続ける持続ビームにする。
+    // duration秒後にLaserBeamコンポーネント自身が寿命切れで自己破壊する。
+    public spawnLaserBeam(ownerNode: Node, angle: number, damage: number, damageInterval: number, duration: number, length: number, width: number, isEnemy: boolean, prefabName?: string, particleLengthScale: number = 1.0): any {
+        if (!this.laserPrefabsReady) {
+            console.warn(`[GameManager] spawnLaserBeam: prefabName='${prefabName}' requested but laserPrefabs still loading - skipping this beam.`);
+            return null;
+        }
+        const prefab = this.getLaserPrefab(prefabName);
+        if (!prefab) {
+            console.error(`[GameManager] spawnLaserBeam: Laser Prefab '${prefabName}' not found in Prefabs/Lasers.`);
+            return null;
+        }
+        if (!ownerNode || !ownerNode.isValid) {
+            console.warn("[GameManager] spawnLaserBeam: ownerNode is invalid, skipping.");
+            return null;
+        }
+
+        // LaserBeamをownerNodeの直接の子にすると、Enemy.onBeginContact()の「相手ノードの親に
+        // PlayerControllerが付いていればPlayer本体とみなす」というフォールバック判定に引っかかり、
+        // ビームが敵に触れるたびに接触ダメージ(CDMG)がPlayerへ誤って入ってしまう(実際に報告された
+        // バグ)。何もコンポーネントを持たない中間ノードを1つ挟むことでこれを回避する
+        // (中間ノード自体はownerNodeの子として一緒に動くので追従には影響しない)。
+        const anchor = new Node("LaserBeamAnchor");
+        anchor.parent = ownerNode;
+        anchor.setPosition(0, 0, 0);
+
+        const node = instantiate(prefab);
+        node.parent = anchor;
+        this.forceUILayer(node);
+        node.setPosition(0, 0, 0);
+        node.angle = (angle * 180 / Math.PI) - 90;
+
+        const laserComp = node.getComponent("LaserBeam") as any;
+        if (laserComp) {
+            laserComp.init(damage, damageInterval, duration, length, width, isEnemy, this, particleLengthScale);
+            return laserComp;
+        } else {
+            console.error("[GameManager] 'LaserBeam' component missing on instantiated Laser prefab!");
+            node.destroy();
             return null;
         }
     }

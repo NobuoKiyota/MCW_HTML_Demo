@@ -47,13 +47,19 @@ export interface BehaviorGraph {
 
 /**
  * ショットグラフ内の1ノード (ランタイム用プレーンデータ、@ccclass不要)
- * BehaviorGraphNodeと同型だが、type語彙が発射系(Fire/MultiFire/Missile)になる。
+ * BehaviorGraphNodeと同型だが、type語彙が発射系(Fire/MultiFire/Missile/PMissile/Laser)になる。
  * Start/Wait/Branch/Loop/Random/Reroute/CommentはBehaviorGraphと共通の意味を持つ
  * (エディタ側でも同じLiteGraphノードクラス(behavior/*)をそのまま流用する)。
+ * PMissileは自機後方の左右スラスター(lm/rm)からLRLRL…の順に発射し、放物線状(2次関数)の
+ * 初速アークを描いた後に直進/ホーミングへ移行する専用ノード(ShotRuntime.doPMissilePellet()/
+ * Bullet.applyArc()参照)。
+ * Laserは自機/敵に追従し続ける持続ビームで、duration秒間フローをブロックしながら接触相手に
+ * damageInterval秒おきdamageを与え続ける(ShotRuntime.doLaser()/LaserBeam.ts参照、
+ * Bullet.tsとは別の専用コンポーネントで実装されている)。
  */
 export interface ShotGraphNode {
     id: number;
-    type: "Start" | "Fire" | "MultiFire" | "Missile" | "Wait" | "Branch" | "Loop" | "Random" | "Reroute" | "Comment";
+    type: "Start" | "Fire" | "MultiFire" | "Missile" | "PMissile" | "Laser" | "Wait" | "Branch" | "Loop" | "Random" | "Reroute" | "Comment";
     params?: { [key: string]: any };
     next?: number;
     trueNext?: number;
@@ -357,7 +363,7 @@ export class WeaponData {
     @property({ type: CCInteger, tooltip: "MaxLv到達時の発射数" })
     public countMax: number = 1;
 
-    @property({ type: CCFloat, tooltip: "Lv1時点のSP(発射間隔等)" })
+    @property({ type: CCFloat, tooltip: "Lv1時点のSP(弾速)" })
     public spMin: number = 0;
 
     @property({ type: CCFloat, tooltip: "MaxLv到達時のSP" })
@@ -375,7 +381,7 @@ export class WeaponData {
     @property({ type: CCFloat, tooltip: "MaxLv到達時のスケール" })
     public scaleMax: number = 1;
 
-    @property({ type: CCFloat, tooltip: "Lv1時点のWT(装備重量/CP消費等)" })
+    @property({ type: CCFloat, tooltip: "Lv1時点のWT(発射間隔、秒。Lvが上がるほど小さくなり連射が速くなる想定)" })
     public wtMin: number = 0;
 
     @property({ type: CCFloat, tooltip: "MaxLv到達時のWT" })

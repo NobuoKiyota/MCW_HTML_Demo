@@ -11,55 +11,38 @@
             "next": null
         },
         {
-            "id": 5,
-            "type": "MultiFire",
-            "params": {
-                "aim": "fixed",
-                "angle": 90,
-                "count": 7,
-                "angleSpread": 10,
-                "staggerDelay": 0,
-                "speed": 16,
-                "damage": 14,
-                "pierceCount": 0,
-                "prefabName": "PBullet01",
-                "color": "8ADEFF",
-                "glowIntensity": 1,
-                "scale": 1,
-                "soundId": "shoot01"
-            },
-            "next": null
-        },
-        {
-            "id": 1,
-            "type": "Start",
-            "next": 2
-        },
-        {
-            "id": 2,
-            "type": "Fire",
-            "params": {
-                "aim": "fixed",
-                "angle": 90,
-                "speed": 18,
-                "damage": 15,
-                "pierceCount": 0,
-                "prefabName": "PBullet01",
-                "color": "8ADEFF",
-                "glowIntensity": 3,
-                "scale": 1,
-                "count": 1,
-                "soundId": "shoot01"
-            },
-            "next": 3
-        },
-        {
             "id": 3,
             "type": "Wait",
             "params": {
                 "seconds": 0.26
             },
             "next": 4
+        },
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 6
+        },
+        {
+            "id": 6,
+            "type": "Fire",
+            "params": {
+                "aim": "fixed",
+                "angle": 90,
+                "speed": 18,
+                "damage": 15,
+                "pierceCount": -1,
+                "prefabName": "WaveBeam_Blue",
+                "color": "FFFFFF",
+                "glowIntensity": 0,
+                "scale": 0.05,
+                "growScale": 8,
+                "growScaleX": 10,
+                "growScaleY": 10,
+                "count": 1,
+                "soundId": "SE_WaveBeam"
+            },
+            "next": 3
         }
     ],
     "_editor": {
@@ -67,10 +50,6 @@
             "1": [
                 40,
                 80
-            ],
-            "2": [
-                224,
-                265
             ],
             "3": [
                 468,
@@ -80,9 +59,9 @@
                 772,
                 95
             ],
-            "5": [
-                -37,
-                265
+            "6": [
+                215,
+                229
             ]
         },
         "nodeStyles": {},

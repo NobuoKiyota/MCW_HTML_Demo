@@ -1,8 +1,9 @@
-import { _decorator, Component, Node, Vec3, BoxCollider2D, Contact2DType, Collider2D, IPhysics2DContact, Sprite, Color, find, ParticleSystem2D, gfx, UITransform, tween, MeshRenderer, Material } from 'cc';
+import { _decorator, Component, Node, Vec3, Size, BoxCollider2D, Contact2DType, Collider2D, IPhysics2DContact, Sprite, Color, find, ParticleSystem2D, gfx, UITransform, tween, MeshRenderer, Material } from 'cc';
 // import { Enemy } from './Enemy'; // Cycle
 // import { PlayerController } from './PlayerController'; // Cycle
 // import { GameManager } from './GameManager'; // Cycle
 import { GAME_SETTINGS, IGameManager } from './Constants';
+import { BulletTrailImage } from './BulletTrailImage';
 const { ccclass, property } = _decorator;
 
 @ccclass('Bullet')
@@ -28,6 +29,31 @@ export class Bullet extends Component {
     public target: Node = null;
     public steerForce: number = 0.1; // Radians per frame approx
 
+    // PMissile(ShotRuntime.doPMissilePellet())専用の初速アーク演出。applyArc()が呼ばれた弾だけ
+    // 有効になる(既定は無効、他の全弾には無関係)。発射直後のarcDuration秒間だけ、通常のvelocity
+    // ベース移動を無視して2次関数(_arcCoeffA*x^2 + _arcCoeffB*x + _arcCoeffC、xは発射からの経過に
+    // 応じて0→_arcXRangeへ進む)に沿った位置を直接計算する。アーク終了時に直進(+ホーミング予約が
+    // あればここで初めてisHoming/targetを有効化)へ引き継ぐ。
+    private _arcActive: boolean = false;
+    private _arcElapsed: number = 0;
+    private _arcDuration: number = 0;
+    private _arcCoeffA: number = 0;
+    private _arcCoeffB: number = 0;
+    private _arcCoeffC: number = 0;
+    private _arcXRange: number = 0;
+    private _arcWorldScale: number = 1;
+    private _arcSide: number = 1; // -1=左(lm)、+1=右(rm)。lateral方向(横のオフセット)にのみ使う。
+    // 前後方向の式(forwardDist)はL/Rどちらも同じ符号で計算するので、この値は係数には影響しない
+    // (左右対称に同じだけ後方へ膨らんでから同じ速度で前進する)。
+    private _arcLaunchPos: Vec3 = new Vec3();
+    private _arcForwardAxis: Vec3 = new Vec3(0, 1, 0);
+    private _arcLateralAxis: Vec3 = new Vec3(1, 0, 0);
+    private _arcPrevWorldPos: Vec3 = new Vec3();
+    private _arcExitSpeed: number = 0;
+    private _arcHomingAfter: boolean = false;
+    private _arcHomingTarget: Node | null = null;
+    private _arcHomingTurnRate: number = 0.1;
+
     // 貫通属性 (ShotRuntime.tsのFire/MultiFire/Missileノードから発射直後に設定される)。
     // 0: 通常(1ヒットで消滅、既定値/従来動作) / -1: 無限貫通 / N: N回ヒットで消滅。
     public pierceRemaining: number = 0;
@@ -52,6 +78,41 @@ export class Bullet extends Component {
     // 倍率として扱う(1.0=Prefabそのままのサイズ)。子のGlow/Model3Dも同じNode配下なので
     // this.nodeのスケールを変えるだけで両方に連動する。
     private _baseNodeScale: Vec3 = new Vec3(1, 1, 1);
+    // applyVisualOverride(scale)で設定された現在のスケール倍率(既定1.0、X/Y均等)。applyGrowth()の
+    // 拡大開始値としても使う(WideBeam等、発射時のscale指定と拡大を両立できるように)。
+    // X/Yを分けて持っているのは、growScaleX/Yで横幅だけ拡大量を変える等の非均一な拡大に対応するため。
+    private _scaleMultiplierX: number = 1.0;
+    private _scaleMultiplierY: number = 1.0;
+
+    // BoxCollider2Dの当たり判定サイズをスケールに追従させるためのキャッシュ。Cocosの物理コライダーは
+    // Node.scaleを変えただけでは判定サイズが自動追従しない(見た目だけ拡大されて判定は元のサイズの
+    // ままになる)ため、スケールが変わるたびにcollider.sizeを明示的に書き換える必要がある。
+    private _collider: BoxCollider2D | null = null;
+    private _baseColliderSize: Size | null = null;
+
+    // 時間経過でスケールを拡大させる演出(WideBeam等の拡散リング用)。ShotRuntime.tsの
+    // growScale(X/Y)パラメータ経由でapplyGrowth()が呼ばれた弾だけ有効になる(既定は無効、既存弾には無関係)。
+    // 寿命(life、init()で3秒固定)の残り時間を基準に、開始スケールから目標スケールまで線形補間する。
+    private _growthEnabled: boolean = false;
+    private _growthStartScaleX: number = 1.0;
+    private _growthStartScaleY: number = 1.0;
+    private _growthTargetScaleX: number = 1.0;
+    private _growthTargetScaleY: number = 1.0;
+    private _growthLifeTotal: number = 0;
+
+    // 残像(分身)演出用。BulletTrailImageコンポーネント付きの子ノードが1つでも見つかった場合のみ、
+    // 毎フレーム自身のworld位置/スケール/角度を履歴バッファに記録し、各分身ノードをdelayFrames分
+    // 過去の状態へ追従させる(WideBeam等の拡散リング用、無ければ従来通り何もしない)。
+    private static readonly MAX_TRAIL_FRAMES = 60;
+    private _trailImages: BulletTrailImage[] = [];
+    private _trailHistoryX: number[] = [];
+    private _trailHistoryY: number[] = [];
+    private _trailHistoryAngle: number[] = [];
+    private _trailHistoryScaleX: number[] = [];
+    private _trailHistoryScaleY: number[] = [];
+    private _trailWriteIndex: number = 0;
+    private _trailFilledCount: number = 0;
+    private _tempWorldPos: Vec3 = new Vec3();
 
     // Player/Enemyと同じ規約: "Model3D"という名前の子ノードがPrefabに埋め込まれていれば、
     // 見た目を3Dモデルに差し替えつつ、簡単な演出(常時回転+発光パルス)を自動で掛ける。無ければ何もしない
@@ -63,11 +124,31 @@ export class Bullet extends Component {
     private _modelMat: Material | null = null;
 
     onLoad() {
-        const collider = this.getComponent(BoxCollider2D);
-        if (collider) {
-            collider.on(Contact2DType.BEGIN_CONTACT, this.onBeginContact, this);
+        this._collider = this.getComponent(BoxCollider2D);
+        if (this._collider) {
+            this._collider.on(Contact2DType.BEGIN_CONTACT, this.onBeginContact, this);
+            this._baseColliderSize = this._collider.size.clone();
         }
         Vec3.copy(this._baseNodeScale, this.node.scale);
+
+        this._trailImages = this.getComponentsInChildren(BulletTrailImage);
+        if (this._trailImages.length > 0) {
+            for (let i = 0; i < Bullet.MAX_TRAIL_FRAMES; i++) {
+                this._trailHistoryX.push(0);
+                this._trailHistoryY.push(0);
+                this._trailHistoryAngle.push(0);
+                this._trailHistoryScaleX.push(1);
+                this._trailHistoryScaleY.push(1);
+            }
+        }
+    }
+
+    // Node.scaleを変えるだけではBoxCollider2Dの当たり判定サイズは追従しないため、スケールが
+    // 変わるたび(applyVisualOverride/毎フレームのGrowth更新)にこれを呼んでcollider.sizeを
+    // 明示的に書き換える。colliderが無い弾(演出専用の残像等)では何もしない。
+    private syncColliderSize(scaleX: number, scaleY: number) {
+        if (!this._collider || !this._baseColliderSize) return;
+        this._collider.size = new Size(this._baseColliderSize.width * scaleX, this._baseColliderSize.height * scaleY);
     }
 
     // Init method called by GameManager or Shooter
@@ -75,9 +156,20 @@ export class Bullet extends Component {
         this._gm = gm;
         // console.log(`[Bullet] init: x=${x}, y=${y}, angle=${angle}, speed=${speed}`); // Reduce spam
         this.node.setPosition(x, y, 0);
-        // プール再利用時に前回のapplyVisualOverride(scale)が残らないよう、毎回Prefab基準スケールに
-        // リセットする(scaleパラメータ未指定のShotPatternからの発射ならこのまま等倍で使われる)。
+        // プール再利用時に前回のapplyVisualOverride(scale)/applyGrowth()が残らないよう、毎回
+        // Prefab基準スケールにリセットする(scaleパラメータ未指定のShotPatternからの発射ならこのまま
+        // 等倍で使われる)。
         this.node.setScale(this._baseNodeScale.x, this._baseNodeScale.y, this._baseNodeScale.z);
+        this._scaleMultiplierX = 1.0;
+        this._scaleMultiplierY = 1.0;
+        this.syncColliderSize(1.0, 1.0);
+        this._growthEnabled = false;
+        this._arcActive = false; // プール再利用時に前回のapplyArc()が残らないようにする
+        // プール再利用時に前回の履歴が新しい発射直後の分身に一瞬混ざらないよう、書き込み位置と
+        // 「まだ何フレーム分溜まっているか」をリセットする(配列の中身自体は使い回して構わない -
+        // _trailFilledCountが0に戻るのでdelayFrames分溜まるまで各分身は動かない=安全)。
+        this._trailWriteIndex = 0;
+        this._trailFilledCount = 0;
         this.angle = angle;
         this.speed = speed;
         this.damage = damage;
@@ -227,67 +319,111 @@ export class Bullet extends Component {
             }
         }
 
-        // Homing Logic
-        if (this.isHoming && this.target && this.target.isValid) {
-            const tPos = this.target.position;
-            const cPos = this.node.position;
+        if (this._arcActive) {
+            // PMissileの初速アーク中は通常のHoming/Move処理を丸ごとバイパスし、2次関数に沿った
+            // 位置を直接計算してセットする(applyArc()参照)。
+            this.updateArcMotion(deltaTime);
+        } else {
+            // Homing Logic
+            if (this.isHoming && this.target && this.target.isValid) {
+                const tPos = this.target.position;
+                const cPos = this.node.position;
 
-            const dx = tPos.x - cPos.x;
+                const dx = tPos.x - cPos.x;
 
-            // Y方向は反転させない(進行方向の符号を維持、敵のhomingパターンと同じ考え方)。
-            // ただしatan2(ySign, dx)のようにdxをそのまま使うと、ターゲットが横に遠いほど
-            // 角度が水平(真横)へ潰れてしまう(ySignは常に大きさ1固定なのに対しdxは際限なく
-            // 大きくなり得るため)。そこで「進行方向の真上/真下から最大何度まで傾けてよいか」を
-            // 上限で頭打ちにし、どれだけXが離れていてもY方向の動きが消えないようにする。
-            const ySign = this.velocity.y !== 0 ? Math.sign(this.velocity.y) : 1;
-            const xSign = Math.sign(dx);
-            const baseAngle = ySign * (Math.PI / 2); // 真上(+90°)または真下(-90°)
-            const maxDeviation = (60 * Math.PI) / 180; // 真上/真下からの最大傾き(60度、これ以上は横に振らない)
-            let desiredAngle = baseAngle - ySign * xSign * maxDeviation;
+                // Y方向は反転させない(進行方向の符号を維持、敵のhomingパターンと同じ考え方)。
+                // ただしatan2(ySign, dx)のようにdxをそのまま使うと、ターゲットが横に遠いほど
+                // 角度が水平(真横)へ潰れてしまう(ySignは常に大きさ1固定なのに対しdxは際限なく
+                // 大きくなり得るため)。そこで「進行方向の真上/真下から最大何度まで傾けてよいか」を
+                // 上限で頭打ちにし、どれだけXが離れていてもY方向の動きが消えないようにする。
+                const ySign = this.velocity.y !== 0 ? Math.sign(this.velocity.y) : 1;
+                const xSign = Math.sign(dx);
+                const baseAngle = ySign * (Math.PI / 2); // 真上(+90°)または真下(-90°)
+                const maxDeviation = (60 * Math.PI) / 180; // 真上/真下からの最大傾き(60度、これ以上は横に振らない)
+                let desiredAngle = baseAngle - ySign * xSign * maxDeviation;
 
-            // Steer current angle towards desired angle
-            // Simple approach: rotate velocity vector
-            let currentAngle = Math.atan2(this.velocity.y, this.velocity.x);
+                // Steer current angle towards desired angle
+                // Simple approach: rotate velocity vector
+                let currentAngle = Math.atan2(this.velocity.y, this.velocity.x);
 
-            // Normalize angles
-            while (desiredAngle - currentAngle > Math.PI) desiredAngle -= Math.PI * 2;
-            while (desiredAngle - currentAngle < -Math.PI) desiredAngle += Math.PI * 2;
+                // Normalize angles
+                while (desiredAngle - currentAngle > Math.PI) desiredAngle -= Math.PI * 2;
+                while (desiredAngle - currentAngle < -Math.PI) desiredAngle += Math.PI * 2;
 
-            // Steer
-            const maxSteer = this.steerForce;
-            if (desiredAngle > currentAngle) {
-                currentAngle += Math.min(maxSteer, desiredAngle - currentAngle);
-            } else {
-                currentAngle -= Math.min(maxSteer, currentAngle - desiredAngle);
+                // Steer
+                const maxSteer = this.steerForce;
+                if (desiredAngle > currentAngle) {
+                    currentAngle += Math.min(maxSteer, desiredAngle - currentAngle);
+                } else {
+                    currentAngle -= Math.min(maxSteer, currentAngle - desiredAngle);
+                }
+
+                // Update Velocity
+                this.velocity.x = Math.cos(currentAngle) * this.speed;
+                this.velocity.y = Math.sin(currentAngle) * this.speed;
+
+                // Update Visual Angle
+                this.node.angle = (currentAngle * 180 / Math.PI) - 90;
             }
 
-            // Update Velocity
-            this.velocity.x = Math.cos(currentAngle) * this.speed;
-            this.velocity.y = Math.sin(currentAngle) * this.speed;
+            // Move
+            this.node.getPosition(this._tempPos);
 
-            // Update Visual Angle
-            this.node.angle = (currentAngle * 180 / Math.PI) - 90;
+            const moveScale = deltaTime * 60;
+
+            this._tempPos.x += this.velocity.x * moveScale;
+            this._tempPos.y += this.velocity.y * moveScale;
+
+            // Apply Scroll Speed (Only for Enemy Bullets/Objects)
+            // Player bullets should travel independent of scroll speed (Arcade Style)。
+            // ホーミング弾は除外する: 誘導の旋回方向(上/下/横)に関わらず速度の大きさを一定に保つため
+            // (旋回コードは既にsin/cosで単位ベクトル化してspeed倍しているだけなので大きさは常に一定だが、
+            // ここで無条件にスクロール分を加算すると下向き旋回時は速く/上向き旋回時は遅く見えてしまう)。
+            // 直進弾はこれまで通りスクロールに乗せる(背景と一体に見せる演出として維持)。
+            if (this.isEnemy && !this.isHoming && this._gm && this._gm.speedManager) {
+                this._tempPos.y -= this._gm.speedManager.getCurrentSpeed() * moveScale;
+            }
+
+            this.node.setPosition(this._tempPos);
         }
 
-        // Move
-        this.node.getPosition(this._tempPos);
-
-        const moveScale = deltaTime * 60;
-
-        this._tempPos.x += this.velocity.x * moveScale;
-        this._tempPos.y += this.velocity.y * moveScale;
-
-        // Apply Scroll Speed (Only for Enemy Bullets/Objects)
-        // Player bullets should travel independent of scroll speed (Arcade Style)。
-        // ホーミング弾は除外する: 誘導の旋回方向(上/下/横)に関わらず速度の大きさを一定に保つため
-        // (旋回コードは既にsin/cosで単位ベクトル化してspeed倍しているだけなので大きさは常に一定だが、
-        // ここで無条件にスクロール分を加算すると下向き旋回時は速く/上向き旋回時は遅く見えてしまう)。
-        // 直進弾はこれまで通りスクロールに乗せる(背景と一体に見せる演出として維持)。
-        if (this.isEnemy && !this.isHoming && this._gm && this._gm.speedManager) {
-            this._tempPos.y -= this._gm.speedManager.getCurrentSpeed() * moveScale;
+        // Growth (WideBeam等、applyGrowth()が呼ばれた弾のみ)。まだ減算前のlifeを使うことで、
+        // 発射直後はprogress=0(開始スケール)、寿命が尽きる瞬間にprogress=1(目標スケール)になる。
+        // _scaleMultiplierX/Yも更新しておく(残像の履歴記録・当たり判定サイズ同期双方の基準値として使う)。
+        if (this._growthEnabled && this._growthLifeTotal > 0) {
+            const progress = Math.min(1, Math.max(0, 1 - this.life / this._growthLifeTotal));
+            this._scaleMultiplierX = this._growthStartScaleX + (this._growthTargetScaleX - this._growthStartScaleX) * progress;
+            this._scaleMultiplierY = this._growthStartScaleY + (this._growthTargetScaleY - this._growthStartScaleY) * progress;
+            this.node.setScale(this._baseNodeScale.x * this._scaleMultiplierX, this._baseNodeScale.y * this._scaleMultiplierY, this._baseNodeScale.z);
+            // 見た目が拡大していくのに当たり判定が元のサイズのまま取り残されるとヒットしなくなるため、
+            // 毎フレームcollider.sizeもここで追従させる。
+            this.syncColliderSize(this._scaleMultiplierX, this._scaleMultiplierY);
         }
 
-        this.node.setPosition(this._tempPos);
+        // Trail(残像/分身)。本体の現在のworld位置・角度・スケール倍率(X/Y)を履歴バッファへ積み、
+        // 各BulletTrailImage子ノードをdelayFrames分過去の状態へ追従させる(当たり判定には影響しない)。
+        if (this._trailImages.length > 0) {
+            this.node.getWorldPosition(this._tempWorldPos);
+            this._trailHistoryX[this._trailWriteIndex] = this._tempWorldPos.x;
+            this._trailHistoryY[this._trailWriteIndex] = this._tempWorldPos.y;
+            this._trailHistoryAngle[this._trailWriteIndex] = this.node.angle;
+            this._trailHistoryScaleX[this._trailWriteIndex] = this._scaleMultiplierX;
+            this._trailHistoryScaleY[this._trailWriteIndex] = this._scaleMultiplierY;
+            this._trailWriteIndex = (this._trailWriteIndex + 1) % Bullet.MAX_TRAIL_FRAMES;
+            this._trailFilledCount = Math.min(Bullet.MAX_TRAIL_FRAMES, this._trailFilledCount + 1);
+
+            for (const trail of this._trailImages) {
+                if (!trail || !trail.isValid) continue;
+                const delay = Math.max(1, Math.min(Bullet.MAX_TRAIL_FRAMES, trail.delayFrames));
+                if (delay > this._trailFilledCount) continue; // 履歴がまだ足りない間はPrefab初期位置のまま
+                const idx = (this._trailWriteIndex - delay + Bullet.MAX_TRAIL_FRAMES) % Bullet.MAX_TRAIL_FRAMES;
+                const sx = this._trailHistoryScaleX[idx];
+                const sy = this._trailHistoryScaleY[idx];
+                trail.node.setWorldPosition(this._trailHistoryX[idx], this._trailHistoryY[idx], this._tempWorldPos.z);
+                trail.node.angle = this._trailHistoryAngle[idx];
+                trail.node.setWorldScale(this._baseNodeScale.x * sx, this._baseNodeScale.y * sy, this._baseNodeScale.z);
+            }
+        }
 
         // Life
         this.life -= deltaTime;
@@ -331,11 +467,108 @@ export class Bullet extends Component {
         if (scale != null && Number.isFinite(scale)) {
             // this.nodeを直接スケールするだけで、子(Glow/Model3D)にもCocosの親子継承で連動する。
             const s = Math.max(0.01, scale);
+            this._scaleMultiplierX = s;
+            this._scaleMultiplierY = s;
             this.node.setScale(this._baseNodeScale.x * s, this._baseNodeScale.y * s, this._baseNodeScale.z * s);
+            this.syncColliderSize(s, s);
         }
         // 色/強度いずれかが変わった可能性があるので、グローSpriteの色を再計算する
         // (ensureGlowNodeは既存ノードがあれば新規生成せず色だけ更新する)。
         if (sprite) this.ensureGlowNode(sprite, this._baseColor);
+    }
+
+    /**
+     * ShotRuntime.tsのgrowScaleX/Yパラメータから、生成直後(init()/applyVisualOverride()の後)に
+     * 呼ばれる想定。現在のスケール倍率(_scaleMultiplierX/Y、既定1.0)を開始値として、寿命(life)が
+     * 尽きるまでの間にtargetScaleX/Y倍まで線形に拡大していく(WideBeam等の拡散リング用)。
+     * X/Yを別々に指定できるので、横幅だけ大きく広がるといった非均一な拡大も作れる
+     * (均一に拡大したいだけなら同じ値を渡せばよい)。未呼び出しなら従来通り拡大せず、
+     * applyVisualOverride()のscaleのまま固定。
+     */
+    public applyGrowth(targetScaleX: number, targetScaleY: number) {
+        if (!Number.isFinite(targetScaleX) || targetScaleX <= 0 || !Number.isFinite(targetScaleY) || targetScaleY <= 0) return;
+        this._growthEnabled = true;
+        this._growthStartScaleX = this._scaleMultiplierX;
+        this._growthStartScaleY = this._scaleMultiplierY;
+        this._growthTargetScaleX = targetScaleX;
+        this._growthTargetScaleY = targetScaleY;
+        this._growthLifeTotal = this.life; // init()が既に3秒固定済みの前提(ShotRuntime.doFire()等はinit()の後に呼ぶ)
+    }
+
+    /**
+     * ShotRuntime.tsのdoPMissilePellet()から、生成直後(init()の後)に呼ばれる想定。
+     * lm/rm(自機後方の左右スラスター)から発射したミサイルが、2次関数
+     * (coeffA*x^2 + coeffB*x + coeffC、xはduration秒かけて0→xRangeへ進む)に沿って
+     * 「少し後方に膨らんでから前方へ抜ける」アークを描くようにする。この前後方向の式はL/Rで
+     * 符号を変えない(左右対称)。sideは-1(左/lm)か+1(右/rm)で、横方向のオフセットにのみ使う。
+     * duration秒経過後は通常の直進に戻り、homingAfter=trueならその時点でhomingTarget/homingTurnRateを
+     * 使ってホーミングへ切り替わる(既存のisHoming/target/steerForceをそのまま使う)。
+     */
+    public applyArc(coeffA: number, coeffB: number, coeffC: number, xRange: number, worldScale: number, duration: number, side: number, exitSpeed: number, homingAfter: boolean, homingTarget: Node | null, homingTurnRate: number) {
+        if (!Number.isFinite(duration) || duration <= 0) return;
+        this._arcActive = true;
+        this._arcElapsed = 0;
+        this._arcDuration = duration;
+        this._arcCoeffA = coeffA;
+        this._arcCoeffB = coeffB;
+        this._arcCoeffC = coeffC;
+        this._arcXRange = xRange;
+        this._arcWorldScale = worldScale;
+        this._arcSide = side >= 0 ? 1 : -1;
+        this._arcExitSpeed = exitSpeed;
+        this._arcHomingAfter = homingAfter;
+        this._arcHomingTarget = homingTarget;
+        this._arcHomingTurnRate = homingTurnRate;
+        this.isHoming = false; // アーク終了までホーミングは保留する
+
+        Vec3.copy(this._arcLaunchPos, this.node.position);
+        Vec3.copy(this._arcPrevWorldPos, this.node.position);
+
+        // this.angle(init()で設定済みのラジアン、発射基準方向)を軸に、前方/横方向の単位ベクトルを作る。
+        this._arcForwardAxis.x = Math.cos(this.angle);
+        this._arcForwardAxis.y = Math.sin(this.angle);
+        // ShotRuntime.doPMissilePellet()の符号と揃える(side=-1(L)で左(-X)、side=+1(R)で右)。
+        this._arcLateralAxis.x = Math.sin(this.angle);
+        this._arcLateralAxis.y = -Math.cos(this.angle);
+    }
+
+    // applyArc()で有効化された弾のみ、毎フレーム呼ばれる。2次関数上の位置を直接計算してセットし、
+    // duration経過で直進(またはホーミング開始)へ引き継ぐ。
+    private updateArcMotion(deltaTime: number) {
+        this._arcElapsed += deltaTime;
+        const t = Math.min(1, this._arcElapsed / this._arcDuration);
+        const x = t * this._arcXRange;
+        // 前後方向(forwardDist)の式はL/Rで符号を変えない(左右対称に同じだけ後方へ膨らんでから
+        // 同じ速度で前進させるため)。左右の違いはlateralDist(横方向オフセット)の符号だけにする。
+        const forwardDist = (this._arcCoeffA * x * x + this._arcCoeffB * x + this._arcCoeffC) * this._arcWorldScale;
+        const lateralDist = x * this._arcWorldScale * this._arcSide;
+
+        this._tempPos.x = this._arcLaunchPos.x + this._arcForwardAxis.x * forwardDist + this._arcLateralAxis.x * lateralDist;
+        this._tempPos.y = this._arcLaunchPos.y + this._arcForwardAxis.y * forwardDist + this._arcLateralAxis.y * lateralDist;
+        this._tempPos.z = this._arcLaunchPos.z;
+        this.node.setPosition(this._tempPos);
+
+        // 見た目の向きは前フレームからの移動方向(数式の形そのまま追従、係数を変えても常に正しい)。
+        const dx = this._tempPos.x - this._arcPrevWorldPos.x;
+        const dy = this._tempPos.y - this._arcPrevWorldPos.y;
+        if (dx !== 0 || dy !== 0) {
+            const facing = Math.atan2(dy, dx);
+            this.node.angle = (facing * 180 / Math.PI) - 90;
+        }
+        Vec3.copy(this._arcPrevWorldPos, this._tempPos);
+
+        if (t >= 1) {
+            this._arcActive = false;
+            // アーク終了時点の向きで直進速度を確定させる(以後は通常のMove処理が引き継ぐ)。
+            const exitAngle = Math.atan2(dy, dx) || this.angle;
+            this.velocity.x = Math.cos(exitAngle) * this._arcExitSpeed;
+            this.velocity.y = Math.sin(exitAngle) * this._arcExitSpeed;
+            if (this._arcHomingAfter && this._arcHomingTarget && this._arcHomingTarget.isValid) {
+                this.isHoming = true;
+                this.target = this._arcHomingTarget;
+                this.steerForce = this._arcHomingTurnRate;
+            }
+        }
     }
 
     // 貫通の残り回数を消費する。0(通常)なら常にtrue(=このヒットで消滅)を返す。

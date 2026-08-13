@@ -168,6 +168,9 @@ export interface IGameManager {
     // currentScrollSpeed: number; // Global Physics -> Moved to GameSpeedManager
     speedManager: any; // GameSpeedManager type (any to avoid circular import here if needed, or import type)
     spawnBullet(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean, prefabName?: string): any;
+    // 自機/敵に追従し続ける持続ビーム(ShotRuntime.tsのLaserノード用)。spawnBulletと違い
+    // ownerNodeの子として生成され、x/y座標は取らない(親の位置にそのまま追従するため)。
+    spawnLaserBeam(ownerNode: any, angle: number, damage: number, damageInterval: number, duration: number, length: number, width: number, isEnemy: boolean, prefabName?: string, particleLengthScale?: number): any;
     spawnItem(x: number, y: number, id: string, amount: number): void;
     spawnItemFromPrefab(prefab: any, x: number, y: number): void;
     onItemCollected(id: string, amount: number, pos?: any): void;

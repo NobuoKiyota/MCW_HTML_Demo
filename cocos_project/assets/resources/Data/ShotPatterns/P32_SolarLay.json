@@ -1,0 +1,110 @@
+{
+    "id": "P32_SolarLay",
+    "nodes": [
+        {
+            "id": 4,
+            "type": "Loop",
+            "params": {
+                "count": -1,
+                "target": 1
+            },
+            "next": null
+        },
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 5
+        },
+        {
+            "id": 6,
+            "type": "Comment",
+            "params": {
+                "text": "Wait = CoolTime\n\naim: fixed=固定角度 / atPlayer=自機方向(Enemy発射のみ有効)\nang: 基準発射角度(度、90=上)\ndmg: ダメージ(tickごとに繰り返し与える)\ntick: ダメージ間隔(秒)。接触中この間隔でdmgを与え続ける(DPS方式)\ndur: ビームの持続時間(秒)。この間フローをブロックする(=連続で撃ち直さない)\nlength: ビームの長さ(当たり判定サイズ)\nwidth: ビームの太さ(当たり判定サイズ)\nprefab: Prefabs/Lasers内のPrefab名(必須指定、既定フォールバック無し)\n\n※color/glowIntensity/scale/growScale/pierceCountに相当する項目は無い(見た目は3D ParticleSystem側で作る)\n※自機/敵に追従して固定される持続ビーム(Bullet.tsとは別のLaserBeam.tsで実装)"
+            },
+            "next": null
+        },
+        {
+            "id": 3,
+            "type": "Wait",
+            "params": {
+                "seconds": 0.8
+            },
+            "next": 4
+        },
+        {
+            "id": 5,
+            "type": "Laser",
+            "params": {
+                "aim": "fixed",
+                "angle": 90,
+                "damage": 20,
+                "damageInterval": 0.2,
+                "duration": 3.2,
+                "length": 300,
+                "width": 50,
+                "prefabName": "PLaser02",
+                "particleLengthScale": 0.5,
+                "count": 1,
+                "speed": 0,
+                "scale": 1,
+                "glowIntensity": 0,
+                "color": "FFFFFF",
+                "soundId": "SE_PLaserBeam01"
+            },
+            "next": 3
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "3": [
+                464,
+                133
+            ],
+            "4": [
+                713,
+                82
+            ],
+            "5": [
+                217,
+                323
+            ],
+            "6": [
+                471,
+                333
+            ]
+        },
+        "nodeStyles": {
+            "6": {
+                "color": "#4a4a2a",
+                "bgcolor": "#3a3a1a"
+            }
+        },
+        "nodeSizes": {
+            "1": [
+                140,
+                26
+            ],
+            "3": [
+                210,
+                78
+            ],
+            "4": [
+                210,
+                78
+            ],
+            "5": [
+                220,
+                390
+            ],
+            "6": [
+                547,
+                236
+            ]
+        },
+        "groups": []
+    }
+}

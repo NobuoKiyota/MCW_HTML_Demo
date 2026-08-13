@@ -1,0 +1,70 @@
+{
+    "id": "P16_HyperionFlux",
+    "nodes": [
+        {
+            "id": 4,
+            "type": "Loop",
+            "params": {
+                "count": -1,
+                "target": 1
+            },
+            "next": null
+        },
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 2
+        },
+        {
+            "id": 2,
+            "type": "Fire",
+            "params": {
+                "aim": "fixed",
+                "angle": 90,
+                "speed": 22,
+                "damage": 32,
+                "pierceCount": 0,
+                "prefabName": "PBullet03",
+                "color": "555555",
+                "glowIntensity": 3,
+                "scale": 1,
+                "growScale": 0,
+                "growScaleX": 0,
+                "growScaleY": 0,
+                "count": 1,
+                "soundId": "SE_DistortionBeam"
+            },
+            "next": 3
+        },
+        {
+            "id": 3,
+            "type": "Wait",
+            "params": {
+                "seconds": 0.15
+            },
+            "next": 4
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "2": [
+                224,
+                265
+            ],
+            "3": [
+                488,
+                182
+            ],
+            "4": [
+                772,
+                95
+            ]
+        },
+        "nodeStyles": {},
+        "groups": []
+    }
+}

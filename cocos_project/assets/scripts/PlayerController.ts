@@ -38,15 +38,37 @@ export class PlayerController extends Component {
     @property({ tooltip: "使用する発射パターンID (ShotPatterns.csv/Master ManagerのShot Patternタブで編集)" })
     public shotPatternId: string = "SP_PLAYER_BASIC";
 
-    // PlayerWeaponManager(デバッグ用、scene-BehaviorTest等)が同時発射させたい追加の発射パターンID
+    // PlayerWeaponManager(デバッグ用、scene-BehaviorTest等)が指定するロードアウト全体の発射パターンID
     // (Weapons.csvのShotPatternID)を注入するための配列。@propertyではない(Inspectorで直接編集する
-    // ものではなく、BehaviorTestController.beginTest()等がコード経由でsetExtraShotPatternIds()を
-    // 呼んで設定する想定)。waitForShotPattern()は毎リトライでこの配列を読み直すので、
-    // shotPatternIdの解決より後に設定されても(リトライ上限内であれば)拾える。
-    public extraShotPatternIds: string[] = [];
+    // ものではなく、BehaviorTestController.beginTest()等がコード経由でsetOverrideShotPatternIds()を
+    // 呼んで設定する想定)。空でなければshotPatternId(既定武器)は無視してこちらを全面的に使う
+    // (足し算ではなく置き換え - 基本武器の単発連射が常時鳴り続けたまま追加武器のテストがしづらい、
+    // という問題を避けるため)。空(全GroupがNone)ならshotPatternIdへフォールバックする。
+    // waitForShotPattern()は毎リトライでこの配列を読み直すので、shotPatternIdの解決より後に
+    // 設定されても(リトライ上限内であれば)拾える。
+    public overrideShotPatternIds: string[] = [];
 
-    public setExtraShotPatternIds(ids: string[]) {
-        this.extraShotPatternIds = ids;
+    public setOverrideShotPatternIds(ids: string[]) {
+        this.overrideShotPatternIds = ids;
+    }
+
+    // 武器のLv別Scale成長(Weapons.csv ScaleMin/Max、WeaponCalc.computeWeaponLevelStats())を、
+    // ShotPatternID単位でShotRuntimeに伝えるための倍率マップ。PlayerWeaponManager等が
+    // setScaleMultipliers()で設定する。未設定のIDは1.0(無補正)として扱う。
+    private _scaleMultByPatternId: Map<string, number> = new Map();
+
+    public setScaleMultipliers(mults: { [shotPatternId: string]: number }) {
+        this._scaleMultByPatternId = new Map(Object.entries(mults || {}));
+    }
+
+    // 武器のLv別WT(発射間隔)成長を、ShotPatternID単位でShotRuntimeに伝えるための倍率マップ。
+    // WTMin基準の比率(WT@現在Lv ÷ WTMin)なので、Lv0では1.0(グラフ側のWait.secondsそのまま)、
+    // Lvが上がるほどWTが小さくなる設計なら1.0未満になり連射が速くなる。
+    // Rapid等の一時バフ(fireRateMultiplier)とは掛け算で両立する。
+    private _intervalMultByPatternId: Map<string, number> = new Map();
+
+    public setIntervalMultipliers(mults: { [shotPatternId: string]: number }) {
+        this._intervalMultByPatternId = new Map(Object.entries(mults || {}));
     }
 
     // Speed Zone Params
@@ -104,8 +126,8 @@ export class PlayerController extends Component {
 
     // Shot Pattern ランタイム。GameDatabase.isReady + 各パターンのグラフJSONロード完了を
     // 待ってから構築する(上限付きリトライ、BehaviorTestController.tsと同じパターン)。
-    // shotPatternId(既定装備)に加えextraShotPatternIds(PlayerWeaponManager等が注入する追加装備)
-    // ぶんも同時に発射させるため、単一ではなく配列で保持する。
+    // overrideShotPatternIds(PlayerWeaponManager等が注入するロードアウト)が複数武器を同時に
+    // 発射させうるため、単一ではなく配列で保持する。
     private _shotRuntimes: ShotRuntime[] = [];
     private _resolvedPatternIds: Set<string> = new Set();
     private _failedPatternIds: Set<string> = new Set();
@@ -194,11 +216,13 @@ export class PlayerController extends Component {
 
     // GameDatabase.isReady かつ各ShotPatternのグラフJSON非同期ロードが終わるまで待ってから
     // ShotRuntimeを構築する(BehaviorTestController.tsのwaitForDatabase()と同じ上限付きリトライ)。
-    // shotPatternId(既定装備)+extraShotPatternIds(追加装備、None/空は除外)をまとめて対象にし、
-    // 1つでも見つからない/読み込みきれないIDがあっても他のIDの発射は止めない。
+    // overrideShotPatternIdsが空でなければそちらを全面的に使い(shotPatternIdは無視)、空なら
+    // shotPatternId(既定装備)にフォールバックする。1つでも見つからない/読み込みきれないIDが
+    // あっても他のIDの発射は止めない。
     private waitForShotPattern() {
         const db = GameDatabase.instance;
-        const targetIds = Array.from(new Set([this.shotPatternId, ...this.extraShotPatternIds].filter(id => id && id !== "None")));
+        const source = this.overrideShotPatternIds.length > 0 ? this.overrideShotPatternIds : [this.shotPatternId];
+        const targetIds = Array.from(new Set(source.filter(id => id && id !== "None")));
 
         if (db && db.isReady) {
             for (const id of targetIds) {
@@ -219,7 +243,8 @@ export class PlayerController extends Component {
                 const runtime = new ShotRuntime(patternData._graph, this._gm, this.node, false);
                 runtime.getSpeedMult = () => 1.0;
                 runtime.getDamageMult = () => Math.max(0.1, this.damageMultiplier - this.cargoDamagePenalty);
-                runtime.getIntervalMult = () => this.fireRateMultiplier;
+                runtime.getIntervalMult = () => this.fireRateMultiplier * (this._intervalMultByPatternId.get(id) ?? 1.0);
+                runtime.getScaleMult = () => this._scaleMultByPatternId.get(id) ?? 1.0;
                 this._shotRuntimes.push(runtime);
                 this._resolvedPatternIds.add(id);
                 console.log(`[PlayerController] ShotRuntime ready for pattern '${id}'.`);

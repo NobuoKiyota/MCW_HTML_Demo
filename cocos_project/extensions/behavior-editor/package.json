@@ -88,6 +88,11 @@
           "listBulletPrefabs"
         ]
       },
+      "list-laser-prefabs": {
+        "methods": [
+          "listLaserPrefabs"
+        ]
+      },
       "list-shot-manager-data": {
         "methods": [
           "listShotManagerData"

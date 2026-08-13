@@ -1217,6 +1217,7 @@ function renderTable(panel) {
 let behaviorList = [];      // [{id, graphPath, note}] - graphDomain==='behavior'用
 let shotList = [];          // [{id, graphPath, note}] - graphDomain==='shot'用
 let bulletPrefabList = [];  // ['Bullet01', ...] - assets/resources/Prefabs/Bullets/ 配下のPrefab名一覧
+let laserPrefabList = [];   // ['LaserBeam01', ...] - assets/resources/Prefabs/Lasers/ 配下のPrefab名一覧
 let currentId = null;
 let litegraph = null;       // LGraph instance
 let litegraphCanvas = null; // LGraphCanvas instance
@@ -1238,13 +1239,13 @@ let lastSnapshot = null;
 // ノードtype文字列(LiteGraph用の"behavior/xxx"/"shot/xxx")とBehaviorGraph/ShotGraphの
 // スキーマ上のtype名("Xxx")の相互変換。Start/Wait/Branch/Loop/Random/Reroute/Commentは
 // 両ドメイン共通のノードクラスをそのまま使う。
-const NODE_TYPE_MAP = { start: 'Start', move: 'Move', moveto: 'MoveTo', wait: 'Wait', branch: 'Branch', loop: 'Loop', spin: 'Spin', punch: 'Punch', attack: 'Attack', reroute: 'Reroute', comment: 'Comment', random: 'Random', fire: 'Fire', multifire: 'MultiFire', missile: 'Missile' };
-const REVERSE_TYPE_MAP = { Start: 'behavior/start', Move: 'behavior/move', MoveTo: 'behavior/moveto', Wait: 'behavior/wait', Branch: 'behavior/branch', Loop: 'behavior/loop', Spin: 'behavior/spin', Punch: 'behavior/punch', Attack: 'behavior/attack', Reroute: 'behavior/reroute', Comment: 'behavior/comment', Random: 'behavior/random', Fire: 'shot/fire', MultiFire: 'shot/multifire', Missile: 'shot/missile' };
+const NODE_TYPE_MAP = { start: 'Start', move: 'Move', moveto: 'MoveTo', wait: 'Wait', branch: 'Branch', loop: 'Loop', spin: 'Spin', punch: 'Punch', attack: 'Attack', reroute: 'Reroute', comment: 'Comment', random: 'Random', fire: 'Fire', multifire: 'MultiFire', missile: 'Missile', pmissile: 'PMissile', laser: 'Laser' };
+const REVERSE_TYPE_MAP = { Start: 'behavior/start', Move: 'behavior/move', MoveTo: 'behavior/moveto', Wait: 'behavior/wait', Branch: 'behavior/branch', Loop: 'behavior/loop', Spin: 'behavior/spin', Punch: 'behavior/punch', Attack: 'behavior/attack', Reroute: 'behavior/reroute', Comment: 'behavior/comment', Random: 'behavior/random', Fire: 'shot/fire', MultiFire: 'shot/multifire', Missile: 'shot/missile', PMissile: 'shot/pmissile', Laser: 'shot/laser' };
 
 // ドメインごとのノードパレット(LiteGraphのAdd Node検索に出てくる候補)。共有ノードは常時両方で使える。
 const SHARED_NODE_TYPES = ['behavior/start', 'behavior/wait', 'behavior/branch', 'behavior/loop', 'behavior/random', 'behavior/reroute', 'behavior/comment'];
 const BEHAVIOR_ONLY_TYPES = ['behavior/move', 'behavior/moveto', 'behavior/spin', 'behavior/punch', 'behavior/attack'];
-const SHOT_ONLY_TYPES = ['shot/fire', 'shot/multifire', 'shot/missile'];
+const SHOT_ONLY_TYPES = ['shot/fire', 'shot/multifire', 'shot/missile', 'shot/pmissile', 'shot/laser'];
 const OUR_NODE_TYPES = SHARED_NODE_TYPES.concat(BEHAVIOR_ONLY_TYPES, SHOT_ONLY_TYPES);
 let allNodeCtors = {}; // { [type]: ctor } - プルーニングで registered_node_types から一時的に外した時の退避先
 
@@ -1273,6 +1274,13 @@ function getBulletPrefabOptions() {
     return ['(default)', ...bulletPrefabList];
 }
 
+// LaserノードのprefabNameコンボが呼ぶ。assets/resources/Prefabs/Lasers/ 配下のPrefab名一覧
+// (laserPrefabList、ready()時に一度読み込む)を返す。Bulletと違い既定フォールバックPrefabが
+// 無いので"(default)"は含めない(未指定のままだとspawnLaserBeam()が発射をスキップする)。
+function getLaserPrefabOptions() {
+    return [...laserPrefabList];
+}
+
 // --- 簡易モーダル (window.prompt/confirmはこのパネル環境ではサポートされないため自前で用意する) ----
 // 実機ログ: "[Window] prompt() is and will not be supported." のため、
 // テンプレート内に常設したオーバーレイの表示/非表示とPromiseで置き換える。
@@ -1289,8 +1297,13 @@ function showModal(panel, opts) {
         panel.$.modalOverlay.classList.remove('hidden');
 
         if (showInput) {
-            panel.$.modalInput.focus();
-            panel.$.modalInput.select();
+            // 直前の classList.remove('hidden') (display:none解除) と同じ同期処理内でfocus()すると、
+            // ブラウザ側の表示反映が間に合わずフォーカスが当たらないことがある(実際に報告された
+            // 「文字入力できない/カーソルが有効にならない」症状)。次の描画フレームまで遅延させる。
+            requestAnimationFrame(() => {
+                panel.$.modalInput.focus();
+                panel.$.modalInput.select();
+            });
         }
 
         const cleanup = () => {
@@ -1341,6 +1354,7 @@ function exportGraph(graphId) {
 
     const nodePositions = {};
     const nodeStyles = {};
+    const nodeSizes = {};
     const nodes = (data.nodes || []).map(n => {
         const shortType = (n.type || '').split('/')[1];
         const outType = NODE_TYPE_MAP[shortType] || shortType;
@@ -1382,6 +1396,16 @@ function exportGraph(graphId) {
         if (n.color || n.bgcolor) {
             nodeStyles[n.id] = { color: n.color, bgcolor: n.bgcolor };
         }
+        // Commentノード等、ドラッグでリサイズしたサイズもn.sizeに乗るだけでn.propertiesには
+        // 入らないため、posと同様に明示的に拾わないと保存のたびにコンストラクタ既定サイズへ
+        // 戻ってしまう(実際に報告されたバグ)。
+        // LiteGraphは多くのノードタイプでsizeをFloat32Array(本物の配列ではない)で持っており、
+        // そのままJSON.stringifyすると{"0":w,"1":h}という壊れたオブジェクト形式になってしまう
+        // (Commentノードだけはコンストラクタで本物の配列[200,130]を代入しているため無事だった)。
+        // Array.from()で必ず本物の配列に正規化してから保存する。
+        if (n.size) {
+            nodeSizes[n.id] = Array.from(n.size);
+        }
         return out;
     });
 
@@ -1389,7 +1413,7 @@ function exportGraph(graphId) {
     // グラフが複雑になった時の整理用に位置・サイズ・色・タイトルをそのまま保存しておく。
     const groups = data.groups || [];
 
-    return { id: graphId, nodes, _editor: { nodePositions, nodeStyles, groups } };
+    return { id: graphId, nodes, _editor: { nodePositions, nodeStyles, nodeSizes, groups } };
 }
 
 function importGraph(schemaGraph) {
@@ -1420,6 +1444,21 @@ function importGraph(schemaGraph) {
 
         const pos = schemaGraph._editor && schemaGraph._editor.nodePositions && schemaGraph._editor.nodePositions[String(n.id)];
         node.pos = pos || [40 + (n.id * 160), 80];
+
+        // Commentノード等のドラッグリサイズ結果を復元する(無ければコンストラクタ既定サイズのまま)。
+        // 生の代入(node.size = size)ではなくsetSize()を使う - LGraphNode.prototype.setSizeは
+        // this.sizeを更新した後にonResizeフックも呼ぶため、将来onResizeを実装するノードが
+        // 出てきても正しく動く。
+        // 過去のバグ(Float32Arrayをそのまま保存し{"0":w,"1":h}という壊れたオブジェクト形式に
+        // なっていたファイル)を開いても安全なように、配列でなければ[0]/[1]キーから復元する。
+        let size = schemaGraph._editor && schemaGraph._editor.nodeSizes && schemaGraph._editor.nodeSizes[String(n.id)];
+        if (size && !Array.isArray(size)) {
+            size = [size[0], size[1]];
+        }
+        if (size && Number.isFinite(size[0]) && Number.isFinite(size[1])) {
+            if (typeof node.setSize === 'function') node.setSize(size);
+            else node.size = size;
+        }
 
         const style = schemaGraph._editor && schemaGraph._editor.nodeStyles && schemaGraph._editor.nodeStyles[String(n.id)];
         if (style) {
@@ -1470,6 +1509,14 @@ function importGraph(schemaGraph) {
             litegraph.add(group);
         });
     }
+
+    // node.size を直接上書きしただけだとキャンバスの再描画範囲が古いまま残り、リサイズ前の
+    // 領域が別ノードの上に亡霊のように残ってしまうことがある(Commentノードのリサイズ後に
+    // 報告されたバグ)。インポート完了時に強制的に全体を再描画させて解消する。
+    // 注意: LGraphCanvasに`setDirtyCanvas`というメソッドは存在しない(正しくは`setDirty`、または
+    // LGraph側の`setDirtyCanvas`)。以前ここで誤ったメソッド名を呼んでいたため毎回サイレントに
+    // 例外が発生し、この再描画自体が一度も実行されていなかった。
+    if (litegraphCanvas) litegraphCanvas.setDirty(true, true);
 }
 
 // --- Undo/Redo/ノード削除/キーボードショートカット ------------------------------------------
@@ -1989,7 +2036,7 @@ function registerBehaviorNodeTypes(LiteGraph) {
     function ShotFireNode() {
         this.addInput("In", "flow");
         this.addOutput("Next", "flow");
-        this.properties = { aim: "fixed", angle: 270, speed: 5.0, damage: 10, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0, scale: 1.0 };
+        this.properties = { aim: "fixed", angle: 270, speed: 5.0, damage: 10, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0, scale: 1.0, growScale: 0, growScaleX: 0, growScaleY: 0 };
         addW(this, "combo", "aim", this.properties.aim, (v) => { this.properties.aim = v; }, { values: ["fixed", "atPlayer"] });
         this.addInput("angle", "number");
         addW(this, "number", "angle", this.properties.angle, (v) => { this.properties.angle = v; }, { step: 10 }, "ang");
@@ -2001,17 +2048,24 @@ function registerBehaviorNodeTypes(LiteGraph) {
         addW(this, "number", "pierceCount", this.properties.pierceCount, (v) => { this.properties.pierceCount = v; }, { step: 1, precision: 0 }, "pierce");
         addW(this, 'combo', 'prefabName', this.properties.prefabName, (v) => { this.properties.prefabName = v; }, { values: () => getBulletPrefabOptions() }, 'prefab');
         addW(this, 'text', 'color', this.properties.color, (v) => { this.properties.color = v; }, {}, 'color');
+        this.addInput("growScale", "number");
+        addW(this, "number", "growScale", this.properties.growScale, (v) => { this.properties.growScale = v; }, { step: 0.1, min: 0 }, "grow");
+        this.addInput("growScaleX", "number");
+        addW(this, "number", "growScaleX", this.properties.growScaleX, (v) => { this.properties.growScaleX = v; }, { step: 0.1, min: 0 }, "growX");
+        this.addInput("growScaleY", "number");
+        addW(this, "number", "growScaleY", this.properties.growScaleY, (v) => { this.properties.growScaleY = v; }, { step: 0.1, min: 0 }, "growY");
         // glowIntensity/scaleはウィジェット非表示(ShotManagerタブのGlow/Scale列で一元管理する方針
         // のため、グラフ側から個別に触れないようにしている)。値自体はpropertiesに残っているので、
-        // ShotManager経由の編集・保存は引き続き正しく機能する。
+        // ShotManager経由の編集・保存は引き続き正しく機能する。growScaleはWideBeam等ごく一部の
+        // パターンでしか使わない特殊パラメータなのでShotManagerには列を増やさず、ここに直接出す。
     }
     ShotFireNode.title = "Fire";
-    ShotFireNode.desc = "単発を1発撃って即座に次へ進む(ブロックしない)。aim=atPlayerでangleを無視し自機方向へ(敵発射のみ有効、自機発射では無視される)。pierceCount: 0=通常(1ヒットで消滅) / -1=無限貫通 / N=N回ヒットで消滅。prefabName='(default)'ならGameManagerの既定bulletPrefab、それ以外はassets/resources/Prefabs/Bullets/内の同名Prefabを使う。colorは\"#rrggbb\"形式(空欄なら既定の敵/自機色のまま)。glowIntensityは発光の明るさ倍率(既定1.0)。scaleは弾の見た目サイズ倍率(既定1.0)。連射させたい場合は直後にWait→Loopで繋ぐ。数値パラメータはRandomノードから配線可能。";
+    ShotFireNode.desc = "単発を1発撃って即座に次へ進む(ブロックしない)。aim=atPlayerでangleを無視し自機方向へ(敵発射のみ有効、自機発射では無視される)。pierceCount: 0=通常(1ヒットで消滅) / -1=無限貫通 / N=N回ヒットで消滅。prefabName='(default)'ならGameManagerの既定bulletPrefab、それ以外はassets/resources/Prefabs/Bullets/内の同名Prefabを使う。colorは\"#rrggbb\"形式(空欄なら既定の敵/自機色のまま)。glowIntensityは発光の明るさ倍率(既定1.0)。scaleは弾の見た目サイズ倍率(既定1.0)。growScaleは0より大きければ、寿命(3秒)の間にscaleからgrowScale倍まで線形に拡大していく(WideBeam等の拡散リング用、既定0=拡大しない)。growScaleX/Yを指定すれば横幅/縦幅を別々の倍率まで拡大できる(未指定側はgrowScaleの値を使う)。連射させたい場合は直後にWait→Loopで繋ぐ。数値パラメータはRandomノードから配線可能。";
 
     function ShotMultiFireNode() {
         this.addInput("In", "flow");
         this.addOutput("Next", "flow");
-        this.properties = { aim: "fixed", angle: 270, count: 3, angleSpread: 0, staggerDelay: 0, speed: 5.0, damage: 10, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0, scale: 1.0 };
+        this.properties = { aim: "fixed", angle: 270, count: 3, angleSpread: 0, staggerDelay: 0, speed: 5.0, damage: 10, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0, scale: 1.0, growScale: 0, growScaleX: 0, growScaleY: 0 };
         addW(this, "combo", "aim", this.properties.aim, (v) => { this.properties.aim = v; }, { values: ["fixed", "atPlayer"] });
         this.addInput("angle", "number");
         addW(this, "number", "angle", this.properties.angle, (v) => { this.properties.angle = v; }, { step: 10 }, "ang");
@@ -2029,17 +2083,24 @@ function registerBehaviorNodeTypes(LiteGraph) {
         addW(this, "number", "pierceCount", this.properties.pierceCount, (v) => { this.properties.pierceCount = v; }, { step: 1, precision: 0 }, "pierce");
         addW(this, 'combo', 'prefabName', this.properties.prefabName, (v) => { this.properties.prefabName = v; }, { values: () => getBulletPrefabOptions() }, 'prefab');
         addW(this, 'text', 'color', this.properties.color, (v) => { this.properties.color = v; }, {}, 'color');
+        this.addInput("growScale", "number");
+        addW(this, "number", "growScale", this.properties.growScale, (v) => { this.properties.growScale = v; }, { step: 0.1, min: 0 }, "grow");
+        this.addInput("growScaleX", "number");
+        addW(this, "number", "growScaleX", this.properties.growScaleX, (v) => { this.properties.growScaleX = v; }, { step: 0.1, min: 0 }, "growX");
+        this.addInput("growScaleY", "number");
+        addW(this, "number", "growScaleY", this.properties.growScaleY, (v) => { this.properties.growScaleY = v; }, { step: 0.1, min: 0 }, "growY");
         // glowIntensity/scaleはウィジェット非表示(ShotManagerタブのGlow/Scale列で一元管理する方針
         // のため、グラフ側から個別に触れないようにしている)。値自体はpropertiesに残っているので、
-        // ShotManager経由の編集・保存は引き続き正しく機能する。
+        // ShotManager経由の編集・保存は引き続き正しく機能する。growScaleはWideBeam等ごく一部の
+        // パターンでしか使わない特殊パラメータなのでShotManagerには列を増やさず、ここに直接出す。
     }
     ShotMultiFireNode.title = "MultiFire";
-    ShotMultiFireNode.desc = "count発を1回のトリガーで撃つ。angleSpread>0かつstaggerDelay=0なら「拡散弾」(中心角angleを軸にcount発を扇状に同時発射)。angleSpread=0かつstaggerDelay>0なら「複数発射」(同じ角度へstaggerDelay秒間隔で連続発射、撃ち切るまでブロックする)。両方組み合わせも可。prefabName/color/glowIntensity/scaleで見た目を上書きできる(Fireノードと同じ)。数値パラメータはRandomノードから配線可能。";
+    ShotMultiFireNode.desc = "count発を1回のトリガーで撃つ。angleSpread>0かつstaggerDelay=0なら「拡散弾」(中心角angleを軸にcount発を扇状に同時発射)。angleSpread=0かつstaggerDelay>0なら「複数発射」(同じ角度へstaggerDelay秒間隔で連続発射、撃ち切るまでブロックする)。両方組み合わせも可。prefabName/color/glowIntensity/scaleで見た目を上書きできる(Fireノードと同じ)。growScaleは0より大きければ寿命の間にscaleからgrowScale倍まで線形に拡大していく(Fireノードと同じ、既定0=拡大しない)。growScaleX/Yを指定すれば横幅/縦幅を別々の倍率まで拡大できる(未指定側はgrowScaleの値を使う)。数値パラメータはRandomノードから配線可能。";
 
     function ShotMissileNode() {
         this.addInput("In", "flow");
         this.addOutput("Next", "flow");
-        this.properties = { angle: 270, speed: 3.0, damage: 15, homing: false, turnRate: 0.1, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0, scale: 1.0 };
+        this.properties = { angle: 270, speed: 3.0, damage: 15, homing: false, turnRate: 0.1, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0, scale: 1.0, growScale: 0, growScaleX: 0, growScaleY: 0 };
         this.addInput("angle", "number");
         addW(this, "number", "angle", this.properties.angle, (v) => { this.properties.angle = v; }, { step: 10 }, "ang");
         this.addInput("speed", "number");
@@ -2053,12 +2114,107 @@ function registerBehaviorNodeTypes(LiteGraph) {
         addW(this, "number", "pierceCount", this.properties.pierceCount, (v) => { this.properties.pierceCount = v; }, { step: 1, precision: 0 }, "pierce");
         addW(this, 'combo', 'prefabName', this.properties.prefabName, (v) => { this.properties.prefabName = v; }, { values: () => getBulletPrefabOptions() }, 'prefab');
         addW(this, 'text', 'color', this.properties.color, (v) => { this.properties.color = v; }, {}, 'color');
+        this.addInput("growScale", "number");
+        addW(this, "number", "growScale", this.properties.growScale, (v) => { this.properties.growScale = v; }, { step: 0.1, min: 0 }, "grow");
+        this.addInput("growScaleX", "number");
+        addW(this, "number", "growScaleX", this.properties.growScaleX, (v) => { this.properties.growScaleX = v; }, { step: 0.1, min: 0 }, "growX");
+        this.addInput("growScaleY", "number");
+        addW(this, "number", "growScaleY", this.properties.growScaleY, (v) => { this.properties.growScaleY = v; }, { step: 0.1, min: 0 }, "growY");
         // glowIntensity/scaleはウィジェット非表示(ShotManagerタブのGlow/Scale列で一元管理する方針
         // のため、グラフ側から個別に触れないようにしている)。値自体はpropertiesに残っているので、
-        // ShotManager経由の編集・保存は引き続き正しく機能する。
+        // ShotManager経由の編集・保存は引き続き正しく機能する。growScaleはWideBeam等ごく一部の
+        // パターンでしか使わない特殊パラメータなのでShotManagerには列を増やさず、ここに直接出す。
     }
     ShotMissileNode.title = "Missile";
-    ShotMissileNode.desc = "低速だが威力の高い弾を1発撃つ。ブロックしない。homing=ONで発射直後にターゲット(自機発射なら最寄りの敵、敵発射なら自機)を自動取得して追尾する(turnRateが旋回の強さ、Bullet.steerForceに対応)。prefabName/color/glowIntensity/scaleで見た目を上書きできる(Fireノードと同じ)。数値パラメータはRandomノードから配線可能。";
+    ShotMissileNode.desc = "低速だが威力の高い弾を1発撃つ。ブロックしない。homing=ONで発射直後にターゲット(自機発射なら最寄りの敵、敵発射なら自機)を自動取得して追尾する(turnRateが旋回の強さ、Bullet.steerForceに対応)。prefabName/color/glowIntensity/scaleで見た目を上書きできる(Fireノードと同じ)。growScaleは0より大きければ寿命の間にscaleからgrowScale倍まで線形に拡大していく(Fireノードと同じ、既定0=拡大しない)。growScaleX/Yを指定すれば横幅/縦幅を別々の倍率まで拡大できる(未指定側はgrowScaleの値を使う)。数値パラメータはRandomノードから配線可能。";
+
+    // 自機後方の左右スラスター(lm/rm)からLRLRL…の順に1発ずつ発射し、2次関数状の初速アークを
+    // 描いてから直進/ホーミングへ移行する専用ノード(assets/scripts/ShotRuntime.ts
+    // doPMissilePellet()/assets/scripts/Bullet.ts applyArc()参照)。countは奇数でも偶数でも良い
+    // (0番目=左/lmから開始し、以後L/Rを交互に繰り返す)。
+    function ShotPMissileNode() {
+        this.addInput("In", "flow");
+        this.addOutput("Next", "flow");
+        this.properties = {
+            aim: "fixed", angle: 90, count: 5, staggerDelay: 0.15, sideOffset: 15,
+            arcCoeffA: 3, arcCoeffB: -4, arcCoeffC: -2, arcXRange: 2, arcWorldScale: 10, arcDuration: 0.5,
+            speed: 3.0, damage: 15, homing: false, turnRate: 0.1, pierceCount: 0,
+            prefabName: '(default)', color: '', glowIntensity: 1.0, scale: 1.0, growScale: 0, growScaleX: 0, growScaleY: 0,
+        };
+        addW(this, "combo", "aim", this.properties.aim, (v) => { this.properties.aim = v; }, { values: ["fixed", "atPlayer"] });
+        this.addInput("angle", "number");
+        addW(this, "number", "angle", this.properties.angle, (v) => { this.properties.angle = v; }, { step: 10 }, "ang");
+        this.addInput("count", "number");
+        addW(this, "number", "count", this.properties.count, (v) => { this.properties.count = v; }, { step: 1, min: 1, precision: 0 });
+        this.addInput("staggerDelay", "number");
+        addW(this, "number", "staggerDelay", this.properties.staggerDelay, (v) => { this.properties.staggerDelay = v; }, { step: 0.01, min: 0.01 }, "stagger");
+        this.addInput("sideOffset", "number");
+        addW(this, "number", "sideOffset", this.properties.sideOffset, (v) => { this.properties.sideOffset = v; }, { step: 1 }, "sideOfs");
+        this.addInput("arcCoeffA", "number");
+        addW(this, "number", "arcCoeffA", this.properties.arcCoeffA, (v) => { this.properties.arcCoeffA = v; }, { step: 0.1 }, "arcA");
+        this.addInput("arcCoeffB", "number");
+        addW(this, "number", "arcCoeffB", this.properties.arcCoeffB, (v) => { this.properties.arcCoeffB = v; }, { step: 0.1 }, "arcB");
+        this.addInput("arcCoeffC", "number");
+        addW(this, "number", "arcCoeffC", this.properties.arcCoeffC, (v) => { this.properties.arcCoeffC = v; }, { step: 0.1 }, "arcC");
+        this.addInput("arcXRange", "number");
+        addW(this, "number", "arcXRange", this.properties.arcXRange, (v) => { this.properties.arcXRange = v; }, { step: 0.1, min: 0.1 }, "arcRange");
+        this.addInput("arcWorldScale", "number");
+        addW(this, "number", "arcWorldScale", this.properties.arcWorldScale, (v) => { this.properties.arcWorldScale = v; }, { step: 1, min: 0.1 }, "arcScale");
+        this.addInput("arcDuration", "number");
+        addW(this, "number", "arcDuration", this.properties.arcDuration, (v) => { this.properties.arcDuration = v; }, { step: 0.05, min: 0.05 }, "arcSec");
+        this.addInput("speed", "number");
+        addW(this, "number", "speed", this.properties.speed, (v) => { this.properties.speed = v; }, { step: 1 }, "spd");
+        this.addInput("damage", "number");
+        addW(this, "number", "damage", this.properties.damage, (v) => { this.properties.damage = v; }, { step: 1 }, "dmg");
+        addW(this, "toggle", "homing", this.properties.homing, (v) => { this.properties.homing = v; });
+        this.addInput("turnRate", "number");
+        addW(this, "number", "turnRate", this.properties.turnRate, (v) => { this.properties.turnRate = v; }, { step: 0.01, min: 0 }, "turn");
+        this.addInput("pierceCount", "number");
+        addW(this, "number", "pierceCount", this.properties.pierceCount, (v) => { this.properties.pierceCount = v; }, { step: 1, precision: 0 }, "pierce");
+        addW(this, 'combo', 'prefabName', this.properties.prefabName, (v) => { this.properties.prefabName = v; }, { values: () => getBulletPrefabOptions() }, 'prefab');
+        addW(this, 'text', 'color', this.properties.color, (v) => { this.properties.color = v; }, {}, 'color');
+        this.addInput("growScale", "number");
+        addW(this, "number", "growScale", this.properties.growScale, (v) => { this.properties.growScale = v; }, { step: 0.1, min: 0 }, "grow");
+        this.addInput("growScaleX", "number");
+        addW(this, "number", "growScaleX", this.properties.growScaleX, (v) => { this.properties.growScaleX = v; }, { step: 0.1, min: 0 }, "growX");
+        this.addInput("growScaleY", "number");
+        addW(this, "number", "growScaleY", this.properties.growScaleY, (v) => { this.properties.growScaleY = v; }, { step: 0.1, min: 0 }, "growY");
+        // glowIntensity/scaleはウィジェット非表示(Fire/MultiFire/Missileと同じ方針、ShotManagerタブの
+        // Glow/Scale列で一元管理する)。
+    }
+    ShotPMissileNode.title = "PMissile";
+    ShotPMissileNode.desc = "自機後方の左右スラスター(lm/rm)からcount発をLRLRL…の順に1発ずつ発射する(同時発射はしない、staggerDelay秒間隔でブロック発射)。0番目=左(lm)から開始しL/Rを交互に繰り返す(countは奇数/偶数どちらでも良い)。各弾はsideOffsetだけ自機中心から左右にずらした位置から発射され、2次関数(arcCoeffA*x^2 + arcCoeffB*x + arcCoeffC、xはarcDuration秒かけて0→arcXRangeへ進み、arcWorldScaleでpx換算)に沿って少し後方に膨らんでから前方へ抜けるアークを描く。前後方向の式はL/Rで完全に同じ(左右対称に同じだけ膨らんで同じ速度で前進する)、左右の違いはsideOffset方向のオフセットだけ。アーク終了後は直進し、homing=ONならその時点でターゲット(自機発射なら最寄りの敵)を取得してホーミングに切り替わる(turnRateが旋回の強さ)。prefabName/color/glowIntensity/scale/growScale(X/Y)はFire/Missileノードと同じ。数値パラメータはRandomノードから配線可能。";
+
+    // 自機/敵に固定されたまま光り続ける持続ビーム(assets/scripts/ShotRuntime.ts doLaser()/
+    // assets/scripts/LaserBeam.ts参照)。Fire/MultiFire/Missile/PMissileと違いBullet.tsを一切
+    // 経由しない専用コンポーネントで実装されているため、color/glowIntensity/scale/growScale/
+    // pierceCountに相当するものは無い(見た目は3D ParticleSystemで作る想定)。
+    function ShotLaserNode() {
+        this.addInput("In", "flow");
+        this.addOutput("Next", "flow");
+        this.properties = {
+            aim: "fixed", angle: 90, damage: 10, damageInterval: 0.1, duration: 1.0,
+            length: 300, width: 20, prefabName: '', particleLengthScale: 1.0,
+        };
+        addW(this, "combo", "aim", this.properties.aim, (v) => { this.properties.aim = v; }, { values: ["fixed", "atPlayer"] });
+        this.addInput("angle", "number");
+        addW(this, "number", "angle", this.properties.angle, (v) => { this.properties.angle = v; }, { step: 10 }, "ang");
+        this.addInput("damage", "number");
+        addW(this, "number", "damage", this.properties.damage, (v) => { this.properties.damage = v; }, { step: 1 }, "dmg");
+        this.addInput("damageInterval", "number");
+        addW(this, "number", "damageInterval", this.properties.damageInterval, (v) => { this.properties.damageInterval = v; }, { step: 0.01, min: 0.02 }, "tick");
+        this.addInput("duration", "number");
+        addW(this, "number", "duration", this.properties.duration, (v) => { this.properties.duration = v; }, { step: 0.1, min: 0.05 }, "dur");
+        this.addInput("length", "number");
+        addW(this, "number", "length", this.properties.length, (v) => { this.properties.length = v; }, { step: 10, min: 1 });
+        this.addInput("width", "number");
+        addW(this, "number", "width", this.properties.width, (v) => { this.properties.width = v; }, { step: 1, min: 1 });
+        addW(this, 'combo', 'prefabName', this.properties.prefabName, (v) => { this.properties.prefabName = v; }, { values: () => getLaserPrefabOptions() }, 'prefab');
+        this.addInput("particleLengthScale", "number");
+        addW(this, "number", "particleLengthScale", this.properties.particleLengthScale, (v) => { this.properties.particleLengthScale = v; }, { step: 0.05, min: 0 }, "pLenScale");
+    }
+    ShotLaserNode.title = "Laser";
+    ShotLaserNode.desc = "自機/敵に固定されたまま光り続ける持続ビーム。durationの間フローをブロックし(=連続で撃ち直さない)、その間ビームが接触している相手にdamageIntervalおきdamageを繰り返し与え続ける(DPS方式)。lengthはビームの長さ、widthは太さ(当たり判定のサイズにそのまま使う)。prefabNameはassets/resources/Prefabs/Lasers/内のPrefab名(見た目は3D ParticleSystemを想定、既定フォールバックは無いので必ず指定すること)。particleLengthScaleは、length(当たり判定側の単位)にこの倍率を掛けた値をParticleのShapeModule.length(Cone形状の発生源の長さ)へ書き込むための変換係数(Cone形状のParticle専用、Box等では効果なし)。color/glowIntensity/scale/growScale/pierceCountに相当する項目は無い。数値パラメータはRandomノードから配線可能。";
 
     LiteGraph.registerNodeType("behavior/start", BehaviorStartNode);
     LiteGraph.registerNodeType("behavior/move", BehaviorMoveNode);
@@ -2075,6 +2231,8 @@ function registerBehaviorNodeTypes(LiteGraph) {
     LiteGraph.registerNodeType("shot/fire", ShotFireNode);
     LiteGraph.registerNodeType("shot/multifire", ShotMultiFireNode);
     LiteGraph.registerNodeType("shot/missile", ShotMissileNode);
+    LiteGraph.registerNodeType("shot/pmissile", ShotPMissileNode);
+    LiteGraph.registerNodeType("shot/laser", ShotLaserNode);
 }
 
 // グラフドメイン("behavior"|"shot")に応じて、LiteGraphのAdd Node検索に出てくるノード種類を
@@ -2098,10 +2256,24 @@ function setActiveNodePalette(domain) {
 // (title, value, callback, event, multiline)。クリック位置の近くに、単純なinputを1つ出すだけにする。
 // multiline=trueの場合はtextarea(Commentノードなど複数行テキスト用)にし、Enterは改行として
 // 素通しする(確定はEscape/フォーカス外れのみ)。それ以外は従来通りEnterで確定・Escapeでキャンセル。
+// 現在開いている入力ポップアップ(1つだけ)。LiteGraph本体のLGraphCanvas.prototype.promptが
+// 内部で持つthat.prompt_boxと同じ役割 - このパネルはprompt自体をcustomWidgetPromptに丸ごと
+// 差し替えているため、この「前のポップアップを閉じてから次を開く」処理も自前で持つ必要がある
+// (元々これが抜けていて、ウィジェットをクリックするたびに前のポップアップが残ったまま新しい
+// ポップアップが重なって増えていくバグになっていた)。
+let openWidgetPromptBox = null;
+
 function customWidgetPrompt(title, value, callback, event, multiline) {
     if (!litegraphCanvas || !litegraphCanvas.canvas) return;
     const container = litegraphCanvas.canvas.parentNode;
     if (!container) return;
+
+    // 前回のポップアップが閉じ切らないまま(blurが発火しなかった等)残っていたら、新しいものを
+    // 作る前に強制的に片付ける(値はコミットせず、単に消す)。
+    if (openWidgetPromptBox && openWidgetPromptBox.parentNode) {
+        openWidgetPromptBox.parentNode.removeChild(openWidgetPromptBox);
+    }
+    openWidgetPromptBox = null;
 
     const box = document.createElement('div');
     box.className = 'be-value-prompt' + (multiline ? ' multiline' : '');
@@ -2117,6 +2289,7 @@ function customWidgetPrompt(title, value, callback, event, multiline) {
     box.appendChild(label);
     box.appendChild(input);
     container.appendChild(box);
+    openWidgetPromptBox = box;
 
     const rect = container.getBoundingClientRect();
     let left = 10;
@@ -2136,6 +2309,7 @@ function customWidgetPrompt(title, value, callback, event, multiline) {
         if (done) return;
         done = true;
         if (box.parentNode) box.parentNode.removeChild(box);
+        if (openWidgetPromptBox === box) openWidgetPromptBox = null;
         if (shouldCommit) callback(input.value);
     };
 
@@ -2368,6 +2542,22 @@ async function switchToShotManager(panel) {
     await loadShotManagerData(panel);
 }
 
+// ShotManagerの各行(ShotPatternID)が、Player武器(Weapons.csv)/Enemy(Enemies.csv)の
+// どちら(または両方/どちらでもない)から参照されているかを判定するためのID集合。
+// WeaponManager/Shot Patternグラフエディタとの役割分担を視覚的に分かりやすくするための
+// グルーピング表示(仮想フォルダ分け)にのみ使う - データ自体はどこにも新規保存しない。
+let smPlayerPatternIds = new Set();
+let smEnemyPatternIds = new Set();
+
+async function loadShotManagerCrossRefs() {
+    const [playerIds, enemyIds] = await Promise.all([
+        fetchColumnValues('Weapons.csv', 'ShotPatternID'),
+        fetchColumnValues('Enemies.csv', 'ShotPatternID'),
+    ]);
+    smPlayerPatternIds = new Set(playerIds);
+    smEnemyPatternIds = new Set(enemyIds);
+}
+
 async function loadShotManagerData(panel) {
     setStatus(panel, 'Loading ShotManager data...', false);
     const [resData, resPrefabs, resSounds] = await Promise.all([
@@ -2375,6 +2565,7 @@ async function loadShotManagerData(panel) {
         Editor.Message.request('behavior-editor', 'list-bullet-prefabs'),
         Editor.Message.request('behavior-editor', 'list-sound-ids'),
         loadBulletConfig(panel),
+        loadShotManagerCrossRefs(),
     ]);
 
     if (resPrefabs && resPrefabs.ok) {
@@ -2588,19 +2779,11 @@ function updateTableTotalWidth(table) {
     }
 }
 
-function renderShotManagerTable(panel) {
-    const wrap = panel.$.smTableWrap || (panel.shadowRoot ? panel.shadowRoot.querySelector('.sm-table-wrap') : (panel.querySelector ? panel.querySelector('.sm-table-wrap') : null));
-    if (!wrap) {
-        console.error('[ShotManager] .sm-table-wrap element not found in panel!');
-        return;
-    }
-
-    wrap.innerHTML = '';
-    if (shotManagerItems.length === 0) {
-        wrap.innerHTML = '<div style="padding: 20px; color: #888;">No ShotPattern JSON files found.</div>';
-        return;
-    }
-
+// SM_COLUMNS分のthead+空table(幅復元・ソートクリック・列リサイズ付き)を1つ作る。
+// Player/Enemy/Both/Unusedのグループごとに独立した<table>を作るので、これをグループの数だけ呼ぶ
+// (列幅の保存キー"ShotManager.csv::<col>"はグループ間で共有するので、リサイズ結果は全グループに
+// 揃って反映される)。
+function buildShotManagerTableShell(panel) {
     const table = document.createElement('table');
     table.className = 'sm-table';
 
@@ -2670,9 +2853,12 @@ function renderShotManagerTable(panel) {
     table.appendChild(thead);
     table.style.width = `${totalInitWidth}px`;
 
-    const tbody = document.createElement('tbody');
+    return table;
+}
 
-    shotManagerItems.forEach((item) => {
+// 1件分の<tr>を作る(renderShotManagerTable()がグループごとに呼ぶ)。
+function buildShotManagerRow(panel, item) {
+    {
         const tr = document.createElement('tr');
 
         // ID
@@ -2685,7 +2871,7 @@ function renderShotManagerTable(panel) {
         // Type
         const tdType = document.createElement('td');
         const selType = document.createElement('select');
-        ['Fire', 'MultiFire', 'Missile', 'RadialFire', 'NWayFire'].forEach(t => {
+        ['Fire', 'MultiFire', 'Missile', 'PMissile', 'Laser', 'RadialFire', 'NWayFire'].forEach(t => {
             const opt = document.createElement('option');
             opt.value = t;
             opt.textContent = t;
@@ -2872,11 +3058,55 @@ function renderShotManagerTable(panel) {
         tdAction.appendChild(btnJump);
         tr.appendChild(tdAction);
 
-        tbody.appendChild(tr);
-    });
+        return tr;
+    }
+}
 
-    table.appendChild(tbody);
-    wrap.appendChild(table);
+// Player(Weapons.csvから参照)/Enemy(Enemies.csvから参照)/Both(両方から参照)/Unused(どちらからも
+// 参照されていない)の4グループに分け、それぞれ<details>(既定で開いた状態、背景色で見分けが付く)
+// にまとめて表示する。WeaponManager/Shot Patternグラフエディタとの役割分担が視覚的に分かるように
+// するための表示上の仮想フォルダ分けで、保存されるデータの構造自体は変えない。
+const SM_GROUPS = [
+    { key: 'player', label: '⚔ Player武器', tint: 'rgba(97, 175, 239, 0.12)', match: (id) => smPlayerPatternIds.has(id) && !smEnemyPatternIds.has(id) },
+    { key: 'enemy', label: '👾 Enemy', tint: 'rgba(224, 108, 108, 0.12)', match: (id) => smEnemyPatternIds.has(id) && !smPlayerPatternIds.has(id) },
+    { key: 'both', label: '🔀 Player & Enemy 両方から参照', tint: 'rgba(190, 130, 230, 0.12)', match: (id) => smPlayerPatternIds.has(id) && smEnemyPatternIds.has(id) },
+    { key: 'unused', label: '❔ どこからも未参照', tint: 'rgba(255, 255, 255, 0.04)', match: (id) => !smPlayerPatternIds.has(id) && !smEnemyPatternIds.has(id) },
+];
+
+function renderShotManagerTable(panel) {
+    const wrap = panel.$.smTableWrap || (panel.shadowRoot ? panel.shadowRoot.querySelector('.sm-table-wrap') : (panel.querySelector ? panel.querySelector('.sm-table-wrap') : null));
+    if (!wrap) {
+        console.error('[ShotManager] .sm-table-wrap element not found in panel!');
+        return;
+    }
+
+    wrap.innerHTML = '';
+    if (shotManagerItems.length === 0) {
+        wrap.innerHTML = '<div style="padding: 20px; color: #888;">No ShotPattern JSON files found.</div>';
+        return;
+    }
+
+    SM_GROUPS.forEach((group) => {
+        const items = shotManagerItems.filter((item) => group.match(item.id));
+        if (items.length === 0) return;
+
+        const details = document.createElement('details');
+        details.className = 'sm-group-details';
+        details.style.background = group.tint;
+        details.open = true;
+
+        const summary = document.createElement('summary');
+        summary.textContent = `${group.label} (${items.length})`;
+        details.appendChild(summary);
+
+        const table = buildShotManagerTableShell(panel);
+        const tbody = document.createElement('tbody');
+        items.forEach((item) => tbody.appendChild(buildShotManagerRow(panel, item)));
+        table.appendChild(tbody);
+        details.appendChild(table);
+
+        wrap.appendChild(details);
+    });
 }
 
 module.exports = Editor.Panel.define({
@@ -3231,6 +3461,9 @@ module.exports = Editor.Panel.define({
         /* --- ShotManager内の弾共通発光設定(BulletConfig.json、折りたたみ) --- */
         .bc-details { flex-shrink: 0; background: #202020; border-radius: 6px; padding: 6px 10px; }
         .bc-details summary { cursor: pointer; color: #ddd; font-weight: bold; padding: 4px 0; }
+        .sm-group-details { border-radius: 6px; padding: 6px 10px; margin-bottom: 10px; }
+        .sm-group-details summary { cursor: pointer; color: #eee; font-weight: bold; padding: 4px 0; }
+        .sm-group-details .sm-table { margin-top: 6px; }
         .bc-toolbar { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
         .bc-btn-refresh { padding: 5px 12px; background: #2d5f8a; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
         .bc-btn-refresh:hover { background: #3a75aa; }
@@ -3539,6 +3772,10 @@ module.exports = Editor.Panel.define({
         // Fire/MultiFire/MissileノードのprefabNameドロップダウン用に、Bullet Prefab一覧も起動時に読んでおく。
         const bulletPrefabResult = await Editor.Message.request('behavior-editor', 'list-bullet-prefabs');
         bulletPrefabList = (bulletPrefabResult && bulletPrefabResult.ok) ? bulletPrefabResult.list : [];
+
+        // LaserノードのprefabNameドロップダウン用に、Laser Prefab一覧も起動時に読んでおく。
+        const laserPrefabResult = await Editor.Message.request('behavior-editor', 'list-laser-prefabs');
+        laserPrefabList = (laserPrefabResult && laserPrefabResult.ok) ? laserPrefabResult.list : [];
 
         await loadFile(this, currentFile);
         renderTabBar(this);

@@ -28,3 +28,16 @@ P12_Sovereign,Data/ShotPatterns/P12_Sovereign,Copied from P11_SideCannon
 P13_DiffusionBeam,Data/ShotPatterns/P13_DiffusionBeam,Copied from P09_Crush-Cores
 P14_ScrewBeam,Data/ShotPatterns/P14_ScrewBeam,Copied from P13_DiffusionBeam
 P15_DistortionBeam,Data/ShotPatterns/P15_DistortionBeam,Copied from P14_ScrewBeam
+P16_HyperionFlux,Data/ShotPatterns/P16_HyperionFlux,Copied from P15_DistortionBeam
+P21_Missile,Data/ShotPatterns/P21_Missile,
+P22_RMissile,Data/ShotPatterns/P22_RMissile,
+P23_HeavyMissile,Data/ShotPatterns/P23_HeavyMissile,
+P24_HormingMissile,Data/ShotPatterns/P24_HormingMissile,
+P25_SwarmSalvo,Data/ShotPatterns/P25_SwarmSalvo,
+P26_FatalLock-On,Data/ShotPatterns/P26_FatalLock-On,
+P27_BunkerBuster,Data/ShotPatterns/P27_BunkerBuster,
+P31_LaserCannon,Data/ShotPatterns/P31_LaserCannon,
+P32_SolarLay,Data/ShotPatterns/P32_SolarLay,Copied from P31_LaserCannon
+P33_BusterLance,Data/ShotPatterns/P33_BusterLance,Copied from P32_SolarLay
+P34_AetherSlicer,Data/ShotPatterns/P34_AetherSlicer,Copied from P33_BusterLance
+P35_Ouroboros,Data/ShotPatterns/P35_Ouroboros,Copied from P34_AetherSlicer

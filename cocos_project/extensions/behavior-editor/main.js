@@ -80,6 +80,10 @@ function getBulletPrefabsDir() {
     return path.join(Editor.Project.path, 'assets', 'resources', 'Prefabs', 'Bullets');
 }
 
+function getLaserPrefabsDir() {
+    return path.join(Editor.Project.path, 'assets', 'resources', 'Prefabs', 'Lasers');
+}
+
 // 弾専用の共通発光設定(パルス速度/グローサイズ/アルファ/emissive)。master-manager拡張の
 // GameManagerConfig.jsonと同じ役割だが、弾専用の値はShotManagerタブ(ここ=behavior-editor拡張の
 // 管轄)側で管理する - GameManagerとは無関係な値をGameManagerEditor側に置くのはおかしい、という
@@ -339,11 +343,16 @@ function deleteEntry(config, id) {
 // master-manager/panels/default/index.jsのloadShotManagerData/saveShotManagerDataから呼ばれる
 // (list-shot-manager-data/save-shot-manager-dataメッセージ経由)。
 
-const ATTACK_NODE_TYPES = ['Fire', 'MultiFire', 'Missile', 'RadialFire', 'NWayFire'];
+// 許可リスト(Fire/MultiFire/Missile/PMissile/...)を新しい攻撃タイプを追加するたびに手で増やす方式は
+// 増やし忘れの元(実際にPMissile追加時に一度忘れた)なので、除外リスト方式に変える。ShotGraphの
+// 流れ制御系ノード(assets/scripts/GameDataTypes.tsのShotGraphNode.type参照)はほぼ増減しないため、
+// 「これら以外は全部attackノード扱い」にしておけば、以後Laser/Wave/Circle等の新しい攻撃タイプを
+// 追加してもこのファイルを触る必要が無くなる。
+const NON_ATTACK_NODE_TYPES = ['Start', 'Wait', 'Branch', 'Loop', 'Random', 'Reroute', 'Comment'];
 
 function findAttackNode(graph) {
     if (!graph || !Array.isArray(graph.nodes)) return null;
-    return graph.nodes.find(n => ATTACK_NODE_TYPES.includes(n.type)) || null;
+    return graph.nodes.find(n => !NON_ATTACK_NODE_TYPES.includes(n.type)) || null;
 }
 
 function findFollowingWaitNode(graph, node) {
@@ -537,6 +546,23 @@ module.exports = {
                 return { ok: true, list };
             } catch (err) {
                 console.error('[BehaviorEditor Extension] listBulletPrefabs failed:', err);
+                return { ok: false, error: err.message };
+            }
+        },
+
+        // Editor.Message.request('behavior-editor', 'list-laser-prefabs')
+        // assets/resources/Prefabs/Lasers/ 配下の.prefabファイル名一覧を返す(拡張子なし)。
+        // Shot Pattern エディタのLaserノードの prefabName ドロップダウン用。listBulletPrefabsと同じ方式。
+        listLaserPrefabs() {
+            try {
+                const dir = getLaserPrefabsDir();
+                if (!fs.existsSync(dir)) return { ok: true, list: [] };
+                const list = fs.readdirSync(dir)
+                    .filter((f) => f.endsWith('.prefab'))
+                    .map((f) => f.slice(0, -'.prefab'.length));
+                return { ok: true, list };
+            } catch (err) {
+                console.error('[BehaviorEditor Extension] listLaserPrefabs failed:', err);
                 return { ok: false, error: err.message };
             }
         },

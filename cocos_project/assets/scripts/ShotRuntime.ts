@@ -18,6 +18,14 @@ interface MultiFireState {
     timer: number;     // 次弾までの残り秒数
 }
 
+// PMissileノードが発射中(LRLRL…の順に1発ずつブロックしながら撃っている間)の状態。
+// MultiFireStateと同型だが、PMissileは常に(staggerDelay<=0でも)ブロック式で発射する
+// (同時発射は仕様上サポートしない)ため別のstateとして持つ。
+interface PMissileState {
+    remaining: number;
+    timer: number;
+}
+
 /**
  * ショットグラフ(ShotGraph)を解釈・実行するランタイムインタプリタ。
  * BehaviorRuntime.tsと同じ設計(カーソル逐次実行/タイマーノード追跡/Loopカウンタ/Random値配線)を
@@ -41,6 +49,10 @@ export class ShotRuntime {
     private _timerRemaining: number = 0;
     private _loopCounters: Map<number, number> = new Map();
     private _multiFireState: MultiFireState | null = null;
+    private _pMissileState: PMissileState | null = null;
+    // Laserノードが発射中(持続ビームのduration秒間、フローをブロックしている間)の残り秒数。
+    // 生成はnullから遷移する最初の1回だけ行う(以後はカウントダウンのみ)。
+    private _laserRemaining: number | null = null;
     private _elapsed: number = 0;
 
     private _randomStates: Map<number, RandomNodeState> = new Map();
@@ -50,6 +62,11 @@ export class ShotRuntime {
     public getSpeedMult: () => number = () => 1.0;
     public getDamageMult: () => number = () => 1.0;
     public getIntervalMult: () => number = () => 1.0;
+    // Weapons.csvのScaleMin/Max(Lv別成長カーブ、WeaponCalc.computeWeaponLevelStats()参照)を
+    // ShotGraphの見た目に反映するためのフック。PlayerControllerがこのShotRuntime構築時に、
+    // このパターンに対応する武器の現在Lvでの実Scale値を返す関数をセットする(既定1.0=無補正、
+    // 武器システム未連動のEnemy/旧パターンには一切影響しない)。
+    public getScaleMult: () => number = () => 1.0;
 
     constructor(graph: ShotGraph | null, gm: IGameManager, ownerNode: Node, isEnemy: boolean) {
         this._gm = gm;
@@ -191,6 +208,50 @@ export class ShotRuntime {
                     this._cursor = node.next ?? null;
                     continue;
                 }
+                case "PMissile": {
+                    const p = node.params || {};
+                    const count = Math.max(1, Math.round(this.resolveNum(p, "count", 5)));
+                    const staggerDelay = Math.max(0.01, this.resolveNum(p, "staggerDelay", 0.15));
+
+                    if (!this._pMissileState) {
+                        this._pMissileState = { remaining: count, timer: 0 };
+                    }
+
+                    // MultiFireと違い同時発射オプションは無い(常にLRLRL…の順で1発ずつブロック発射)。
+                    if (this._pMissileState.timer <= 0) {
+                        this.doPMissilePellet(p, count, this._pMissileState.remaining);
+                        this._pMissileState.remaining--;
+                        this._pMissileState.timer = staggerDelay;
+                    } else {
+                        this._pMissileState.timer -= dt;
+                    }
+
+                    if (this._pMissileState.remaining <= 0) {
+                        this._pMissileState = null;
+                        this._cursor = node.next ?? null;
+                        continue;
+                    }
+                    return; // 残弾を撃ち切るまで待機継続
+                }
+                case "Laser": {
+                    const p = node.params || {};
+                    const duration = Math.max(0.05, this.resolveNum(p, "duration", 1.0));
+
+                    if (this._laserRemaining == null) {
+                        // 最初の1回だけビームを生成する(以後は自分の寿命が尽きるまで自機に追従して
+                        // 光り続けるので、ここでは何度も生成しない)。
+                        this.doLaser(p);
+                        this._laserRemaining = duration;
+                    }
+
+                    this._laserRemaining -= dt;
+                    if (this._laserRemaining <= 0) {
+                        this._laserRemaining = null;
+                        this._cursor = node.next ?? null;
+                        continue;
+                    }
+                    return; // duration秒経過までフローをブロックする(連続で撃ち直さないようにするため)
+                }
                 case "Wait": {
                     const seconds = this.resolveNum(node.params, "seconds", 1.0) * this.getIntervalMult();
                     if (this._timerNodeId !== node.id) {
@@ -298,13 +359,30 @@ export class ShotRuntime {
     // いずれも未指定ならBullet.ts側の既定(isEnemyベースの色、強度1.0、等倍)のまま変化しない。
     private applyVisualParams(bullet: any, p: any) {
         if (!bullet || typeof bullet.applyVisualOverride !== "function") return;
+        // 武器のLv別Scale成長(Weapons.csv ScaleMin/Max、WeaponCalc.computeWeaponLevelStats())を
+        // 反映する倍率。PlayerControllerが未設定なら常に1.0(無補正)なので、武器システムと連動して
+        // いないEnemyパターン等には一切影響しない。
+        const scaleMult = this.getScaleMult();
         const color = this.parseHexColor(p && p.color);
         const hasGlow = p && p.glowIntensity != null;
         const glowIntensity = hasGlow ? this.resolveNum(p, "glowIntensity", 1.0) : null;
         const hasScale = p && p.scale != null;
-        const scale = hasScale ? this.resolveNum(p, "scale", 1.0) : null;
+        const baseScale = hasScale ? this.resolveNum(p, "scale", 1.0) : 1.0;
+        // scaleパラメータ自体が未指定でも、getScaleMult()が1.0以外(=Lvアップで大きくなる武器)なら
+        // その分だけは反映する必要があるので、どちらか一方でも該当すればapplyVisualOverride()を呼ぶ。
+        const scale = (hasScale || scaleMult !== 1.0) ? baseScale * scaleMult : null;
         if (color || glowIntensity != null || scale != null) {
             bullet.applyVisualOverride(color, glowIntensity, scale);
+        }
+        // 時間経過でスケールが拡大していく弾(WideBeam等の拡散リング用)。growScale未指定/0以下なら
+        // 何もしない(既存のFire/MultiFire/Missileパターンには一切影響しない)。
+        // growScaleX/Yを個別指定すれば横幅だけ大きく広げる等の非均一な拡大も可能(未指定ならgrowScaleを両軸に使う)。
+        // scaleMultは開始・目標どちらにも掛けるので、Lvが上がるほどリング全体が丸ごと大きくなる。
+        if (p && p.growScale != null && typeof bullet.applyGrowth === "function") {
+            const growScale = this.resolveNum(p, "growScale", 1.0);
+            const growScaleX = (p.growScaleX != null ? this.resolveNum(p, "growScaleX", growScale) : growScale) * scaleMult;
+            const growScaleY = (p.growScaleY != null ? this.resolveNum(p, "growScaleY", growScale) : growScale) * scaleMult;
+            if (growScale > 0) bullet.applyGrowth(growScaleX, growScaleY);
         }
     }
 
@@ -420,6 +498,86 @@ export class ShotRuntime {
                 bullet.target = target;
                 bullet.steerForce = this.resolveNum(p, "turnRate", 0.1);
             }
+        }
+    }
+
+    // PMissileの1発分。indexInBurst(残数)を見て左(lm)/右(rm)を交互に振り分け(0番目=左から開始、
+    // LRLRL…の順)、自機中心からsideOffset分だけ横にずらした位置から発射する。Bullet.applyArc()に
+    // 2次関数の係数一式を渡し、その後の直進速度/ホーミング可否もここで確定させる
+    // (ホーミング先はMissileノードと同じく発射時に1回だけ解決し、アーク終了時までBullet側で保持する)。
+    private doPMissilePellet(p: any, totalCount: number, remaining: number) {
+        const gm = this._gm;
+        if (!gm) return;
+
+        const pelletIndex = totalCount - remaining; // 0-based、発射順
+        const side = (pelletIndex % 2 === 0) ? -1 : 1; // 偶数番目(0,2,4...)=左(lm)、奇数番目=右(rm)
+
+        const baseAngleDeg = this.resolveAimAngleDeg(p, this._isEnemy ? 270 : 90);
+        const baseAngleRad = baseAngleDeg * Math.PI / 180;
+        // 進行方向を基準に「左(-X)」を指す単位ベクトル。side=-1(L)でこの向きにそのまま、
+        // side=+1(R)で反転(=右)させる(Bullet.applyArc()側の_arcLateralAxisと符号を揃えること)。
+        const lateralAxisX = Math.sin(baseAngleRad);
+        const lateralAxisY = -Math.cos(baseAngleRad);
+        const sideOffset = this.resolveNum(p, "sideOffset", 15);
+        const spawnX = this._ownerNode.position.x + lateralAxisX * sideOffset * side;
+        const spawnY = this._ownerNode.position.y + lateralAxisY * sideOffset * side;
+
+        const speed = this.resolveNum(p, "speed", 3.0) * this.getSpeedMult();
+        const damage = this.resolveNum(p, "damage", 15) * this.getDamageMult();
+        const pierceCount = this.resolveNum(p, "pierceCount", 0);
+
+        const bullet = gm.spawnBullet(spawnX, spawnY, baseAngleRad, speed, damage, this._isEnemy, p.prefabName);
+        if (!bullet) {
+            console.warn('[ShotRuntime] PMissile pellet FAILED: gm.spawnBullet() returned null.');
+            return;
+        }
+        bullet.pierceRemaining = pierceCount;
+        this.applyVisualParams(bullet, p);
+        this.playFireSound(p, this._ownerNode.position);
+
+        const isHomingRequested = p.homing === true;
+        let homingTarget: any = null;
+        if (isHomingRequested) {
+            homingTarget = this._isEnemy ? gm.playerNode : gm.findNearestEnemyTo(spawnX, spawnY);
+        }
+
+        if (typeof bullet.applyArc === "function") {
+            const coeffA = this.resolveNum(p, "arcCoeffA", 3);
+            const coeffB = this.resolveNum(p, "arcCoeffB", -4); // 負値=後方に膨らんでから前進(L/Rで符号は変えない、左右対称)
+            const coeffC = this.resolveNum(p, "arcCoeffC", -2);
+            const xRange = this.resolveNum(p, "arcXRange", 2);
+            const worldScale = this.resolveNum(p, "arcWorldScale", 10);
+            const arcDuration = Math.max(0.05, this.resolveNum(p, "arcDuration", 0.5));
+            const turnRate = this.resolveNum(p, "turnRate", 0.1);
+            bullet.applyArc(coeffA, coeffB, coeffC, xRange, worldScale, arcDuration, side, speed, isHomingRequested, homingTarget, turnRate);
+        }
+
+        console.log(`[ShotRuntime] PMissile pellet ${pelletIndex + 1}/${totalCount} OK: side=${side < 0 ? 'L' : 'R'} spawn=(${spawnX.toFixed(0)},${spawnY.toFixed(0)}) speed=${speed.toFixed(2)} damage=${damage.toFixed(1)} homing=${isHomingRequested}`);
+    }
+
+    // Laserノードから1回だけ呼ばれる(以後はGameManager.spawnLaserBeam()が生成したLaserBeam
+    // コンポーネント自身がduration秒間、自機に追従しながら接触判定・DPSダメージを管理する)。
+    // LaserBeamはBullet.tsのapplyVisualOverride/applyGrowthに相当する仕組みを持たないため、
+    // color/glowIntensity/scale等はここでは適用しない(見た目はParticleSystem側で作る想定)。
+    private doLaser(p: any) {
+        const gm = this._gm;
+        if (!gm) return;
+
+        const angleDeg = this.resolveAimAngleDeg(p, this._isEnemy ? 270 : 90);
+        const angleRad = angleDeg * Math.PI / 180;
+        const damage = this.resolveNum(p, "damage", 10) * this.getDamageMult();
+        const damageInterval = this.resolveNum(p, "damageInterval", 0.1);
+        const duration = Math.max(0.05, this.resolveNum(p, "duration", 1.0));
+        const length = this.resolveNum(p, "length", 300);
+        const width = this.resolveNum(p, "width", 20);
+        const particleLengthScale = this.resolveNum(p, "particleLengthScale", 1.0);
+
+        const beam = gm.spawnLaserBeam(this._ownerNode, angleRad, damage, damageInterval, duration, length, width, this._isEnemy, p.prefabName, particleLengthScale);
+        if (beam) {
+            this.playFireSound(p, this._ownerNode.position);
+            console.log(`[ShotRuntime] Laser OK: angle=${angleDeg.toFixed(0)}deg damage=${damage.toFixed(1)} interval=${damageInterval.toFixed(2)}s duration=${duration.toFixed(2)}s length=${length} width=${width}`);
+        } else {
+            console.warn('[ShotRuntime] Laser FAILED: gm.spawnLaserBeam() returned null.');
         }
     }
 }

@@ -1,0 +1,119 @@
+{
+    "id": "P25_SwarmSalvo",
+    "nodes": [
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 5
+        },
+        {
+            "id": 4,
+            "type": "Loop",
+            "params": {
+                "count": -1,
+                "target": 1
+            },
+            "next": null
+        },
+        {
+            "id": 6,
+            "type": "Comment",
+            "params": {
+                "text": "aim: fixed=固定角度 / atPlayer=自機方向(Enemy発射のみ有効)\nang: 基準発射角度(度、90=上)\ncount: 発射数(奇数/偶数どちらも可)\nstagger: 1発ごとの発射間隔(秒、LRLRL順)\nsideOfs: 自機中心からの左右オフセット(px)\narcA/arcB/arcC: アーク軌道の2次関数係数(y=A*x²+B*x+C、Bの符号はL/Rで自動反転)\narcRange: 数式のx範囲(横方向の広がり)\narcScale: 数式→px変換係数(全体の大きさ)\narcSec: アークを描く時間(秒、経過後は直進/ホーミングへ)\nspd: アーク終了後の直進速度\ndmg: ダメージ\nhoming: アーク終了後にホーミングへ切り替えるか\nturn: ホーミング時の旋回の強さ\npierce: 貫通回数(0=通常/-1=無限)\nprefab: 弾のPrefab名\ncolor: 色(\"#rrggbb\"、空欄なら既定色)\ngrow/growX/growY: 寿命中のスケール拡大倍率(0=拡大しない)"
+            },
+            "next": null
+        },
+        {
+            "id": 3,
+            "type": "Wait",
+            "params": {
+                "seconds": 1.8
+            },
+            "next": 4
+        },
+        {
+            "id": 5,
+            "type": "PMissile",
+            "params": {
+                "aim": "fixed",
+                "angle": 90,
+                "count": 8,
+                "staggerDelay": 0.15,
+                "sideOffset": 30,
+                "arcCoeffA": 1,
+                "arcCoeffB": 3,
+                "arcCoeffC": -2,
+                "arcXRange": 1.5,
+                "arcWorldScale": 45,
+                "arcDuration": 0.5,
+                "speed": 15,
+                "damage": 32,
+                "homing": false,
+                "turnRate": 0.1,
+                "pierceCount": 0,
+                "prefabName": "PMissile03",
+                "color": "FFDDDD",
+                "glowIntensity": 0,
+                "scale": 1,
+                "growScale": 0,
+                "growScaleX": 0,
+                "growScaleY": 0,
+                "soundId": "SE_PMissile"
+            },
+            "next": 3
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "3": [
+                635,
+                169
+            ],
+            "4": [
+                1227,
+                75
+            ],
+            "5": [
+                247,
+                521
+            ],
+            "6": [
+                489,
+                910
+            ]
+        },
+        "nodeStyles": {
+            "6": {
+                "color": "#4a4a2a",
+                "bgcolor": "#3a3a1a"
+            }
+        },
+        "nodeSizes": {
+            "1": [
+                140,
+                26
+            ],
+            "3": [
+                210,
+                78
+            ],
+            "4": [
+                210,
+                78
+            ],
+            "5": [
+                210,
+                878
+            ],
+            "6": [
+                584.0682983398438,
+                302.4587707519531
+            ]
+        },
+        "groups": []
+    }
+}

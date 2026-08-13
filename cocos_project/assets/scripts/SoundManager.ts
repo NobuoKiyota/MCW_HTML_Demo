@@ -50,7 +50,10 @@ export class SoundManager extends Component {
     // SE Management
     private seSources: AudioSource[] = [];
     private seGroups: Map<string, SEGroup> = new Map();
-    private activeSEs: Map<string, AudioSource[]> = new Map(); // GroupID -> Active Sources
+    // GroupID -> 再生中のSE一覧。priorityも一緒に持たせているのは、maxPolyphony超過時に
+    // Sounds.csvのPriority=1(=保護対象)を無視して機械的に一番古い音を止めていた過去のバグ
+    // (グループ全体の上限に対してPriorityが一切効いていなかった)を直すため。
+    private activeSEs: Map<string, { source: AudioSource; priority: number }[]> = new Map(); // GroupID -> Active Sources
     private activeSoundSEs: Map<string, AudioSource[]> = new Map(); // Path/ID -> Active Sources
     private lastPlayTimes: Map<string, number> = new Map(); // Path/ID -> Last play time (ms)
     private clipCache: Map<string, AudioClip> = new Map(); // Path/ID -> Loaded Clip
@@ -359,8 +362,8 @@ export class SoundManager extends Component {
     public stopAllSE() {
         // 全てのグループのアクティブなSEを停止
         this.activeSEs.forEach((sources, groupId) => {
-            sources.forEach(src => {
-                if (src && src.isValid) src.stop();
+            sources.forEach(entry => {
+                if (entry.source && entry.source.isValid) entry.source.stop();
             });
             sources.length = 0;
         });
@@ -455,7 +458,7 @@ export class SoundManager extends Component {
 
         // 3. Execution logic
         const onClipLoaded = (clip: AudioClip) => {
-            const source = this.executePlaySE(clip, groupId, volMult);
+            const source = this.executePlaySE(clip, groupId, volMult, null, soundData ? soundData.priority : 0);
             // Track for individual limit
             if (soundData && soundData.limit > 0 && source) {
                 const activeList = this.activeSoundSEs.get(actualPath);
@@ -565,7 +568,7 @@ export class SoundManager extends Component {
 
         // 4. Load & Play
         const onClipLoaded = (clip: AudioClip) => {
-            const source = this.executePlaySE(clip, groupId, volScale, worldPos);
+            const source = this.executePlaySE(clip, groupId, volScale, worldPos, soundData ? soundData.priority : 0);
 
             // Track for individual limit
             if (soundData && soundData.limit > 0 && source) {
@@ -630,7 +633,7 @@ export class SoundManager extends Component {
         };
     }
 
-    private executePlaySE(clip: AudioClip, groupId: string, volScale: number = 1.0, worldPos: Vec3 = null): AudioSource {
+    private executePlaySE(clip: AudioClip, groupId: string, volScale: number = 1.0, worldPos: Vec3 = null, priority: number = 0): AudioSource {
         // Defensive initialization - ensure maps are ready
         if (!this.seGroups) this.seGroups = new Map();
         if (!this.activeSEs) this.activeSEs = new Map();
@@ -641,10 +644,15 @@ export class SoundManager extends Component {
 
         let activeList = this.activeSEs.get(groupId);
 
-        // Polyphony control
+        // Polyphony control。Sounds.csvのPriority=1(=保護対象、playSE/play3dSEの個別Limit判定と
+        // 同じ意味)が付いた音は、グループの上限超過時も後回しにする(なるべく止めない)。
+        // 一番古い「保護されていない」音を止める - 全部が保護対象なら仕方なく一番古いものを止める
+        // (保護だけで無制限に鳴らし続けられるとグループの上限自体が意味を失うため)。
         if (activeList.length >= group.maxPolyphony) {
-            const oldest = activeList.shift();
-            oldest.stop();
+            let victimIndex = activeList.findIndex(entry => entry.priority !== 1);
+            if (victimIndex === -1) victimIndex = 0;
+            const [victim] = activeList.splice(victimIndex, 1);
+            if (victim && victim.source) victim.source.stop();
         }
 
         const source = this.getAvailableSESource();
@@ -675,10 +683,10 @@ export class SoundManager extends Component {
 
         source.play();
 
-        activeList.push(source);
+        activeList.push({ source, priority });
 
         this.scheduleOnce(() => {
-            const index = activeList.indexOf(source);
+            const index = activeList.findIndex(entry => entry.source === source);
             if (index > -1) activeList.splice(index, 1);
         }, clip.getDuration());
 
