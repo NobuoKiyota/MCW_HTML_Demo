@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Vec3, Size, BoxCollider2D, Contact2DType, Collider2D, IPhysics2DContact, Sprite, Color, find, ParticleSystem2D, gfx, UITransform, tween, MeshRenderer, Material } from 'cc';
+import { _decorator, Component, Node, Vec3, Size, BoxCollider2D, Contact2DType, Collider2D, IPhysics2DContact, Sprite, Color, find, ParticleSystem2D, gfx, UITransform, tween, MeshRenderer, Material, Layers } from 'cc';
 // import { Enemy } from './Enemy'; // Cycle
 // import { PlayerController } from './PlayerController'; // Cycle
 // import { GameManager } from './GameManager'; // Cycle
@@ -98,7 +98,20 @@ export class Bullet extends Component {
     private _growthStartScaleY: number = 1.0;
     private _growthTargetScaleX: number = 1.0;
     private _growthTargetScaleY: number = 1.0;
+    // 経過時間の基準点(=applyGrowth()が呼ばれた瞬間のlife、ほぼ常に寿命の初期値と一致)。
+    // 「進行度」はこの値からの経過時間(_growthLifeTotal - life)を_growthDurationで割って求める。
     private _growthLifeTotal: number = 0;
+    // 拡大が完了するまでの秒数。既定は寿命全体(_growthLifeTotal自身)と同じ = 寿命ぴったりで
+    // 拡大しきる従来通りの挙動。ShotRuntime.tsのgrowDurationパラメータ経由でこれより短い値を
+    // 渡すと、寿命(duration)は変えずに拡大だけ先に完了させ、残り時間は最大サイズのまま留まる
+    // (「durはそのままで拡がる速度を上げたい」場合に使う)。
+    private _growthDuration: number = 0;
+
+    // 発射角度とは独立に、Z軸を毎フレーム回転させ続ける演出(ShockWave等のリング用)。
+    // ShotRuntime.tsのspinSpeedパラメータ経由でapplySpin()が呼ばれた弾だけ有効になる
+    // (既定は0=回転なし、既存弾には無関係)。Homing/Arc中のnode.angle上書きとは競合せず、
+    // それらが設定した角度に対して毎フレーム加算される(向き+回転の両方を両立できる)。
+    private _spinSpeed: number = 0; // degrees/sec
 
     // 残像(分身)演出用。BulletTrailImageコンポーネント付きの子ノードが1つでも見つかった場合のみ、
     // 毎フレーム自身のworld位置/スケール/角度を履歴バッファに記録し、各分身ノードをdelayFrames分
@@ -164,6 +177,7 @@ export class Bullet extends Component {
         this._scaleMultiplierY = 1.0;
         this.syncColliderSize(1.0, 1.0);
         this._growthEnabled = false;
+        this._spinSpeed = 0; // プール再利用時に前回のapplySpin()が残らないようにする
         this._arcActive = false; // プール再利用時に前回のapplyArc()が残らないようにする
         // プール再利用時に前回の履歴が新しい発射直後の分身に一瞬混ざらないよう、書き込み位置と
         // 「まだ何フレーム分溜まっているか」をリセットする(配列の中身自体は使い回して構わない -
@@ -215,6 +229,11 @@ export class Bullet extends Component {
             const embedded = this.node.getChildByName("Model3D");
             if (embedded) {
                 this._model3D = embedded;
+                // GameManager.spawnBullet()はforceUILayer()でthis.node以下を再帰的にUI_2Dレイヤーへ
+                // 強制する(このinit()呼び出しより前に実行済み)。UI_2DレイヤーはUIカメラ用で3D
+                // MeshRendererを描画対象に含まないため、Model3D配下だけはPlayerの3Dモデルと同じ
+                // DEFAULTレイヤーに戻しておかないと、どれだけscaleを大きくしても一切描画されない。
+                this.setLayerRecursive(embedded, Layers.BitMask.DEFAULT);
                 Vec3.copy(this._modelBaseScale, embedded.scale);
                 tween(embedded)
                     .by(1.0, { eulerAngles: new Vec3(0, 360, 0) } as any, { easing: "linear" })
@@ -228,6 +247,15 @@ export class Bullet extends Component {
                     this._modelMat = meshRenderer.getMaterialInstance(0);
                 }
             }
+        }
+    }
+
+    // GameManager.forceUILayer()と同じ再帰(node自身+全子孫)。UI_2Dに強制された後のModel3D
+    // サブツリーだけを別レイヤーへ戻すために使う。
+    private setLayerRecursive(node: Node, layer: number) {
+        node.layer = layer;
+        for (const child of node.children) {
+            this.setLayerRecursive(child, layer);
         }
     }
 
@@ -387,17 +415,26 @@ export class Bullet extends Component {
             this.node.setPosition(this._tempPos);
         }
 
-        // Growth (WideBeam等、applyGrowth()が呼ばれた弾のみ)。まだ減算前のlifeを使うことで、
-        // 発射直後はprogress=0(開始スケール)、寿命が尽きる瞬間にprogress=1(目標スケール)になる。
-        // _scaleMultiplierX/Yも更新しておく(残像の履歴記録・当たり判定サイズ同期双方の基準値として使う)。
-        if (this._growthEnabled && this._growthLifeTotal > 0) {
-            const progress = Math.min(1, Math.max(0, 1 - this.life / this._growthLifeTotal));
+        // Growth (WideBeam等、applyGrowth()が呼ばれた弾のみ)。経過時間(_growthLifeTotal - life、
+        // まだ減算前のlifeなので発射直後は0)を_growthDuration(既定は寿命そのもの、それより短い値を
+        // 渡されていれば拡大だけ先に完了させる)で割って進行度を出す。完了後はprogress=1のまま
+        // (=最大サイズ)で寿命が尽きるまで留まる。_scaleMultiplierX/Yも更新しておく(残像の履歴記録・
+        // 当たり判定サイズ同期双方の基準値として使う)。
+        if (this._growthEnabled && this._growthLifeTotal > 0 && this._growthDuration > 0) {
+            const elapsed = this._growthLifeTotal - this.life;
+            const progress = Math.min(1, Math.max(0, elapsed / this._growthDuration));
             this._scaleMultiplierX = this._growthStartScaleX + (this._growthTargetScaleX - this._growthStartScaleX) * progress;
             this._scaleMultiplierY = this._growthStartScaleY + (this._growthTargetScaleY - this._growthStartScaleY) * progress;
             this.node.setScale(this._baseNodeScale.x * this._scaleMultiplierX, this._baseNodeScale.y * this._scaleMultiplierY, this._baseNodeScale.z);
             // 見た目が拡大していくのに当たり判定が元のサイズのまま取り残されるとヒットしなくなるため、
             // 毎フレームcollider.sizeもここで追従させる。
             this.syncColliderSize(this._scaleMultiplierX, this._scaleMultiplierY);
+        }
+
+        // Spin (ShockWave等、applySpin()が呼ばれた弾のみ)。Homing/Arcが同フレームでnode.angleを
+        // 上書きしていてもその後に加算されるので、向きの制御とは競合しない。
+        if (this._spinSpeed !== 0) {
+            this.node.angle += this._spinSpeed * deltaTime;
         }
 
         // Trail(残像/分身)。本体の現在のworld位置・角度・スケール倍率(X/Y)を履歴バッファへ積み、
@@ -479,13 +516,16 @@ export class Bullet extends Component {
 
     /**
      * ShotRuntime.tsのgrowScaleX/Yパラメータから、生成直後(init()/applyVisualOverride()の後)に
-     * 呼ばれる想定。現在のスケール倍率(_scaleMultiplierX/Y、既定1.0)を開始値として、寿命(life)が
-     * 尽きるまでの間にtargetScaleX/Y倍まで線形に拡大していく(WideBeam等の拡散リング用)。
+     * 呼ばれる想定。現在のスケール倍率(_scaleMultiplierX/Y、既定1.0)を開始値として、
+     * targetScaleX/Y倍まで線形に拡大していく(WideBeam等の拡散リング用)。
      * X/Yを別々に指定できるので、横幅だけ大きく広がるといった非均一な拡大も作れる
      * (均一に拡大したいだけなら同じ値を渡せばよい)。未呼び出しなら従来通り拡大せず、
      * applyVisualOverride()のscaleのまま固定。
+     * growDurationSeconds未指定/0以下なら寿命(life)ぴったりで拡大しきる従来通りの挙動。
+     * 寿命より短い値を渡すと、寿命(duration)自体は変えずに拡大だけ先に完了させ、
+     * 残りの寿命は最大サイズのまま留まる(「durはそのままで拡がる速度を上げたい」場合用)。
      */
-    public applyGrowth(targetScaleX: number, targetScaleY: number) {
+    public applyGrowth(targetScaleX: number, targetScaleY: number, growDurationSeconds: number = 0) {
         if (!Number.isFinite(targetScaleX) || targetScaleX <= 0 || !Number.isFinite(targetScaleY) || targetScaleY <= 0) return;
         this._growthEnabled = true;
         this._growthStartScaleX = this._scaleMultiplierX;
@@ -493,6 +533,18 @@ export class Bullet extends Component {
         this._growthTargetScaleX = targetScaleX;
         this._growthTargetScaleY = targetScaleY;
         this._growthLifeTotal = this.life; // init()が既に3秒固定済みの前提(ShotRuntime.doFire()等はinit()の後に呼ぶ)
+        this._growthDuration = (growDurationSeconds > 0) ? Math.min(growDurationSeconds, this.life) : this.life;
+    }
+
+    /**
+     * ShotRuntime.tsのspinSpeedパラメータから、生成直後(init()の後)に呼ばれる想定。
+     * 以後、寿命が尽きるまで毎フレームnode.angleにdegPerSecond*deltaTimeを加算し続ける
+     * (ShockWave等、リングをその場で回転させ続ける演出用)。正で時計回り、負で反時計回り。
+     * 未呼び出しなら従来通り回転せず、init()時点のangleのまま固定。
+     */
+    public applySpin(degPerSecond: number) {
+        if (!Number.isFinite(degPerSecond)) return;
+        this._spinSpeed = degPerSecond;
     }
 
     /**

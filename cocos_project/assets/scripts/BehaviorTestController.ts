@@ -357,9 +357,10 @@ export class BehaviorTestController extends Component {
     }
 
     // --- Mission(仮生成) ---
-    // MissionDifficulty.csv(Lv, ModCountMin, TableCount)とSpawnTables.csv(Lv, SubLv, Dist)から、
-    // 「機体の総改造回数(modCount)」を仮の乱数(0~30、PlayerManager未実装のためのプレースホルダー)
-    // として1件のミッションをプレビュー生成する。実際の生成アルゴリズムはMissionManager実装時に
+    // MissionDifficulty.csv(Lv, ModCountMin, TableCount, SpawnTableIDs)とSpawnTables.csv(Lv, SubLv, Dist)
+    // から、「機体の総改造回数(modCount)」を仮の乱数(0~30、PlayerManager未実装のためのプレースホルダー)
+    // として1件のミッションをプレビュー生成する。候補プールはSpawnTableIDsが指定されていればそれのみ、
+    // 空ならlv一致の全SpawnTable行(従来通り)。実際の生成アルゴリズムはMissionManager実装時に
     // ここから移植する想定。
 
     private refreshMissionPreview(modCount: number) {
@@ -369,22 +370,36 @@ export class BehaviorTestController extends Component {
         const diff = db.getMissionDifficultyForModCount(modCount);
         if (!diff) { this._currentMissionPreview = null; return; }
 
-        const pool = db.spawnTables.filter(st => st.lv === diff.lv);
+        // MissionDifficulty.csv側でSpawnTableIDsが指定されていればそれだけを候補にする(個別選定)。
+        // 未指定(空)なら従来通りlv一致の全SpawnTable行を候補にする(後方互換)。
+        const pool = diff.spawnTableIds && diff.spawnTableIds.length > 0
+            ? db.spawnTables.filter(st => diff.spawnTableIds.includes(st.id))
+            : db.spawnTables.filter(st => st.lv === diff.lv);
         if (pool.length === 0) { this._currentMissionPreview = null; return; }
 
-        // 同一SpawnTable IDの重複選出はGameManagerConfig.jsonのGlobalRule(missionMaxDuplicateSpawnTable)
-        // まで許可する。上限に達したIDを除外しながら抽選し、guardで無限ループを防ぐ(300回で諦める)。
-        const maxDup = Math.max(1, this.gameManager.missionMaxDuplicateSpawnTable || 2);
-        const dupCount: { [id: string]: number } = {};
+        // ローテーション式抽選: 一度選ばれたSpawnTable IDは、その後
+        // missionMaxDuplicateSpawnTable(GameManagerConfig.jsonのGlobalRule)回ぶんの抽選から
+        // 除外され、その回数が経過すると再び候補に復帰する。1ミッション内での総出現回数に上限は
+        // 設けない(ガチャ的に長いミッションでは同じTableが何度も出ることがあり得るのは意図通り)。
+        // 目的はあくまで「直近で連続/近接して同じTableばかり選ばれる」のを防ぐことで、
+        // 全候補を必ず1回は出現させる保証は無い。pool.length <= 除外ターン数だと毎回全滅する
+        // 可能性があるため、その場合はクールダウンを1ターン進めて再試行する(guardで無限ループ防止、
+        // 300回で諦める)。
+        const cooldownTurns = Math.max(1, this.gameManager.missionMaxDuplicateSpawnTable || 2);
+        const cooldown: { [id: string]: number } = {};
         const selected: SpawnTableData[] = [];
         let guard = 0;
         while (selected.length < diff.tableCount && guard < 300) {
             guard++;
-            const cand = pool[Math.floor(Math.random() * pool.length)];
-            const cur = dupCount[cand.id] || 0;
-            if (cur >= maxDup) continue;
-            dupCount[cand.id] = cur + 1;
+            const eligible = pool.filter(st => (cooldown[st.id] || 0) <= 0);
+            if (eligible.length === 0) {
+                for (const id in cooldown) cooldown[id] = Math.max(0, cooldown[id] - 1);
+                continue;
+            }
+            const cand = eligible[Math.floor(Math.random() * eligible.length)];
             selected.push(cand);
+            for (const id in cooldown) cooldown[id] = Math.max(0, cooldown[id] - 1);
+            cooldown[cand.id] = cooldownTurns;
         }
         // SubLv昇順(弱い順)に並べ、開始margin(A)を消費した直後から順に発火させる。
         selected.sort((a, b) => a.subLv - b.subLv);

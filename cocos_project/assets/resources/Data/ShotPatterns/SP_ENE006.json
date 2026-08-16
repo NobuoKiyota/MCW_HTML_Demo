@@ -1,0 +1,67 @@
+{
+    "id": "SP_ENE006",
+    "nodes": [
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 2
+        },
+        {
+            "id": 4,
+            "type": "Loop",
+            "params": {
+                "count": -1,
+                "target": 1
+            },
+            "next": null
+        },
+        {
+            "id": 3,
+            "type": "Wait",
+            "params": {
+                "seconds": 1.8
+            },
+            "next": 4
+        },
+        {
+            "id": 2,
+            "type": "Fire",
+            "params": {
+                "aim": "atPlayer",
+                "angle": 270,
+                "speed": 10,
+                "damage": 11,
+                "pierceCount": 0,
+                "prefabName": "Bullet01",
+                "color": "FFFFFF",
+                "glowIntensity": 3,
+                "scale": 1,
+                "count": 1,
+                "soundId": "SE_EShotBullet01"
+            },
+            "next": 3
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "2": [
+                220,
+                80
+            ],
+            "3": [
+                468,
+                83
+            ],
+            "4": [
+                713,
+                82
+            ]
+        },
+        "nodeStyles": {},
+        "groups": []
+    }
+}

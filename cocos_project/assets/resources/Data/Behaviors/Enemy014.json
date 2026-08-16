@@ -1,0 +1,124 @@
+{
+    "id": "Enemy014",
+    "nodes": [
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 6
+        },
+        {
+            "id": 8,
+            "type": "Wait",
+            "params": {
+                "seconds": 0.1
+            },
+            "next": 7
+        },
+        {
+            "id": 6,
+            "type": "Spin",
+            "params": {
+                "axis": "y",
+                "degrees": 360,
+                "duration": 1.2,
+                "loop": false
+            },
+            "next": 2
+        },
+        {
+            "id": 9,
+            "type": "Random",
+            "params": {
+                "min": 240,
+                "max": 300,
+                "mode": "once",
+                "interval": 1
+            }
+        },
+        {
+            "id": 2,
+            "type": "Move",
+            "params": {
+                "pattern": "curve",
+                "angle": 270,
+                "speed": 1.5,
+                "turn": 2,
+                "angleRef": 9
+            },
+            "next": 8
+        },
+        {
+            "id": 7,
+            "type": "Attack",
+            "params": {
+                "shotPatternId": "SP_ENE014"
+            },
+            "next": null
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "2": [
+                663,
+                81
+            ],
+            "6": [
+                239,
+                84
+            ],
+            "7": [
+                1155,
+                88
+            ],
+            "8": [
+                918,
+                87
+            ],
+            "9": [
+                396,
+                326
+            ]
+        },
+        "nodeStyles": {
+            "7": {
+                "color": "#5a2a2a",
+                "bgcolor": "#3a1c1c"
+            },
+            "9": {
+                "color": "#2a3a4a",
+                "bgcolor": "#1c2833"
+            }
+        },
+        "nodeSizes": {
+            "1": [
+                140,
+                26
+            ],
+            "2": [
+                210,
+                190
+            ],
+            "6": [
+                210,
+                170
+            ],
+            "7": [
+                210,
+                58
+            ],
+            "8": [
+                210,
+                78
+            ],
+            "9": [
+                210,
+                130
+            ]
+        },
+        "groups": []
+    }
+}

@@ -1,0 +1,101 @@
+{
+    "id": "Enemy013",
+    "nodes": [
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 6
+        },
+        {
+            "id": 8,
+            "type": "Wait",
+            "params": {
+                "seconds": 0.1
+            },
+            "next": 7
+        },
+        {
+            "id": 6,
+            "type": "Spin",
+            "params": {
+                "axis": "y",
+                "degrees": 360,
+                "duration": 2,
+                "loop": false
+            },
+            "next": 2
+        },
+        {
+            "id": 2,
+            "type": "Move",
+            "params": {
+                "pattern": "straight",
+                "angle": 270,
+                "speed": 1.5,
+                "turn": 2
+            },
+            "next": 8
+        },
+        {
+            "id": 7,
+            "type": "Attack",
+            "params": {
+                "shotPatternId": "SP_ENE013"
+            },
+            "next": null
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "2": [
+                480,
+                80
+            ],
+            "6": [
+                239,
+                84
+            ],
+            "7": [
+                973,
+                87
+            ],
+            "8": [
+                736,
+                86
+            ]
+        },
+        "nodeStyles": {
+            "7": {
+                "color": "#5a2a2a",
+                "bgcolor": "#3a1c1c"
+            }
+        },
+        "nodeSizes": {
+            "1": [
+                140,
+                26
+            ],
+            "2": [
+                210,
+                190
+            ],
+            "6": [
+                210,
+                170
+            ],
+            "7": [
+                210,
+                58
+            ],
+            "8": [
+                210,
+                78
+            ]
+        },
+        "groups": []
+    }
+}

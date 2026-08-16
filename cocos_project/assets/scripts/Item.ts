@@ -45,16 +45,22 @@ export class Item extends Component {
         let sprite = this.getComponent(Sprite) || this.getComponentInChildren(Sprite);
 
         if (sprite) {
-            const def = GAME_SETTINGS.ECONOMY.ITEMS[id];
-            if (def) {
-                if (def.type === 'material') sprite.color = Color.YELLOW;
-                else if (def.type === 'buff') sprite.color = Color.GREEN;
-                else sprite.color = Color.CYAN;
-            } else {
-                if (id.includes("Item")) sprite.color = Color.YELLOW;
-                else sprite.color = Color.CYAN;
+            // Prefabs/ItemParts配下の専用Prefab(GameManager.spawnItem()がGameDatabase.getItemPrefab()
+            // 経由で優先的に使う)は既にSpriteFrameへ絵柄が設定済みなので、その配色を上書きしない。
+            // SpriteFrame未設定(=専用Prefabが見つからず汎用itemPrefab/即席の無地四角にフォールバックした
+            // 場合)のみ、種別に応じた色分けで簡易的に視認性を確保する。
+            if (!sprite.spriteFrame) {
+                const def = GAME_SETTINGS.ECONOMY.ITEMS[id];
+                if (def) {
+                    if (def.type === 'material') sprite.color = Color.YELLOW;
+                    else if (def.type === 'buff') sprite.color = Color.GREEN;
+                    else sprite.color = Color.CYAN;
+                } else {
+                    if (id.includes("Item")) sprite.color = Color.YELLOW;
+                    else sprite.color = Color.CYAN;
+                }
+                console.log(`[Item] Applied fallback color to ${sprite.node.name} for ${id}: ${sprite.color.toHEX()}`);
             }
-            console.log(`[Item] Applied color to ${sprite.node.name} for ${id}: ${sprite.color.toHEX()}`);
         } else {
             console.warn(`[Item] No Sprite component found for ${id} in ${this.node.name} hierarchy`);
         }

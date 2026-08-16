@@ -53,6 +53,15 @@ export class ShotRuntime {
     // Laserノードが発射中(持続ビームのduration秒間、フローをブロックしている間)の残り秒数。
     // 生成はnullから遷移する最初の1回だけ行う(以後はカウントダウンのみ)。
     private _laserRemaining: number | null = null;
+    // GameManager.laserPrefabsReadyがまだfalse(resources.loadDir("Prefabs/Lasers", ...)の非同期
+    // ロード中)にLaserノードへ到達すると、doLaser()が1回失敗して二度と生成されない
+    // (SweapBlade等、durationが非常に長い/Wait→Loopで戻ってこない「常駐コンパニオン型」パターンだと
+    // その1回の失敗がそのままそのプレイ全体で武器が沈黙し続けることを意味してしまう)。
+    // 失敗時はここで0.1秒おきにリトライし、LASER_MAX_RETRY回(=約3秒)を超えたら諦める
+    // (postmortem由来: 他singletonの準備待ちリトライは必ず上限を設ける)。
+    private static readonly LASER_MAX_RETRY = 30;
+    private _laserRetryTimer: number = 0;
+    private _laserRetryCount: number = 0;
     private _elapsed: number = 0;
 
     private _randomStates: Map<number, RandomNodeState> = new Map();
@@ -240,7 +249,23 @@ export class ShotRuntime {
                     if (this._laserRemaining == null) {
                         // 最初の1回だけビームを生成する(以後は自分の寿命が尽きるまで自機に追従して
                         // 光り続けるので、ここでは何度も生成しない)。
-                        this.doLaser(p);
+                        if (this._laserRetryTimer > 0) {
+                            this._laserRetryTimer -= dt;
+                            return; // GameManager.laserPrefabsReady待ちでリトライ中
+                        }
+                        const spawned = this.doLaser(p);
+                        if (!spawned) {
+                            this._laserRetryCount++;
+                            if (this._laserRetryCount > ShotRuntime.LASER_MAX_RETRY) {
+                                console.error(`[ShotRuntime] Laser node ${node.id}: spawnLaserBeam() failed ${ShotRuntime.LASER_MAX_RETRY} times in a row. Giving up - this weapon will not fire.`);
+                                this._laserRetryCount = 0;
+                                this._cursor = node.next ?? null;
+                                continue;
+                            }
+                            this._laserRetryTimer = 0.1;
+                            return; // 0.1秒後に再試行
+                        }
+                        this._laserRetryCount = 0;
                         this._laserRemaining = duration;
                     }
 
@@ -382,7 +407,11 @@ export class ShotRuntime {
             const growScale = this.resolveNum(p, "growScale", 1.0);
             const growScaleX = (p.growScaleX != null ? this.resolveNum(p, "growScaleX", growScale) : growScale) * scaleMult;
             const growScaleY = (p.growScaleY != null ? this.resolveNum(p, "growScaleY", growScale) : growScale) * scaleMult;
-            if (growScale > 0) bullet.applyGrowth(growScaleX, growScaleY);
+            // growDuration未指定(0以下)なら寿命(duration)ぴったりで拡大しきる従来通りの挙動。
+            // 寿命より短い値を指定すると、寿命自体は変えずに拡大だけ先に完了させ、残り時間は
+            // 最大サイズのまま留まる(durを変えずに拡がる速度だけ上げたい場合用)。
+            const growDuration = this.resolveNum(p, "growDuration", 0);
+            if (growScale > 0) bullet.applyGrowth(growScaleX, growScaleY, growDuration);
         }
     }
 
@@ -418,6 +447,19 @@ export class ShotRuntime {
         );
         if (bullet) {
             bullet.pierceRemaining = pierceCount;
+            // duration未指定(0以下)なら既定の3秒寿命のまま(既存Fireパターンへの影響なし)。
+            // グラフエディタ側もdurationの既定値を0(=未指定扱い)としているため、0はここで弾く。
+            // growScaleの拡大タイムラインを寿命そのものと一致させたいパターンだけ明示的に指定する。
+            const duration = this.resolveNum(p, "duration", 0);
+            if (duration > 0 && typeof bullet.setLifeSeconds === "function") {
+                bullet.setLifeSeconds(duration);
+            }
+            // spinSpeed未指定(0)なら回転なし(既存Fireパターンへの影響なし)。ShockWave等、
+            // その場に留まるリングをZ軸回転させ続けたいパターンだけ明示的に指定する。
+            const spinSpeed = this.resolveNum(p, "spinSpeed", 0);
+            if (spinSpeed !== 0 && typeof bullet.applySpin === "function") {
+                bullet.applySpin(spinSpeed);
+            }
             this.applyVisualParams(bullet, p);
             this.playFireSound(p, this._ownerNode.position);
             console.log(`[ShotRuntime] Fire OK: pos=(${this._ownerNode.position.x.toFixed(0)},${this._ownerNode.position.y.toFixed(0)}) angle=${angleDeg.toFixed(0)}deg speed=${speed.toFixed(2)} damage=${damage.toFixed(1)} isEnemy=${this._isEnemy}`);
@@ -555,13 +597,15 @@ export class ShotRuntime {
         console.log(`[ShotRuntime] PMissile pellet ${pelletIndex + 1}/${totalCount} OK: side=${side < 0 ? 'L' : 'R'} spawn=(${spawnX.toFixed(0)},${spawnY.toFixed(0)}) speed=${speed.toFixed(2)} damage=${damage.toFixed(1)} homing=${isHomingRequested}`);
     }
 
-    // Laserノードから1回だけ呼ばれる(以後はGameManager.spawnLaserBeam()が生成したLaserBeam
-    // コンポーネント自身がduration秒間、自機に追従しながら接触判定・DPSダメージを管理する)。
-    // LaserBeamはBullet.tsのapplyVisualOverride/applyGrowthに相当する仕組みを持たないため、
-    // color/glowIntensity/scale等はここでは適用しない(見た目はParticleSystem側で作る想定)。
-    private doLaser(p: any) {
+    // Laserノードから(GameManager.laserPrefabsReady待ちのリトライを含め)呼ばれる。戻り値は
+    // 1枚でも生成に成功したか(呼び出し元がリトライすべきかどうかの判定に使う)。
+    // 以後はGameManager.spawnLaserBeam()が生成したLaserBeamコンポーネント自身がduration秒間、
+    // 自機に追従しながら接触判定・DPSダメージを管理する。LaserBeamはBullet.tsの
+    // applyVisualOverride/applyGrowthに相当する仕組みを持たないため、color/glowIntensity/scale等は
+    // ここでは適用しない(見た目はParticleSystem側で作る想定)。
+    private doLaser(p: any): boolean {
         const gm = this._gm;
-        if (!gm) return;
+        if (!gm) return false;
 
         const angleDeg = this.resolveAimAngleDeg(p, this._isEnemy ? 270 : 90);
         const angleRad = angleDeg * Math.PI / 180;
@@ -571,13 +615,40 @@ export class ShotRuntime {
         const length = this.resolveNum(p, "length", 300);
         const width = this.resolveNum(p, "width", 20);
         const particleLengthScale = this.resolveNum(p, "particleLengthScale", 1.0);
+        const fadeOutDuration = this.resolveNum(p, "fadeOutDuration", 0.5);
+        // orbitRadius>0ならSweapBlade等のCircle系武器として、ownerNode中心にorbitCount枚を均等配置
+        // しつつ周回させる(既定0=従来通りの固定ビーム1本、orbitCountもこの時は無視)。
+        const orbitRadius = this.resolveNum(p, "orbitRadius", 0);
+        const orbitSpeed = this.resolveNum(p, "orbitSpeed", 0);
+        const orbitCount = orbitRadius > 0 ? Math.max(1, Math.round(this.resolveNum(p, "orbitCount", 1))) : 1;
+        // 周回の中心をownerNodeのローカル座標からずらすオフセット(既定0,0)。ownerNodeの見た目
+        // (3Dモデル等)が論理位置とズレている場合に、Player側を直さずここだけで見た目を合わせたい時用。
+        const orbitOffsetX = this.resolveNum(p, "orbitOffsetX", 0);
+        const orbitOffsetY = this.resolveNum(p, "orbitOffsetY", 0);
+        // Model3D(あれば)のRotationX自転速度(秒間回転数、既定1.0)。Model3Dが無いprefabでは無視される。
+        const modelSpinRate = this.resolveNum(p, "modelSpinRate", 1.0);
+        // damageIntervalおきに実際にダメージが入った瞬間だけ鳴らすヒット音(Sounds.csvのID)。
+        // soundId(発射音、playFireSound()参照)とは別物、空文字なら鳴らさない。
+        const hitSoundId: string = (p && typeof p.hitSoundId === "string") ? p.hitSoundId : "";
 
-        const beam = gm.spawnLaserBeam(this._ownerNode, angleRad, damage, damageInterval, duration, length, width, this._isEnemy, p.prefabName, particleLengthScale);
-        if (beam) {
+        let spawnedCount = 0;
+        for (let i = 0; i < orbitCount; i++) {
+            const orbitStartAngle = orbitRadius > 0 ? (360 / orbitCount) * i : 0;
+            const beam = gm.spawnLaserBeam({
+                ownerNode: this._ownerNode, angle: angleRad, damage, damageInterval, duration, length, width,
+                isEnemy: this._isEnemy, prefabName: p.prefabName, particleLengthScale, fadeOutDuration,
+                orbitRadius, orbitSpeed, orbitStartAngle, modelSpinRate, orbitOffsetX, orbitOffsetY, hitSoundId,
+            });
+            if (beam) spawnedCount++;
+        }
+
+        if (spawnedCount > 0) {
             this.playFireSound(p, this._ownerNode.position);
-            console.log(`[ShotRuntime] Laser OK: angle=${angleDeg.toFixed(0)}deg damage=${damage.toFixed(1)} interval=${damageInterval.toFixed(2)}s duration=${duration.toFixed(2)}s length=${length} width=${width}`);
+            console.log(`[ShotRuntime] Laser OK: count=${spawnedCount}/${orbitCount} angle=${angleDeg.toFixed(0)}deg damage=${damage.toFixed(1)} interval=${damageInterval.toFixed(2)}s duration=${duration.toFixed(2)}s length=${length} width=${width}${orbitRadius > 0 ? ` orbitRadius=${orbitRadius} orbitSpeed=${orbitSpeed}` : ''}`);
+            return true;
         } else {
-            console.warn('[ShotRuntime] Laser FAILED: gm.spawnLaserBeam() returned null.');
+            console.warn('[ShotRuntime] Laser FAILED: gm.spawnLaserBeam() returned null (will retry if laserPrefabs are still loading).');
+            return false;
         }
     }
 }

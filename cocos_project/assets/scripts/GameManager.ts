@@ -1,7 +1,7 @@
 import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3, Vec4, Color, game, resources, UITransform, Sprite, BoxCollider2D, LabelOutline, tween, v3, UIOpacity, BlockInputEvents, Graphics, Size, CCInteger, CCFloat, Camera, DirectionalLight, Light, Vec3 as Vec3Type, Layers, Canvas, JsonAsset } from 'cc';
 import './enginePatches';
 import { UIManager } from './UIManager';
-import { GameState, GAME_SETTINGS, IGameManager } from './Constants'; // Removed Constants
+import { GameState, GAME_SETTINGS, IGameManager, SpawnLaserBeamOptions } from './Constants'; // Removed Constants
 import { SoundManager } from './SoundManager';
 import { GameSpeedManager } from './GameSpeedManager';
 import { GameDatabase } from './GameDatabase';
@@ -74,6 +74,8 @@ export class GameManager extends Component implements IGameManager {
     public laserPrefabs: Prefab[] = [];
     private laserPrefabsReady: boolean = false;
 
+    // アイテムごとの専用Prefab(GameDatabase.getItemPrefab()、Prefabs/ItemParts)が見つからなかった
+    // 場合にのみ使う汎用フォールバック。未割り当てなら即席の無地四角(spawnItem()参照)まで落ちる。
     @property(Prefab)
     public itemPrefab: Prefab = null;
 
@@ -154,8 +156,10 @@ export class GameManager extends Component implements IGameManager {
     public bulletEmissiveBase: number = 0.6;
     public bulletEmissiveAmplitude: number = 0.4;
 
-    // ミッション生成(MissionManager実装予定)が1ミッション内で同一SpawnTable IDを重複選出できる
-    // 上限回数。GameManagerConfig.json由来、GameManagerEditorタブで調整する(GlobalRule扱い)。
+    // ミッション生成(MissionManager実装予定)が、一度選んだ同一SpawnTable IDをその後何回ぶんの
+    // 抽選から除外するか(ローテーション式クールダウン、経過後は再び候補に復帰する。1ミッション内
+    // の総出現回数に上限は無い)。GameManagerConfig.json由来、GameManagerEditorタブで調整する
+    // (GlobalRule扱い)。
     public missionMaxDuplicateSpawnTable: number = 2;
     // Mission関連パラメータ(仮実装、BehaviorTestController.tsのMission仮生成が参照)。
     // 既定値はGameManagerConfig.jsonが未ロードの間に使う安全値。
@@ -252,18 +256,9 @@ export class GameManager extends Component implements IGameManager {
         this.loadGameManagerConfig();
         this.loadBulletConfig();
 
-        // Fallback for Item Prefab if not assigned in Inspector
-        if (!this.itemPrefab) {
-            console.log("[GameManager] itemPrefab not assigned. Attempting to load from resources/Prefabs/Item...");
-            resources.load("Prefabs/Item", Prefab, (err, prefab) => {
-                if (!err && prefab) {
-                    this.itemPrefab = prefab;
-                    console.log("[GameManager] itemPrefab loaded successfully from resources.");
-                } else {
-                    console.warn("[GameManager] Failed to load itemPrefab from resources. Please ensure it exists in assets/resources/Prefabs/Item.");
-                }
-            });
-        }
+        // アイテムのPrefabはGameDatabase.itemPrefabs(Prefabs/ItemParts一括ロード、Items.csvの
+        // PrefabNameで突き合わせ)から取得する(spawnItem()参照)。itemPrefabはそれが見つからない
+        // 場合の手動フォールバック用に残すのみで、ここでの自動ロードは行わない。
 
         // 弾の見た目バリエーション(Prefabs/Bullets)を読み込む。1件も無くても既定のbulletPrefabで
         // 動作するので、フォルダが空/未作成でもエラー扱いにはしない。
@@ -1591,7 +1586,11 @@ export class GameManager extends Component implements IGameManager {
     // Laser Beam Factory (ShotRuntime.tsのLaserノード用)。通常のBulletと違い、ownerNode
     // (自機/敵の発射元ノード)の子として生成し、そのまま自機に追従し続ける持続ビームにする。
     // duration秒後にLaserBeamコンポーネント自身が寿命切れで自己破壊する。
-    public spawnLaserBeam(ownerNode: Node, angle: number, damage: number, damageInterval: number, duration: number, length: number, width: number, isEnemy: boolean, prefabName?: string, particleLengthScale: number = 1.0): any {
+    public spawnLaserBeam(opts: SpawnLaserBeamOptions): any {
+        const { ownerNode, angle, damage, damageInterval, duration, length, width, isEnemy, prefabName,
+            particleLengthScale = 1.0, fadeOutDuration = 0.5, orbitRadius = 0, orbitSpeed = 0,
+            orbitStartAngle = 0, modelSpinRate = 1.0, orbitOffsetX = 0, orbitOffsetY = 0, hitSoundId = "" } = opts;
+
         if (!this.laserPrefabsReady) {
             console.warn(`[GameManager] spawnLaserBeam: prefabName='${prefabName}' requested but laserPrefabs still loading - skipping this beam.`);
             return null;
@@ -1623,11 +1622,21 @@ export class GameManager extends Component implements IGameManager {
 
         const laserComp = node.getComponent("LaserBeam") as any;
         if (laserComp) {
-            laserComp.init(damage, damageInterval, duration, length, width, isEnemy, this, particleLengthScale);
+            laserComp.init({ damage, damageInterval, duration, length, width, isEnemy, gm: this, particleLengthScale, fadeOutDuration, modelSpinRate, hitSoundId });
+            // orbitRadius>0の場合のみ周回モードを有効化(SweapBlade等のCircle系武器用、既定0=無効で
+            // 従来通りの固定ビームのまま)。呼ぶとcollider.offsetが(0,0)にリセットされ、以後は
+            // ownerNode中心にorbitRadius/orbitSpeedで周り続ける(applyOrbit()参照)。
+            if (orbitRadius > 0 && typeof laserComp.applyOrbit === "function") {
+                laserComp.applyOrbit({ radius: orbitRadius, speedDegPerSec: orbitSpeed, startAngleDeg: orbitStartAngle, offsetX: orbitOffsetX, offsetY: orbitOffsetY });
+            }
             return laserComp;
         } else {
-            console.error("[GameManager] 'LaserBeam' component missing on instantiated Laser prefab!");
-            node.destroy();
+            console.error(`[GameManager] 'LaserBeam' component missing on instantiated Laser prefab '${prefabName}'! (Prefabs/Lasers/配下はLaserBeamコンポーネントが必要 - Prefabs/Bulletsで使うBulletコンポーネントとは別物なので、Bullet系Prefabを流用した場合は要確認)`);
+            // node.destroy()だけだとanchor(LaserBeamAnchor、既にownerNodeの子として繋がっている)が
+            // 子を失ったまま残り続けてしまう。呼び出し元(ShotRuntime.doLaser())が失敗時に
+            // リトライする設計のため、anchorごと破棄しておかないと失敗のたびに空ノードが
+            // ownerNode配下に溜まり続ける(実際に報告された不具合)。
+            anchor.destroy();
             return null;
         }
     }
@@ -1649,6 +1658,14 @@ export class GameManager extends Component implements IGameManager {
             }
         }
         return nearest;
+    }
+
+    // PT_<Category>Lv<NN>形式の改造パーツ素材ID(PT_ArmorLv01等)から末尾のLv番号を取り出し、
+    // "Parts LvNN Get xN"という簡易表記を作る。ID自体にLvが無い(想定外の命名)場合はLv表記を省略する。
+    private formatPartsPickupLabel(id: string, amount: number): string {
+        const lvMatch = id.match(/Lv(\d+)/i);
+        const lvText = lvMatch ? ` Lv${lvMatch[1]}` : '';
+        return `Parts${lvText} Get x${amount}`;
     }
 
     // Item Factory
@@ -1723,7 +1740,13 @@ export class GameManager extends Component implements IGameManager {
                     DataManager.instance.addResource(id, matAmt);
                 }
                 SoundManager.instance.playSE("itemget01", "System");
-                if (UIManager.instance) UIManager.instance.showItemLog(`🔩 ${name} +${matAmt}`, rarity, pos);
+                if (UIManager.instance) {
+                    // PT_で始まる改造パーツ素材は正式名称(Items.csvのName、"Armor reinforcement_Lv01"等)が
+                    // 長く、画面上のポップアップでは見づらいため"Parts LvNN Get xN"の簡易表記にする。
+                    // 実際に何を取得したかはResult画面(playState.itemsList→ResultUI.ts)側で正式名称を表示する。
+                    const pickupLabel = id.startsWith('PT_') ? this.formatPartsPickupLabel(id, matAmt) : `🔩 ${name} +${matAmt}`;
+                    UIManager.instance.showItemLog(pickupLabel, rarity, pos);
+                }
                 break;
 
             default:
@@ -1749,10 +1772,18 @@ export class GameManager extends Component implements IGameManager {
         }
 
         let node: Node = null;
-        if (this.itemPrefab) {
+        // 1. Items.csvのPrefabNameでPrefabs/ItemParts配下から専用Prefabを探す(Enemyと同じ方式)。
+        const db = this.gameDatabase || GameDatabase.instance;
+        const dedicatedPrefab = db ? db.getItemPrefab(id) : null;
+        if (dedicatedPrefab) {
+            node = instantiate(dedicatedPrefab);
+        } else if (this.itemPrefab) {
+            // 2. 専用Prefabが無ければInspector割り当ての汎用Prefabにフォールバック。
+            console.log(`[GameManager] No dedicated prefab for '${id}' in Prefabs/ItemParts. Falling back to generic itemPrefab.`);
             node = instantiate(this.itemPrefab);
         } else {
-            console.log(`[GameManager] itemPrefab is null. Creating item programmatically for ${id}...`);
+            // 3. どちらも無ければ最終手段として無地四角を即席生成する。
+            console.log(`[GameManager] No prefab found for '${id}'. Creating item programmatically...`);
             node = new Node("Item_" + id);
 
             // Add Visual (Sprite)

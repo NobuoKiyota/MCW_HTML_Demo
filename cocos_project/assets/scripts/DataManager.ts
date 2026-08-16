@@ -3,12 +3,18 @@ import { GAME_SETTINGS, SAVE_KEY } from './Constants';
 const { ccclass, property } = _decorator;
 
 export interface IGridPart {
-    x: number;
+    x: number; // 配置アンカー(バウンディングボックス左上)のグリッドX
     y: number;
-    w: number;
+    w: number; // バウンディングボックス幅/高さ(当たり判定の簡易カリング/表示用)
     h: number;
     type: string; // ID or Type
     id?: string;
+    // 実際に占有するマスの相対座標(x,yからの相対、EquipmentData.shapeCellsそのまま)。
+    // L字/T字等の非矩形形状の正確な重なり判定に使う(CustomizeCalc.canPlaceShape()参照)。
+    // 未設定ならw*hの矩形全体を占有扱いにする(初期装備の簡易配置等、shapeCells未定のパーツ用)。
+    cells?: { x: number; y: number }[];
+    weaponId?: string; // Weapons.csvのID(武器として配置した場合のみ)。無ければCockpit/Engine等の非武器パーツ。
+    equipmentId?: string; // Equipment.csvのID。武器/非武器問わず配置元のEQ_を常に記録する(再配置除外の判定に使う)。
 }
 
 export interface ISaveData {
@@ -17,7 +23,7 @@ export interface ISaveData {
     maxHp: number;
     parts: IGridPart[];
     gridData: {
-        equippedParts: any[];
+        equippedParts: IGridPart[];
         layout: number[][]; // 0,1,2 state
     };
     upgradeLevels: { [key: string]: number };
@@ -36,6 +42,11 @@ export interface ISaveData {
     inventory: { [itemId: string]: number };
     unlockedShips: string[];
     currentShipId: string;
+    // Equipment.csv(EquipmentData、武器のEquipmentIDリンク先も含む)のUnlockCost/UnlockItems条件を
+    // 満たして解放済みにすると、ここへEQ_IDが追加される(unlockedShipsと同じ規約)。武器も
+    // 武器以外(Armor/Utility等)もこの1つの配列で一元的に扱う(EquipmentUnlock.isEquipmentUnlocked()参照)。
+    // 条件が最初から無い(UnlockCost<=0かつUnlockItemsも空)装備はここに無くても常に解放済み扱い。
+    unlockedEquipmentIds: string[];
     capacity: number; // New
     // 機体ごとの永続強化Lv(PlayerUpgrade.csvのParamID: HP/CP/SP/AC/DF/TN/CR/VOS/WOS)。
     // upgradeLevelsとは別物(あちらはグリッド改造パーツ用)。未強化なら0(=Lv0、PlayerUpgrade.csvの
@@ -66,11 +77,11 @@ export class DataManager {
             maxHp: 100,
             parts: [], // Inventory Parts (Not equipped)
             gridData: {
+                // 新SHIP_LAYOUT(8x8)の"2"(解放済み・初期装備の土台)セルはx=3,y=3の2x2ブロックのみ
+                // なので、そこにちょうど収まる初期コックピットを1つだけ置く(仮。実際の初期装備構成は
+                // 別途デザイン確定次第調整)。
                 equippedParts: [
-                    { x: 4, y: 4, w: 2, h: 2, type: "Cockpit" },
-                    { x: 4, y: 6, w: 2, h: 2, type: "Engine" },
-                    { x: 2, y: 4, w: 1, h: 2, type: "BeamGun" }, // Main
-                    { x: 7, y: 4, w: 1, h: 2, type: "BeamGun" }
+                    { x: 3, y: 3, w: 2, h: 2, type: "Cockpit" },
                 ],
                 layout: JSON.parse(JSON.stringify(GAME_SETTINGS.SHIP_LAYOUT))
             },
@@ -90,6 +101,7 @@ export class DataManager {
             inventory: {},
             unlockedShips: ['Default'],
             currentShipId: 'Default',
+            unlockedEquipmentIds: [],
             capacity: 50,
             playerParamLevels: {}
         };
@@ -104,6 +116,21 @@ export class DataManager {
                 // Deep merge careerStats to ensure new fields exist
                 if (loaded.careerStats) {
                     loaded.careerStats = Object.assign({}, defaults.careerStats, loaded.careerStats);
+                }
+                // gridData.layoutはGAME_SETTINGS.SHIP_LAYOUT(開発中に何度もサイズ変更される想定)の
+                // コピーなので、保存済みのlayoutが現在のSHIP_LAYOUTと寸法(行数/列数)が違う場合は
+                // そのまま使わず破棄する(古いセーブの10x10レイアウトを、8x8に変更した後も
+                // 引きずってCustomize画面がGridContainerの外まで移動可能になってしまう不具合の対策)。
+                // 解放済みセルの引き継ぎより、寸法不一致による座標破綻を避ける方を優先する。
+                if (loaded.gridData && loaded.gridData.layout) {
+                    const loadedLayout = loaded.gridData.layout;
+                    const defaultLayout = defaults.gridData.layout;
+                    const sameRows = loadedLayout.length === defaultLayout.length;
+                    const sameCols = sameRows && loadedLayout.every((row: number[], i: number) => row.length === defaultLayout[i].length);
+                    if (!sameRows || !sameCols) {
+                        console.warn(`[DataManager] Saved gridData.layout size (${loadedLayout.length} rows) doesn't match current SHIP_LAYOUT (${defaultLayout.length} rows). Resetting gridData to defaults.`);
+                        delete loaded.gridData;
+                    }
                 }
                 // Merge with default to ensure top-level new fields existence
                 return Object.assign(defaults, loaded);

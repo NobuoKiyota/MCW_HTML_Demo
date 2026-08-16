@@ -37,6 +37,9 @@
       "save-csv": {
         "methods": ["saveCsv"]
       },
+      "reveal-csv": {
+        "methods": ["revealCsv"]
+      },
       "list-enemy-prefab-names": {
         "methods": ["listEnemyPrefabNames"]
       },

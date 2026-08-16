@@ -10,6 +10,7 @@ import { GameState } from './Constants';
 import { PropertyUI } from './PropertyUI';
 import { HistoryUI } from './HistoryUI';
 import { UpgradeUI } from './UpgradeUI';
+import { CustomizeUI } from './CustomizeUI';
 
 const { ccclass, property } = _decorator;
 
@@ -139,7 +140,11 @@ export class HomeUI extends Component {
      */
     public onCustomClicked() {
         SoundManager.instance.playSE("click");
-        console.log("[HomeUI] Custom Button Clicked (Not Implemented)");
+        if (CustomizeUI.instance) {
+            CustomizeUI.instance.open();
+        } else {
+            console.warn("[HomeUI] CustomizeUI instance not found (is the CustomizeUI node under Home Canvas, with CustomizeUI.ts attached?).");
+        }
     }
 
     /**

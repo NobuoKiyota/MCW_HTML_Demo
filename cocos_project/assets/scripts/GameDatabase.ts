@@ -18,6 +18,11 @@ export class GameDatabase extends Component {
     @property({ type: [Prefab], tooltip: "敵のプレハブリスト (CSVのPrefabNameと一致させる)" })
     public enemyPrefabs: Prefab[] = [];
 
+    // ドロップアイテムのプレハブリスト (assets/resources/Prefabs/ItemParts、Items.csvのPrefabNameと
+    // 一致させる、enemyPrefabsと同じ「resources.loadDirで一括ロード→ノード名で突き合わせ」方式)。
+    @property({ type: [Prefab], tooltip: "アイテムのプレハブリスト (Items.csvのPrefabNameと一致させる)" })
+    public itemPrefabs: Prefab[] = [];
+
     // Runtime Storage (Generated from CSV)
     public enemies: EnemyData[] = [];
 
@@ -133,6 +138,17 @@ export class GameDatabase extends Component {
 
             // CSV Load after Prefabs are ready
             this.loadAllCSV();
+        });
+
+        // Enemy同様、CSV読み込みはこちらの完了を待たない(アイテム取得はミッション開始後、
+        // 十分先のタイミングでしか起きないため、並行ロードで問題ない)。
+        resources.loadDir("Prefabs/ItemParts", Prefab, (err, assets) => {
+            if (err) {
+                console.error("[GameDatabase] Failed to load Item Prefabs:", err);
+                return;
+            }
+            this.itemPrefabs = assets;
+            console.log(`[GameDatabase] Loaded ${assets.length} Item Prefabs from resources/Prefabs/ItemParts`);
         });
     }
 
@@ -319,7 +335,7 @@ export class GameDatabase extends Component {
             st.cycle = row.Cycle || "Instant";
             st.note = row.Note || "";
             st.slots = [];
-            for (let i = 1; i <= 8; i++) {
+            for (let i = 1; i <= 12; i++) {
                 const typeId = row[`TypeID_${i}`];
                 if (typeId && typeId !== "" && typeId !== "None") {
                     st.slots.push(typeId);
@@ -337,6 +353,11 @@ export class GameDatabase extends Component {
             md.lv = row.Lv !== undefined && row.Lv !== "" ? parseInt(row.Lv) : 1;
             md.modCountMin = row.ModCountMin !== undefined && row.ModCountMin !== "" ? parseInt(row.ModCountMin) : 0;
             md.tableCount = row.TableCount !== undefined && row.TableCount !== "" ? parseInt(row.TableCount) : 3;
+            md.spawnTableIds = [];
+            for (let i = 1; i <= 8; i++) {
+                const v = row[`SpawnTableID_${i}`];
+                if (v && v !== "" && v !== "None") md.spawnTableIds.push(v);
+            }
             md.note = row.Note || "";
             return md;
         });
@@ -380,6 +401,16 @@ export class GameDatabase extends Component {
             e.category = row.Category || "";
             e.shapeCells = this.parseShapeCells(String(row.ShapeCells || ""));
             e.note = row.Note || "";
+            e.unlockCost = row.UnlockCost !== undefined && row.UnlockCost !== "" ? parseFloat(row.UnlockCost) : 0;
+            // UnlockItemID_1/UnlockItemQty_1 ~ _3(最大3種類)。ItemIDが空の枠は無視する。
+            e.unlockItems = [];
+            for (let i = 1; i <= 3; i++) {
+                const itemId = row[`UnlockItemID_${i}`];
+                if (!itemId) continue;
+                const qtyRaw = row[`UnlockItemQty_${i}`];
+                const qty = qtyRaw !== undefined && qtyRaw !== "" ? parseInt(qtyRaw) : 1;
+                e.unlockItems.push({ itemId, qty: Math.max(1, qty) });
+            }
             return e;
         });
         console.log(`[GameDatabase] Loaded ${this.equipment.length} Equipment.`);
@@ -412,6 +443,12 @@ export class GameDatabase extends Component {
             w.growthType = row.GrowthType || "標準";
             w.maxLv = row.MaxLv !== undefined && row.MaxLv !== "" ? parseInt(row.MaxLv) : 10;
             w.note = row.Note || "";
+            w.equipmentId = row.EquipmentID || "";
+            // Equipment.csv側のIDでCustomize画面グリッド用の形状データ+解放条件(UnlockCost等、
+            // EquipmentUnlock.ts参照)を紐付ける(EnemyDataの_shotPattern等と同じ規約、GameDatabase側で
+            // IDから解決してruntime codeが再joinしなくて済むようにする)。equipmentId未設定/該当なしなら
+            // _equipmentはnullのまま(形状未定義かつ解放条件も判定不能。エラーにはしない)。
+            w._equipment = w.equipmentId ? this.getEquipmentData(w.equipmentId) : null;
             return w;
         });
         console.log(`[GameDatabase] Loaded ${this.weapons.length} Weapons.`);
@@ -581,6 +618,17 @@ export class GameDatabase extends Component {
         const cleanName = name.replace(".prefab", "");
         // Search by Name in the registered list
         return this.enemyPrefabs.find(p => p.data.name === cleanName) || null;
+    }
+
+    // Items.csvのPrefabName(未設定ならID自体)でitemPrefabsから該当プレハブを探す。
+    // 見つからない場合はnull(呼び出し側のGameManager.spawnItem()が汎用itemPrefab/即席生成に
+    // フォールバックする)。
+    public getItemPrefab(id: string): Prefab | null {
+        const item = this.getItemData(id);
+        const name = item && item.prefabName ? item.prefabName : id;
+        if (!name) return null;
+        const cleanName = name.replace(".prefab", "");
+        return this.itemPrefabs.find(p => p.data.name === cleanName) || null;
     }
 
     public getBehaviorData(id: string): BehaviorData | null {

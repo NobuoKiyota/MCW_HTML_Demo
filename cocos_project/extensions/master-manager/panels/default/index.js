@@ -49,6 +49,10 @@ const SCHEMA = {
         TypeID_6: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
         TypeID_7: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
         TypeID_8: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
+        TypeID_9: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
+        TypeID_10: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
+        TypeID_11: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
+        TypeID_12: { file: 'Enemies.csv', column: 'ID', includeNone: true, isSelect: true },
         Lot: { fixedList: ['One', 'Two', 'Random'], isSelect: true },
         // 実際の秒数はGameManager.ts側のプリセット表(CYCLE_INTERVAL_SECONDS)で計算する。
         // 手打ちの秒数で破綻しないよう、名前付きプリセットからしか選べないようにする。
@@ -76,6 +80,23 @@ const SCHEMA = {
         // GrowthTypeはPlayerUpgrade.csvと同じ5種、値もPLAYER_UPGRADE_GROWTH_EXPONENTSのキーと一致させる
         // (WeaponManagerのLv別プレビューがそのままこのテーブルを流用する)。
         GrowthType: { fixedList: ['超早熟', '早熟', '標準', '晩成', '超晩成'], isSelect: true },
+        // Equipment.csv側のID(Customize画面グリッド用の形状)への参照。ShotPatternIDと違い必須ではない
+        // (Equipment.csv側がまだ大半の武器を網羅していないため)ので、ItemID_1~5等と同じくincludeNoneで
+        // 空欄(未設定)も選べるようにする。
+        EquipmentID: { file: 'Equipment.csv', column: 'ID', includeNone: true, isSelect: true },
+    },
+    'MissionDifficulty.csv': {
+        // SpawnTableID_1~8(TypeID_1~12等と同じ「固定スロット+Noneありプルダウン」規約)。
+        // 全列Noneのままなら従来通りlv一致の全SpawnTable行が候補になる(BehaviorTestController.
+        // refreshMissionPreview()参照)。
+        SpawnTableID_1: { file: 'SpawnTables.csv', column: 'ID', includeNone: true, isSelect: true },
+        SpawnTableID_2: { file: 'SpawnTables.csv', column: 'ID', includeNone: true, isSelect: true },
+        SpawnTableID_3: { file: 'SpawnTables.csv', column: 'ID', includeNone: true, isSelect: true },
+        SpawnTableID_4: { file: 'SpawnTables.csv', column: 'ID', includeNone: true, isSelect: true },
+        SpawnTableID_5: { file: 'SpawnTables.csv', column: 'ID', includeNone: true, isSelect: true },
+        SpawnTableID_6: { file: 'SpawnTables.csv', column: 'ID', includeNone: true, isSelect: true },
+        SpawnTableID_7: { file: 'SpawnTables.csv', column: 'ID', includeNone: true, isSelect: true },
+        SpawnTableID_8: { file: 'SpawnTables.csv', column: 'ID', includeNone: true, isSelect: true },
     },
 };
 
@@ -153,8 +174,8 @@ const GC_SCHEMA = [
         note: '明るさが周期変化する速さ',
     },
     {
-        key: 'missionMaxDuplicateSpawnTable', label: 'Mission 同一SpawnTable重複上限', step: 1, min: 1, max: 10, default: 2,
-        note: 'ミッション生成時、1ミッション内で同一SpawnTable IDを何回まで重複選出してよいか(GlobalRule、MissionManager実装予定が参照)',
+        key: 'missionMaxDuplicateSpawnTable', label: 'Mission 同一SpawnTableクールダウン(回)', step: 1, min: 1, max: 10, default: 2,
+        note: '一度選ばれたSpawnTable IDを、その後何回ぶんの抽選から除外するか(経過後は再び候補に復帰。1ミッション内の総出現回数に上限は無い、GlobalRule、MissionManager実装予定が参照)',
     },
     {
         key: 'missionMarginStartKm', label: 'Mission 開始margin距離(A)', step: 1, min: 0, max: 200, default: 15,
@@ -322,6 +343,9 @@ const WIDE_DEFAULT_COLUMNS = {
     BehaviorID: 120, ShotPatternID: 120, DropTableID: 130, DropID: 100,
     ItemID_1: 110, ItemID_2: 110, ItemID_3: 110, ItemID_4: 110, ItemID_5: 110,
     TypeID_1: 100, TypeID_2: 100, TypeID_3: 100, TypeID_4: 100, TypeID_5: 100, TypeID_6: 100, TypeID_7: 100, TypeID_8: 100,
+    TypeID_9: 100, TypeID_10: 100, TypeID_11: 100, TypeID_12: 100,
+    SpawnTableID_1: 110, SpawnTableID_2: 110, SpawnTableID_3: 110, SpawnTableID_4: 110,
+    SpawnTableID_5: 110, SpawnTableID_6: 110, SpawnTableID_7: 110, SpawnTableID_8: 110,
 };
 let colWidths = {}; // { "file::column": widthPx }
 
@@ -2036,7 +2060,7 @@ function registerBehaviorNodeTypes(LiteGraph) {
     function ShotFireNode() {
         this.addInput("In", "flow");
         this.addOutput("Next", "flow");
-        this.properties = { aim: "fixed", angle: 270, speed: 5.0, damage: 10, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0, scale: 1.0, growScale: 0, growScaleX: 0, growScaleY: 0 };
+        this.properties = { aim: "fixed", angle: 270, speed: 5.0, damage: 10, pierceCount: 0, prefabName: '(default)', color: '', glowIntensity: 1.0, scale: 1.0, growScale: 0, growScaleX: 0, growScaleY: 0, growDuration: 0, duration: 0, spinSpeed: 0 };
         addW(this, "combo", "aim", this.properties.aim, (v) => { this.properties.aim = v; }, { values: ["fixed", "atPlayer"] });
         this.addInput("angle", "number");
         addW(this, "number", "angle", this.properties.angle, (v) => { this.properties.angle = v; }, { step: 10 }, "ang");
@@ -2054,13 +2078,25 @@ function registerBehaviorNodeTypes(LiteGraph) {
         addW(this, "number", "growScaleX", this.properties.growScaleX, (v) => { this.properties.growScaleX = v; }, { step: 0.1, min: 0 }, "growX");
         this.addInput("growScaleY", "number");
         addW(this, "number", "growScaleY", this.properties.growScaleY, (v) => { this.properties.growScaleY = v; }, { step: 0.1, min: 0 }, "growY");
+        this.addInput("growDuration", "number");
+        addW(this, "number", "growDuration", this.properties.growDuration, (v) => { this.properties.growDuration = v; }, { step: 0.05, min: 0 }, "growDur");
+        this.addInput("duration", "number");
+        addW(this, "number", "duration", this.properties.duration, (v) => { this.properties.duration = v; }, { step: 0.1, min: 0 }, "dur");
+        this.addInput("spinSpeed", "number");
+        addW(this, "number", "spinSpeed", this.properties.spinSpeed, (v) => { this.properties.spinSpeed = v; }, { step: 10 }, "spin");
         // glowIntensity/scaleはウィジェット非表示(ShotManagerタブのGlow/Scale列で一元管理する方針
         // のため、グラフ側から個別に触れないようにしている)。値自体はpropertiesに残っているので、
-        // ShotManager経由の編集・保存は引き続き正しく機能する。growScaleはWideBeam等ごく一部の
-        // パターンでしか使わない特殊パラメータなのでShotManagerには列を増やさず、ここに直接出す。
+        // ShotManager経由の編集・保存は引き続き正しく機能する。growScale/growDuration/duration/spinSpeedは
+        // WideBeam/ShockWave等ごく一部のパターンでしか使わない特殊パラメータなのでShotManagerには列を
+        // 増やさず、ここに直接出す。
+        // duration=0(既定)は「未指定」扱いで、ShotRuntime.doFire()は既定の3秒寿命のまま動く。
+        // growDuration=0(既定)は「未指定」扱いで、durationぴったりで拡大しきる(従来通り)。
+        // durationは変えずに拡大だけ先に完了させたい場合はgrowDurationをdurationより短く指定する
+        // (完了後は最大サイズのまま寿命が尽きるまで留まる)。
+        // spinSpeed=0(既定)は回転なし。単位は度/秒(正=時計回り、負=反時計回り)。
     }
     ShotFireNode.title = "Fire";
-    ShotFireNode.desc = "単発を1発撃って即座に次へ進む(ブロックしない)。aim=atPlayerでangleを無視し自機方向へ(敵発射のみ有効、自機発射では無視される)。pierceCount: 0=通常(1ヒットで消滅) / -1=無限貫通 / N=N回ヒットで消滅。prefabName='(default)'ならGameManagerの既定bulletPrefab、それ以外はassets/resources/Prefabs/Bullets/内の同名Prefabを使う。colorは\"#rrggbb\"形式(空欄なら既定の敵/自機色のまま)。glowIntensityは発光の明るさ倍率(既定1.0)。scaleは弾の見た目サイズ倍率(既定1.0)。growScaleは0より大きければ、寿命(3秒)の間にscaleからgrowScale倍まで線形に拡大していく(WideBeam等の拡散リング用、既定0=拡大しない)。growScaleX/Yを指定すれば横幅/縦幅を別々の倍率まで拡大できる(未指定側はgrowScaleの値を使う)。連射させたい場合は直後にWait→Loopで繋ぐ。数値パラメータはRandomノードから配線可能。";
+    ShotFireNode.desc = "単発を1発撃って即座に次へ進む(ブロックしない)。aim=atPlayerでangleを無視し自機方向へ(敵発射のみ有効、自機発射では無視される)。pierceCount: 0=通常(1ヒットで消滅) / -1=無限貫通 / N=N回ヒットで消滅。prefabName='(default)'ならGameManagerの既定bulletPrefab、それ以外はassets/resources/Prefabs/Bullets/内の同名Prefabを使う。colorは\"#rrggbb\"形式(空欄なら既定の敵/自機色のまま)。glowIntensityは発光の明るさ倍率(既定1.0)。scaleは弾の見た目サイズ倍率(既定1.0)。growScaleは0より大きければ、寿命の間にscaleからgrowScale倍まで線形に拡大していく(WideBeam/ShockWave等の拡散リング用、既定0=拡大しない)。growScaleX/Yを指定すれば横幅/縦幅を別々の倍率まで拡大できる(未指定側はgrowScaleの値を使う)。growDurationは0より大きければ、拡大が完了するまでの秒数をduration(寿命)とは別に指定できる(既定0=未指定、durationぴったりで拡大しきる)。durationより短い値を指定すると、寿命自体は変えずに拡大だけ先に完了させ、残り時間は最大サイズのまま留まる(durはそのままで拡がる速度だけ上げたい場合用)。durationは0より大きければ弾の寿命(既定3秒)をこの秒数で上書きする(既定0=未指定、3秒のまま)。growScaleと組み合わせれば、拡大がちょうど寿命と同じ時間で完了するリングが作れる(speed=0にすれば自機/敵の位置に留まったまま広がるShockWave系パターンになる)。spinSpeedは0以外なら弾自身をZ軸回転させ続ける(度/秒、正=時計回り負=反時計回り、既定0=回転なし)。Homing/Arcの向き制御とは競合しない(それらが決めた角度に加算される)。連射させたい場合は直後にWait→Loopで繋ぐ。数値パラメータはRandomノードから配線可能。";
 
     function ShotMultiFireNode() {
         this.addInput("In", "flow");
@@ -2194,7 +2230,9 @@ function registerBehaviorNodeTypes(LiteGraph) {
         this.addOutput("Next", "flow");
         this.properties = {
             aim: "fixed", angle: 90, damage: 10, damageInterval: 0.1, duration: 1.0,
-            length: 300, width: 20, prefabName: '', particleLengthScale: 1.0,
+            length: 300, width: 20, prefabName: '', particleLengthScale: 1.0, fadeOutDuration: 0.5,
+            orbitRadius: 0, orbitSpeed: 0, orbitCount: 1, modelSpinRate: 1.0,
+            orbitOffsetX: 0, orbitOffsetY: 0, hitSoundId: '',
         };
         addW(this, "combo", "aim", this.properties.aim, (v) => { this.properties.aim = v; }, { values: ["fixed", "atPlayer"] });
         this.addInput("angle", "number");
@@ -2212,9 +2250,24 @@ function registerBehaviorNodeTypes(LiteGraph) {
         addW(this, 'combo', 'prefabName', this.properties.prefabName, (v) => { this.properties.prefabName = v; }, { values: () => getLaserPrefabOptions() }, 'prefab');
         this.addInput("particleLengthScale", "number");
         addW(this, "number", "particleLengthScale", this.properties.particleLengthScale, (v) => { this.properties.particleLengthScale = v; }, { step: 0.05, min: 0 }, "pLenScale");
+        this.addInput("fadeOutDuration", "number");
+        addW(this, "number", "fadeOutDuration", this.properties.fadeOutDuration, (v) => { this.properties.fadeOutDuration = v; }, { step: 0.05, min: 0 }, "fadeOut");
+        this.addInput("orbitRadius", "number");
+        addW(this, "number", "orbitRadius", this.properties.orbitRadius, (v) => { this.properties.orbitRadius = v; }, { step: 5, min: 0 }, "orbitR");
+        this.addInput("orbitSpeed", "number");
+        addW(this, "number", "orbitSpeed", this.properties.orbitSpeed, (v) => { this.properties.orbitSpeed = v; }, { step: 10 }, "orbitSpd");
+        this.addInput("orbitCount", "number");
+        addW(this, "number", "orbitCount", this.properties.orbitCount, (v) => { this.properties.orbitCount = v; }, { step: 1, min: 1, precision: 0 }, "orbitN");
+        this.addInput("modelSpinRate", "number");
+        addW(this, "number", "modelSpinRate", this.properties.modelSpinRate, (v) => { this.properties.modelSpinRate = v; }, { step: 0.1, min: 0 }, "modelSpin");
+        this.addInput("orbitOffsetX", "number");
+        addW(this, "number", "orbitOffsetX", this.properties.orbitOffsetX, (v) => { this.properties.orbitOffsetX = v; }, { step: 1 }, "orbitOffX");
+        this.addInput("orbitOffsetY", "number");
+        addW(this, "number", "orbitOffsetY", this.properties.orbitOffsetY, (v) => { this.properties.orbitOffsetY = v; }, { step: 1 }, "orbitOffY");
+        addW(this, 'combo', 'hitSoundId', this.properties.hitSoundId, (v) => { this.properties.hitSoundId = v; }, { values: () => ['', ...soundIdOptions] }, 'hitSE');
     }
     ShotLaserNode.title = "Laser";
-    ShotLaserNode.desc = "自機/敵に固定されたまま光り続ける持続ビーム。durationの間フローをブロックし(=連続で撃ち直さない)、その間ビームが接触している相手にdamageIntervalおきdamageを繰り返し与え続ける(DPS方式)。lengthはビームの長さ、widthは太さ(当たり判定のサイズにそのまま使う)。prefabNameはassets/resources/Prefabs/Lasers/内のPrefab名(見た目は3D ParticleSystemを想定、既定フォールバックは無いので必ず指定すること)。particleLengthScaleは、length(当たり判定側の単位)にこの倍率を掛けた値をParticleのShapeModule.length(Cone形状の発生源の長さ)へ書き込むための変換係数(Cone形状のParticle専用、Box等では効果なし)。color/glowIntensity/scale/growScale/pierceCountに相当する項目は無い。数値パラメータはRandomノードから配線可能。";
+    ShotLaserNode.desc = "自機/敵に固定されたまま光り続ける持続ビーム。durationの間フローをブロックし(=連続で撃ち直さない)、その間ビームが接触している相手にdamageIntervalおきdamageを繰り返し与え続ける(DPS方式)。lengthはビームの長さ、widthは太さ(当たり判定のサイズにそのまま使う)。prefabNameはassets/resources/Prefabs/Lasers/内のPrefab名(見た目は3D ParticleSystemを想定、既定フォールバックは無いので必ず指定すること。子ノードに\"Model3D\"という名前を付けておけばBullet.tsと同じ規約でgltfモデルを埋め込める)。particleLengthScaleは、length(当たり判定側の単位)にこの倍率を掛けた値をParticleのShapeModule.length(Cone形状の発生源の長さ)へ書き込むための変換係数(Cone形状のParticle専用、Box等では効果なし)。fadeOutDurationは、duration経過後に新規パーティクル発生と当たり判定を止めてから、ノードを破棄するまでの猶予秒数(既存パーティクルが自然にフェードアウトし切る時間を確保する)。orbitRadiusが0より大きければ、通常の固定ビームではなくownerNode(自機/敵)を中心にorbitRadius px・orbitSpeed度/秒で周り続ける「周回ブレード」になる(SweapBlade等のCircle系武器用)。orbitCountを2以上にすると、その枚数を360度に均等配置しつつ同時に生成する(orbitRadius=0の時は無視される)。非常に長いdurationを指定すれば実質「武器を装備している間ずっと回り続けるコンパニオン」として使える。modelSpinRateはModel3D(あれば)のRotationX自転速度(秒間回転数、既定1.0=1秒で1回転、0=回転させない)。orbitOffsetX/Yは周回の中心そのものをownerNodeのローカル座標からずらす(既定0,0)。ownerNodeの見た目(3Dモデル等)が論理位置とズレている場合に、Prefab/モデル側を直さずここだけで見た目を合わせたい時に使う(orbitRadius=0の時は無視される)。hitSoundIdは、damageIntervalおきに実際にダメージが入った瞬間だけ鳴らすSounds.csvのID(既定空=鳴らさない)。soundId(発射音、生成時に1回だけ)とは別物で、接触している間は繰り返し鳴る(鳴りすぎはSoundManager側のグループポリフォニー/クールダウンで抑制される)。color/glowIntensity/scale/growScale/pierceCountに相当する項目は無い。数値パラメータはRandomノードから配線可能。";
 
     LiteGraph.registerNodeType("behavior/start", BehaviorStartNode);
     LiteGraph.registerNodeType("behavior/move", BehaviorMoveNode);
@@ -3776,6 +3829,14 @@ module.exports = Editor.Panel.define({
         // LaserノードのprefabNameドロップダウン用に、Laser Prefab一覧も起動時に読んでおく。
         const laserPrefabResult = await Editor.Message.request('behavior-editor', 'list-laser-prefabs');
         laserPrefabList = (laserPrefabResult && laserPrefabResult.ok) ? laserPrefabResult.list : [];
+
+        // LaserノードのhitSoundIdドロップダウン用に、Sound ID一覧も起動時に読んでおく。
+        // 従来soundIdOptionsはShotManagerタブを開いた時(loadShotManagerData())にしか読み込まれず、
+        // ShotManagerを一度も開かないままグラフ編集タブでhitSoundIdコンボを開くと候補が0件のまま
+        // (プルダウンできない)という不具合があったため、bulletPrefabList/laserPrefabListと同じく
+        // 起動時に必ず一度読み込むようにする。
+        const soundIdResult = await Editor.Message.request('behavior-editor', 'list-sound-ids');
+        soundIdOptions = (soundIdResult && soundIdResult.ok) ? soundIdResult.list : [];
 
         await loadFile(this, currentFile);
         renderTabBar(this);

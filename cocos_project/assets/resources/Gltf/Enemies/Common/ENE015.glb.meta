@@ -1,0 +1,186 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf",
+  "files": [],
+  "subMetas": {
+    "b164a": {
+      "importer": "gltf-mesh",
+      "uuid": "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@b164a",
+      "displayName": "",
+      "id": "b164a",
+      "name": "assembly_fuselage_mesh.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 52528
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "e58e7": {
+      "importer": "gltf-mesh",
+      "uuid": "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@e58e7",
+      "displayName": "",
+      "id": "e58e7",
+      "name": "assembly_wing_r_mesh.mesh",
+      "userData": {
+        "gltfIndex": 1,
+        "triangleCount": 1200
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "31f4e": {
+      "importer": "gltf-mesh",
+      "uuid": "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@31f4e",
+      "displayName": "",
+      "id": "31f4e",
+      "name": "assembly_subwing_r_mesh.mesh",
+      "userData": {
+        "gltfIndex": 2,
+        "triangleCount": 18636
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "4e845": {
+      "importer": "gltf-mesh",
+      "uuid": "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@4e845",
+      "displayName": "",
+      "id": "4e845",
+      "name": "assembly_canopy_mesh.mesh",
+      "userData": {
+        "gltfIndex": 3,
+        "triangleCount": 24064
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "3ad3b": {
+      "importer": "gltf-mesh",
+      "uuid": "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@3ad3b",
+      "displayName": "",
+      "id": "3ad3b",
+      "name": "part_00_mesh.mesh",
+      "userData": {
+        "gltfIndex": 4,
+        "triangleCount": 6624
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "23d8d": {
+      "importer": "gltf-material",
+      "uuid": "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@23d8d",
+      "displayName": "",
+      "id": "23d8d",
+      "name": "FighterGen_Base.material",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f8d90": {
+      "importer": "gltf-material",
+      "uuid": "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@f8d90",
+      "displayName": "",
+      "id": "f8d90",
+      "name": "FighterGen_Canopy.material",
+      "userData": {
+        "gltfIndex": 1
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "0cbb9": {
+      "importer": "gltf-scene",
+      "uuid": "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@0cbb9",
+      "displayName": "",
+      "id": "0cbb9",
+      "name": "ENE015.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageMetas": [],
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "assetFinder": {
+      "meshes": [
+        "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@b164a",
+        "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@e58e7",
+        "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@31f4e",
+        "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@4e845",
+        "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@3ad3b"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [
+        "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@23d8d",
+        "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@f8d90"
+      ],
+      "scenes": [
+        "4b15a813-9b0f-40c3-9bac-c9d43ef04eaf@0cbb9"
+      ]
+    }
+  }
+}

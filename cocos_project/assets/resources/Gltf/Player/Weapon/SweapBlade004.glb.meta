@@ -1,0 +1,199 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "17335d1c-9d87-41e9-8879-bb365d65452a",
+  "files": [],
+  "subMetas": {
+    "3ad3b": {
+      "importer": "gltf-mesh",
+      "uuid": "17335d1c-9d87-41e9-8879-bb365d65452a@3ad3b",
+      "displayName": "",
+      "id": "3ad3b",
+      "name": "part_00_mesh.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 49796
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "23d8d": {
+      "importer": "gltf-material",
+      "uuid": "17335d1c-9d87-41e9-8879-bb365d65452a@23d8d",
+      "displayName": "",
+      "id": "23d8d",
+      "name": "FighterGen_Base.material",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "c5ff1": {
+      "importer": "gltf-scene",
+      "uuid": "17335d1c-9d87-41e9-8879-bb365d65452a@c5ff1",
+      "displayName": "",
+      "id": "c5ff1",
+      "name": "SweapBlade004.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageMetas": [],
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "assetFinder": {
+      "meshes": [
+        "17335d1c-9d87-41e9-8879-bb365d65452a@3ad3b"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [
+        "17335d1c-9d87-41e9-8879-bb365d65452a@23d8d"
+      ],
+      "scenes": [
+        "17335d1c-9d87-41e9-8879-bb365d65452a@c5ff1"
+      ]
+    },
+    "materials": {
+      "17335d1c-9d87-41e9-8879-bb365d65452a@23d8d": {
+        "__type__": "cc.Material",
+        "_name": "",
+        "_objFlags": 0,
+        "__editorExtras__": {},
+        "_native": "",
+        "_effectAsset": {
+          "__uuid__": "c8f66d17-351a-48da-a12c-0212d28575c4",
+          "__expectedType__": "cc.EffectAsset"
+        },
+        "_techIdx": 0,
+        "_defines": [
+          {},
+          {},
+          {},
+          {},
+          {},
+          {}
+        ],
+        "_states": [
+          {
+            "rasterizerState": {
+              "cullMode": 0
+            },
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          },
+          {
+            "rasterizerState": {},
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          },
+          {
+            "rasterizerState": {},
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          },
+          {
+            "rasterizerState": {},
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          },
+          {
+            "rasterizerState": {},
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          },
+          {
+            "rasterizerState": {},
+            "depthStencilState": {},
+            "blendState": {
+              "targets": [
+                {}
+              ]
+            }
+          }
+        ],
+        "_props": [
+          {
+            "mainColor": {
+              "__type__": "cc.Color",
+              "r": 0,
+              "g": 194,
+              "b": 255,
+              "a": 255
+            },
+            "albedoScale": {
+              "__type__": "cc.Vec3",
+              "x": 0.550000011920929,
+              "y": 0.5799999833106995,
+              "z": 0.6200000047683716
+            },
+            "occlusion": 0.225,
+            "roughness": 0.744,
+            "metallic": 0.219,
+            "specularIntensity": 0.798
+          },
+          {},
+          {},
+          {},
+          {},
+          {}
+        ]
+      }
+    }
+  }
+}

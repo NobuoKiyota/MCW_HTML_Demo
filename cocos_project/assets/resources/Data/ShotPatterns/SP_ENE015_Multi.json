@@ -1,0 +1,91 @@
+{
+    "id": "SP_ENE015_Multi",
+    "nodes": [
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 2
+        },
+        {
+            "id": 4,
+            "type": "Loop",
+            "params": {
+                "count": -1,
+                "target": 1
+            },
+            "next": null
+        },
+        {
+            "id": 3,
+            "type": "Wait",
+            "params": {
+                "seconds": 2.5
+            },
+            "next": 4
+        },
+        {
+            "id": 2,
+            "type": "MultiFire",
+            "params": {
+                "aim": "fixed",
+                "angle": 270,
+                "count": 3,
+                "angleSpread": 30,
+                "staggerDelay": 0,
+                "speed": 12,
+                "damage": 14,
+                "pierceCount": 0,
+                "prefabName": "Bullet02",
+                "color": "8888FF",
+                "glowIntensity": 3,
+                "scale": 1,
+                "growScale": 0,
+                "growScaleX": 0,
+                "growScaleY": 0,
+                "angleOffset": 0,
+                "soundId": "SE_EShotSpread01"
+            },
+            "next": 3
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "2": [
+                220,
+                80
+            ],
+            "3": [
+                468,
+                81
+            ],
+            "4": [
+                732,
+                82
+            ]
+        },
+        "nodeStyles": {},
+        "nodeSizes": {
+            "1": [
+                140,
+                26
+            ],
+            "2": [
+                210,
+                546
+            ],
+            "3": [
+                210,
+                78
+            ],
+            "4": [
+                210,
+                78
+            ]
+        },
+        "groups": []
+    }
+}

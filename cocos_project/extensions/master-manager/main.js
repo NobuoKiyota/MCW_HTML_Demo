@@ -111,11 +111,27 @@ module.exports = {
         // Called by the panel via Editor.Message.request('master-manager', 'reveal-csv', file).
         // Opens the OS file explorer with the CSV file selected/highlighted (Explorer on Windows).
         revealCsv(file) {
+            const csvPath = getCsvPath(file);
+            console.log(`[MasterManager Extension] revealCsv: resolved path = ${csvPath}`);
+            if (!fs.existsSync(csvPath)) {
+                // shell.showItemInFolder()はElectron/Windows環境によっては存在しないパスを渡しても
+                // 例外を投げず単に無反応になることがある(catchで捕まらない)。ボタンを押しても
+                // 何も起きないように見える不具合の主因はほぼこれなので、先に明示的にチェックして
+                // 分かりやすいエラーを返す。
+                const msg = `File not found: ${csvPath}`;
+                console.error(`[MasterManager Extension] revealCsv: ${msg}`);
+                return { ok: false, error: msg };
+            }
             try {
-                shell.showItemInFolder(getCsvPath(file));
+                shell.showItemInFolder(csvPath);
                 return { ok: true };
             } catch (err) {
-                console.error('[MasterManager Extension] revealCsv failed:', err);
+                console.error('[MasterManager Extension] revealCsv: showItemInFolder threw, falling back to opening the containing folder.', err);
+                // showItemInFolder()自体が使えない/失敗する環境向けのフォールバック。ファイルを選択
+                // 状態にはできないが、フォルダを開くだけならopenPath()の方が信頼性が高い。
+                shell.openPath(path.dirname(csvPath)).then((openErr) => {
+                    if (openErr) console.error('[MasterManager Extension] revealCsv: openPath fallback also failed:', openErr);
+                });
                 return { ok: false, error: err.message };
             }
         },

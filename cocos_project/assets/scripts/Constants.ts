@@ -59,6 +59,9 @@ export const GAME_SETTINGS = {
     ECONOMY: {
         INITIAL_MONEY: 0,
         UPGRADE_COST_BASE: 100,
+        // Customize画面のグリッドセル解放コスト(1マスあたり、固定額)。DataManager.data.gridData.layoutの
+        // 値1(未解放)のマスをタップで解放する際にこの額を消費する(CustomizeCalc.ts参照)。
+        CELL_UNLOCK_COST: 200,
         ITEMS: {
             "ItemMoney": { name: "クレジット", rare: 1, type: "money", value: 100 },
             "ItemRepair": { name: "緊急修理キット", rare: 2, type: "buff", value: 20 },
@@ -126,17 +129,17 @@ export const GAME_SETTINGS = {
     },
 
     // 船体レイアウト
+    // Home > CustomizeのGrid仕様(8x8、CellGap込みで(46+2)x8=384、Offset(8,8))に合わせて8x8に変更。
+    // 0=艦外(配置不可)/1=未解放セル(お金で解放)/2=解放済み(初期装備の土台)。CustomizeCalc.ts参照。
     SHIP_LAYOUT: [
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 1, 1, 0, 0, 0, 0],
-        [0, 0, 0, 1, 1, 1, 1, 0, 0, 0],
-        [0, 0, 1, 1, 2, 2, 2, 1, 1, 0],
-        [0, 0, 1, 1, 2, 2, 2, 1, 1, 0],
-        [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        [0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 1, 1, 0, 0, 0],
+        [0, 0, 1, 1, 1, 1, 0, 0],
+        [0, 1, 1, 2, 2, 1, 1, 0],
+        [0, 1, 1, 2, 2, 1, 1, 0],
+        [0, 0, 1, 1, 1, 1, 0, 0],
+        [0, 0, 0, 1, 1, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0, 0]
     ]
 };
 
@@ -157,6 +160,33 @@ export interface IMissionData {
     targetTime: number;  // New: in seconds
 }
 
+// GameManager.spawnLaserBeam()/IGameManager.spawnLaserBeam()の引数まとめ。ShockWave/SweapBlade等の
+// 開発でoptionalパラメータが積み重なり位置引数が18個近くまで肥大化したため、呼び出し側
+// (ShotRuntime.doLaser())が組み立てやすいよう1つのオブジェクトにまとめた
+// (LaserBeam.init()/applyOrbit()も同じ理由でオブジェクト引数化している。LaserBeamInitOptions/
+// LaserBeamOrbitOptions参照)。ownerNode/angle/damage/damageInterval/duration/length/width/isEnemyは
+// 必須、それ以外は省略時に既存の初期値のまま(GameManager.spawnLaserBeam()実装側で補う)。
+export interface SpawnLaserBeamOptions {
+    ownerNode: any;
+    angle: number;
+    damage: number;
+    damageInterval: number;
+    duration: number;
+    length: number;
+    width: number;
+    isEnemy: boolean;
+    prefabName?: string;
+    particleLengthScale?: number;
+    fadeOutDuration?: number;
+    orbitRadius?: number;
+    orbitSpeed?: number;
+    orbitStartAngle?: number;
+    modelSpinRate?: number;
+    orbitOffsetX?: number;
+    orbitOffsetY?: number;
+    hitSoundId?: string;
+}
+
 // IGameManager Interface for breaking circular dependencies
 export interface IGameManager {
     state: GameState;
@@ -170,7 +200,7 @@ export interface IGameManager {
     spawnBullet(x: number, y: number, angle: number, speed: number, damage: number, isEnemy: boolean, prefabName?: string): any;
     // 自機/敵に追従し続ける持続ビーム(ShotRuntime.tsのLaserノード用)。spawnBulletと違い
     // ownerNodeの子として生成され、x/y座標は取らない(親の位置にそのまま追従するため)。
-    spawnLaserBeam(ownerNode: any, angle: number, damage: number, damageInterval: number, duration: number, length: number, width: number, isEnemy: boolean, prefabName?: string, particleLengthScale?: number): any;
+    spawnLaserBeam(opts: SpawnLaserBeamOptions): any;
     spawnItem(x: number, y: number, id: string, amount: number): void;
     spawnItemFromPrefab(prefab: any, x: number, y: number): void;
     onItemCollected(id: string, amount: number, pos?: any): void;
@@ -212,7 +242,8 @@ export interface IGameManager {
     // (行動パターン検証用テストシーンのTキーから使用。将来的にはミッション側からも呼ばれる想定)
     // onSpawnedは実際に1体生成される度(Cycleが非Instantなら時間差で複数回)呼ばれる。
     spawnFromSpawnTable(tableId: string, onSpawned?: () => void): { spawnedIds: string[] } | null;
-    // ミッション生成時、1ミッション内で同一SpawnTable IDを何回まで重複選出してよいかの上限。
+    // ミッション生成時、一度選ばれた同一SpawnTable IDをその後何回ぶんの抽選から除外するか
+    // (ローテーション式、経過後は再び候補に復帰する。1ミッション内の総出現回数に上限は無い)。
     // GameManagerConfig.json由来(GameManagerEditorタブで調整)。MissionManager(実装予定)が参照する。
     missionMaxDuplicateSpawnTable: number;
     // Mission距離D = 開始margin(A) + SpawnTable合計(B) + 終了margin(C)。A/Cは固定値。

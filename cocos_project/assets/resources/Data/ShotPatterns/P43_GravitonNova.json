@@ -1,0 +1,91 @@
+{
+    "id": "P43_GravitonNova",
+    "nodes": [
+        {
+            "id": 4,
+            "type": "Loop",
+            "params": {
+                "count": -1,
+                "target": 1
+            },
+            "next": null
+        },
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 2
+        },
+        {
+            "id": 3,
+            "type": "Wait",
+            "params": {
+                "seconds": 4
+            },
+            "next": 4
+        },
+        {
+            "id": 2,
+            "type": "Fire",
+            "params": {
+                "aim": "fixed",
+                "angle": 90,
+                "speed": 0,
+                "damage": 35,
+                "pierceCount": -1,
+                "prefabName": "ShockWave03",
+                "color": "4422FF",
+                "glowIntensity": 0.2,
+                "scale": 0.05,
+                "growScale": 30,
+                "growScaleX": 30,
+                "growScaleY": 30,
+                "growDuration": 1,
+                "duration": 1,
+                "spinSpeed": 1440,
+                "count": 1,
+                "soundId": "SE_ShockWave"
+            },
+            "next": 3
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "2": [
+                230,
+                224
+            ],
+            "3": [
+                507,
+                165
+            ],
+            "4": [
+                772,
+                95
+            ]
+        },
+        "nodeStyles": {},
+        "nodeSizes": {
+            "1": [
+                140,
+                26
+            ],
+            "2": [
+                213,
+                546
+            ],
+            "3": [
+                210,
+                78
+            ],
+            "4": [
+                210,
+                78
+            ]
+        },
+        "groups": []
+    }
+}

@@ -1,0 +1,85 @@
+{
+    "id": "P52_OrbitCutter",
+    "nodes": [
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 2
+        },
+        {
+            "id": 3,
+            "type": "Comment",
+            "params": {
+                "text": "自機周辺を周回し続けるCircle系武器(SweapBlade)。\nFire→Loopではなく単発のLaserノードのみで完結\n(LaserBeamコンポーネント自身が\nduration秒間、自機に追従しながら周回・接触判定・\nDPSダメージを自己管理する)。\n\ndur=999999は実質\n「武器を装備している間ずっと回り続けるコンパニオン」を\n表す常駐扱い(寿命切れでの自然消滅は想定しない)。\n\ntick=0.2秒おきに、\n接触中の敵へdmg=30のダメージを継続的に与え続ける\n(Bulletのpierceのような「1回当てたら消滅」ではなく、\n当たっている間ずっと削り続けるDPS方式)。\n\norbitR=90(自機からの距離px)\norbitSpd=240(度/秒、1周1.5秒)で周回。\norbitN=1なので現状は1枚のみ\n(2以上にすると360/orbitN度ずつ自動で均等配置しつつ\n同時生成される。\n\nOrbitCutter/DeathScythe等\n複数枚のCircle武器を作る場合はここを増やす)。\n\nlength/width=40は当たり判定(BoxCollider2D)の\nサイズ(周回モードでは通常のLaserと違いcollideroffsetが\n(0,0)にリセットされ、\nノード自身の位置=周回軌道上の位置がそのまま判定の中心になる)。\n\nfadeOut=0.3は寿命切れ時の消滅猶予\n(常駐運用のため通常は到達しない)。\n\nprefab=SweapBlade01は\nassets/resources/Prefabs/Lasers/ 内のPrefab名。\n\"Model3D\"という名前の子\n\nノードにBlenderで作ったブレードのgltfを仕込んであり、modelSpin=2.0でRotationX方向に秒間2回転の\n自転演出が自動で掛かる(周回運動そのものとは別軸)。"
+            },
+            "next": null
+        },
+        {
+            "id": 2,
+            "type": "Laser",
+            "params": {
+                "aim": "fixed",
+                "angle": 90,
+                "damage": 35,
+                "damageInterval": 0.1,
+                "duration": 999999,
+                "length": 48,
+                "width": 48,
+                "prefabName": "SweapBlade02",
+                "particleLengthScale": 8,
+                "fadeOutDuration": 0.3,
+                "orbitRadius": 250,
+                "orbitSpeed": 360,
+                "orbitCount": 1,
+                "modelSpinRate": 16,
+                "orbitOffsetX": 0,
+                "orbitOffsetY": -64,
+                "hitSoundId": "SE_SweapBlade01",
+                "count": 1,
+                "speed": 0,
+                "scale": 1,
+                "glowIntensity": 1,
+                "color": "FFFFFF",
+                "soundId": ""
+            },
+            "next": null
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "2": [
+                215,
+                229
+            ],
+            "3": [
+                470,
+                290
+            ]
+        },
+        "nodeStyles": {
+            "3": {
+                "color": "#4a4a2a",
+                "bgcolor": "#3a3a1a"
+            }
+        },
+        "nodeSizes": {
+            "1": [
+                140,
+                26
+            ],
+            "2": [
+                215.28984160964234,
+                722
+            ],
+            "3": [
+                447.481572931463,
+                602.7970483953302
+            ]
+        },
+        "groups": []
+    }
+}

@@ -1,0 +1,319 @@
+{
+    "id": "Enemy017",
+    "nodes": [
+        {
+            "id": 12,
+            "type": "MoveTo",
+            "params": {
+                "from": "3",
+                "to": "1",
+                "interp": "curve",
+                "curveAmount": 60,
+                "duration": 1
+            },
+            "next": 10
+        },
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 6
+        },
+        {
+            "id": 8,
+            "type": "MoveTo",
+            "params": {
+                "from": "2",
+                "to": "1",
+                "interp": "curve",
+                "curveAmount": 60,
+                "duration": 1
+            },
+            "next": 2
+        },
+        {
+            "id": 2,
+            "type": "Move",
+            "params": {
+                "pattern": "zigzag",
+                "angle": 270,
+                "speed": 3,
+                "turn": 5
+            },
+            "next": null
+        },
+        {
+            "id": 10,
+            "type": "Move",
+            "params": {
+                "pattern": "homing",
+                "angle": 270,
+                "speed": 3,
+                "turn": 5
+            },
+            "next": null
+        },
+        {
+            "id": 6,
+            "type": "Spin",
+            "params": {
+                "axis": "x",
+                "degrees": 720,
+                "duration": 1,
+                "loop": false
+            },
+            "next": 14
+        },
+        {
+            "id": 9,
+            "type": "Spin",
+            "params": {
+                "axis": "y",
+                "degrees": 720,
+                "duration": 2,
+                "loop": false
+            },
+            "next": 8
+        },
+        {
+            "id": 13,
+            "type": "Spin",
+            "params": {
+                "axis": "y",
+                "degrees": 720,
+                "duration": 2,
+                "loop": false
+            },
+            "next": 12
+        },
+        {
+            "id": 7,
+            "type": "MoveTo",
+            "params": {
+                "from": "0",
+                "to": "2",
+                "interp": "curve",
+                "curveAmount": 120,
+                "duration": 1
+            },
+            "next": 9
+        },
+        {
+            "id": 11,
+            "type": "MoveTo",
+            "params": {
+                "from": "0",
+                "to": "3",
+                "interp": "curve",
+                "curveAmount": 120,
+                "duration": 1
+            },
+            "next": 13
+        },
+        {
+            "id": 14,
+            "type": "Branch",
+            "params": {
+                "condition": "random",
+                "value": 50,
+                "logic": "none",
+                "condition2": "random",
+                "value2": 50
+            },
+            "trueNext": 15,
+            "falseNext": 16
+        },
+        {
+            "id": 15,
+            "type": "Attack",
+            "params": {
+                "shotPatternId": "SP_ENE017"
+            },
+            "next": 7
+        },
+        {
+            "id": 16,
+            "type": "Attack",
+            "params": {
+                "shotPatternId": "SP_ENE017"
+            },
+            "next": 11
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                25.662000089645385,
+                550.7999938964844
+            ],
+            "2": [
+                1674.2699999999995,
+                362.7929938964843
+            ],
+            "6": [
+                193.66200008964537,
+                550.7999938964844
+            ],
+            "7": [
+                920,
+                360
+            ],
+            "8": [
+                1420.2699999999995,
+                356.7929938964843
+            ],
+            "9": [
+                1159.4957798091716,
+                357.23109600195284
+            ],
+            "10": [
+                1663.495779809172,
+                573.2310960019531
+            ],
+            "11": [
+                920,
+                600
+            ],
+            "12": [
+                1422.9245910157065,
+                571.7834199605473
+            ],
+            "13": [
+                1159.4957798091716,
+                573.2310960019531
+            ],
+            "14": [
+                434,
+                551
+            ],
+            "15": [
+                680,
+                360
+            ],
+            "16": [
+                680,
+                600
+            ]
+        },
+        "nodeStyles": {
+            "1": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "2": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "6": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "7": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "8": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "9": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "10": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "11": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "12": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "13": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "14": {
+                "color": "#232",
+                "bgcolor": "#353"
+            },
+            "15": {
+                "color": "#5a2a2a",
+                "bgcolor": "#3a1c1c"
+            },
+            "16": {
+                "color": "#5a2a2a",
+                "bgcolor": "#3a1c1c"
+            }
+        },
+        "nodeSizes": {
+            "1": [
+                140,
+                26
+            ],
+            "2": [
+                210,
+                190
+            ],
+            "6": [
+                210,
+                170
+            ],
+            "7": [
+                210,
+                194
+            ],
+            "8": [
+                210,
+                194
+            ],
+            "9": [
+                210,
+                170
+            ],
+            "10": [
+                210,
+                190
+            ],
+            "11": [
+                210,
+                194
+            ],
+            "12": [
+                210,
+                194
+            ],
+            "13": [
+                210,
+                170
+            ],
+            "14": [
+                210,
+                174
+            ],
+            "15": [
+                210,
+                58
+            ],
+            "16": [
+                210,
+                58
+            ]
+        },
+        "groups": [
+            {
+                "title": "Move",
+                "bounding": [
+                    3,
+                    307,
+                    1912,
+                    486
+                ],
+                "color": "#8A8",
+                "font_size": 24
+            }
+        ]
+    }
+}

@@ -1,0 +1,129 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "541b46e0-5a3e-4ef4-8e88-1f37abba0cd6",
+  "files": [],
+  "subMetas": {
+    "80827": {
+      "importer": "gltf-scene",
+      "uuid": "541b46e0-5a3e-4ef4-8e88-1f37abba0cd6@80827",
+      "displayName": "",
+      "id": "80827",
+      "name": "ENE018.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "b164a": {
+      "importer": "gltf-mesh",
+      "uuid": "541b46e0-5a3e-4ef4-8e88-1f37abba0cd6@b164a",
+      "displayName": "",
+      "id": "b164a",
+      "name": "assembly_fuselage_mesh.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 45536
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "4e845": {
+      "importer": "gltf-mesh",
+      "uuid": "541b46e0-5a3e-4ef4-8e88-1f37abba0cd6@4e845",
+      "displayName": "",
+      "id": "4e845",
+      "name": "assembly_canopy_mesh.mesh",
+      "userData": {
+        "gltfIndex": 1,
+        "triangleCount": 24064
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "23d8d": {
+      "importer": "gltf-material",
+      "uuid": "541b46e0-5a3e-4ef4-8e88-1f37abba0cd6@23d8d",
+      "displayName": "",
+      "id": "23d8d",
+      "name": "FighterGen_Base.material",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f8d90": {
+      "importer": "gltf-material",
+      "uuid": "541b46e0-5a3e-4ef4-8e88-1f37abba0cd6@f8d90",
+      "displayName": "",
+      "id": "f8d90",
+      "name": "FighterGen_Canopy.material",
+      "userData": {
+        "gltfIndex": 1
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageMetas": [],
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "assetFinder": {
+      "meshes": [
+        "541b46e0-5a3e-4ef4-8e88-1f37abba0cd6@b164a",
+        "541b46e0-5a3e-4ef4-8e88-1f37abba0cd6@4e845"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [
+        "541b46e0-5a3e-4ef4-8e88-1f37abba0cd6@23d8d",
+        "541b46e0-5a3e-4ef4-8e88-1f37abba0cd6@f8d90"
+      ],
+      "scenes": [
+        "541b46e0-5a3e-4ef4-8e88-1f37abba0cd6@80827"
+      ]
+    }
+  }
+}

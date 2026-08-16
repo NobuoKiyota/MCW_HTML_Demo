@@ -24,4 +24,5 @@ SE_WaveBeam,"sounds/SE/SE_WaveBeam",0.4,0.1,4,1
 SE_ScrewBeam,"sounds/SE/SE_ScrewBeam",0.4,0.1,4,1
 SE_DistortionBeam,"sounds/SE/SE_DistortionBeam",0.6,0.1,4,1
 SE_PMissile,"sounds/SE/SE_PMissile",1.2,1,4,1
-SE_PLaserBeam01,"sounds/SE/SE_PLaserBeam01",0.7,2,1,1
+SE_PLaserBeam01,"sounds/SE/SE_PLaserBeam01",0.5,2,1,1
+SE_SweapBlade01,"sounds/SE/SE_SweapBlade01",0.45,0.2,8,1

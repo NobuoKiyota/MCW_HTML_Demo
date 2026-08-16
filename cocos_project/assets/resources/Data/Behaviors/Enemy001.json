@@ -40,7 +40,7 @@
             "id": 7,
             "type": "Attack",
             "params": {
-                "shotPatternId": "1Shot01"
+                "shotPatternId": "SP_ENE001"
             },
             "next": null
         }
@@ -73,6 +73,28 @@
                 "color": "#5a2a2a",
                 "bgcolor": "#3a1c1c"
             }
+        },
+        "nodeSizes": {
+            "1": [
+                140,
+                26
+            ],
+            "2": [
+                210,
+                190
+            ],
+            "6": [
+                210,
+                170
+            ],
+            "7": [
+                210,
+                58
+            ],
+            "8": [
+                210,
+                78
+            ]
         },
         "groups": []
     }

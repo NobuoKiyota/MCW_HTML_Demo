@@ -1,0 +1,112 @@
+{
+    "id": "SP_ENE020_Multi",
+    "nodes": [
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 2
+        },
+        {
+            "id": 4,
+            "type": "Loop",
+            "params": {
+                "count": -1,
+                "target": 1
+            },
+            "next": null
+        },
+        {
+            "id": 3,
+            "type": "Wait",
+            "params": {
+                "seconds": 1.5
+            },
+            "next": 4
+        },
+        {
+            "id": 5,
+            "type": "Comment",
+            "params": {
+                "text": "【MultiFire】1回のトリガーでcount発を撃つノード。\n\n■ 2つの動作モード(組み合わせ可)\n・拡散弾: angleSpread>0 かつ staggerDelay=0\n  → angleを中心にcount発を扇状に同時発射\n・連続発射: angleSpread=0 かつ staggerDelay>0\n  → 同じ角度へstaggerDelay秒間隔で連続発射(撃ち切るまで次のノードに進まずブロックする)\n\n■ 主なパラメータ\n・aim: fixed=angle指定 / atPlayer=自機方向へ(敵発射のみ有効)\n・count: 1回のトリガーで撃つ発数\n・angleSpread: 扇の開き角(度)。0なら拡散なし\n・staggerDelay: 連続発射の間隔(秒)。0なら同時発射\n・speed / damage / pierceCount: 弾速・威力・貫通回数(0=通常、-1=無限貫通)\n・prefabName / color: 見た目上書き(Fireノードと同じ、空/(default)なら既定)\n・growScale(X/Y): 寿命の間にscale→growScale倍まで線形拡大(既定0=拡大なし)\n\n数値パラメータはRandomノードから配線して乱数化できる。"
+            },
+            "next": null
+        },
+        {
+            "id": 2,
+            "type": "MultiFire",
+            "params": {
+                "aim": "fixed",
+                "angle": 270,
+                "count": 12,
+                "angleSpread": 30,
+                "staggerDelay": 0.35,
+                "speed": 12,
+                "damage": 15,
+                "pierceCount": 0,
+                "prefabName": "Bullet02",
+                "color": "8888FF",
+                "glowIntensity": 3,
+                "scale": 1,
+                "growScale": 0,
+                "growScaleX": 0,
+                "growScaleY": 0,
+                "angleOffset": 0,
+                "soundId": "SE_EShotSpread01"
+            },
+            "next": 3
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "2": [
+                220,
+                80
+            ],
+            "3": [
+                468,
+                81
+            ],
+            "4": [
+                732,
+                82
+            ],
+            "5": [
+                490,
+                263
+            ]
+        },
+        "nodeStyles": {
+            "5": {
+                "color": "#4a4a2a",
+                "bgcolor": "#3a3a1a"
+            }
+        },
+        "nodeSizes": {
+            "1": [
+                140,
+                26
+            ],
+            "2": [
+                210,
+                546
+            ],
+            "3": [
+                210,
+                78
+            ],
+            "4": [
+                210,
+                78
+            ],
+            "5": [
+                567.7307545055037,
+                367.7309979525477
+            ]
+        },
+        "groups": []
+    }
+}

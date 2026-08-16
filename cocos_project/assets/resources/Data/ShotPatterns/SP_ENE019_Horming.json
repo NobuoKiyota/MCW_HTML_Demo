@@ -1,0 +1,89 @@
+{
+    "id": "SP_ENE019_Horming",
+    "nodes": [
+        {
+            "id": 4,
+            "type": "Loop",
+            "params": {
+                "count": -1,
+                "target": 1
+            },
+            "next": null
+        },
+        {
+            "id": 1,
+            "type": "Start",
+            "next": 5
+        },
+        {
+            "id": 5,
+            "type": "Missile",
+            "params": {
+                "angle": 270,
+                "speed": 10,
+                "damage": 18,
+                "homing": true,
+                "turnRate": 0.2,
+                "pierceCount": 0,
+                "prefabName": "Bullet02",
+                "color": "8888FF",
+                "glowIntensity": 1,
+                "scale": 1,
+                "growScale": 0,
+                "growScaleX": 0,
+                "growScaleY": 0,
+                "count": 1,
+                "soundId": "SE_EShotBullet01"
+            },
+            "next": 3
+        },
+        {
+            "id": 3,
+            "type": "Wait",
+            "params": {
+                "seconds": 2.3
+            },
+            "next": 4
+        }
+    ],
+    "_editor": {
+        "nodePositions": {
+            "1": [
+                40,
+                80
+            ],
+            "3": [
+                468,
+                83
+            ],
+            "4": [
+                713,
+                82
+            ],
+            "5": [
+                215,
+                155
+            ]
+        },
+        "nodeStyles": {},
+        "nodeSizes": {
+            "1": [
+                140,
+                26
+            ],
+            "3": [
+                210,
+                78
+            ],
+            "4": [
+                210,
+                78
+            ],
+            "5": [
+                210,
+                458
+            ]
+        },
+        "groups": []
+    }
+}

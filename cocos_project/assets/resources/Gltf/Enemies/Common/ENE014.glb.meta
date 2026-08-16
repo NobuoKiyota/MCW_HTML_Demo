@@ -1,0 +1,167 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "d5f997eb-1448-4709-8b52-a6500bc28c6e",
+  "files": [],
+  "subMetas": {
+    "b164a": {
+      "importer": "gltf-mesh",
+      "uuid": "d5f997eb-1448-4709-8b52-a6500bc28c6e@b164a",
+      "displayName": "",
+      "id": "b164a",
+      "name": "assembly_fuselage_mesh.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 48992
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "e58e7": {
+      "importer": "gltf-mesh",
+      "uuid": "d5f997eb-1448-4709-8b52-a6500bc28c6e@e58e7",
+      "displayName": "",
+      "id": "e58e7",
+      "name": "assembly_wing_r_mesh.mesh",
+      "userData": {
+        "gltfIndex": 1,
+        "triangleCount": 1948
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "31f4e": {
+      "importer": "gltf-mesh",
+      "uuid": "d5f997eb-1448-4709-8b52-a6500bc28c6e@31f4e",
+      "displayName": "",
+      "id": "31f4e",
+      "name": "assembly_subwing_r_mesh.mesh",
+      "userData": {
+        "gltfIndex": 2,
+        "triangleCount": 19096
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "4e845": {
+      "importer": "gltf-mesh",
+      "uuid": "d5f997eb-1448-4709-8b52-a6500bc28c6e@4e845",
+      "displayName": "",
+      "id": "4e845",
+      "name": "assembly_canopy_mesh.mesh",
+      "userData": {
+        "gltfIndex": 3,
+        "triangleCount": 24064
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "23d8d": {
+      "importer": "gltf-material",
+      "uuid": "d5f997eb-1448-4709-8b52-a6500bc28c6e@23d8d",
+      "displayName": "",
+      "id": "23d8d",
+      "name": "FighterGen_Base.material",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f8d90": {
+      "importer": "gltf-material",
+      "uuid": "d5f997eb-1448-4709-8b52-a6500bc28c6e@f8d90",
+      "displayName": "",
+      "id": "f8d90",
+      "name": "FighterGen_Canopy.material",
+      "userData": {
+        "gltfIndex": 1
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f59ec": {
+      "importer": "gltf-scene",
+      "uuid": "d5f997eb-1448-4709-8b52-a6500bc28c6e@f59ec",
+      "displayName": "",
+      "id": "f59ec",
+      "name": "ENE014.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageMetas": [],
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "assetFinder": {
+      "meshes": [
+        "d5f997eb-1448-4709-8b52-a6500bc28c6e@b164a",
+        "d5f997eb-1448-4709-8b52-a6500bc28c6e@e58e7",
+        "d5f997eb-1448-4709-8b52-a6500bc28c6e@31f4e",
+        "d5f997eb-1448-4709-8b52-a6500bc28c6e@4e845"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [
+        "d5f997eb-1448-4709-8b52-a6500bc28c6e@23d8d",
+        "d5f997eb-1448-4709-8b52-a6500bc28c6e@f8d90"
+      ],
+      "scenes": [
+        "d5f997eb-1448-4709-8b52-a6500bc28c6e@f59ec"
+      ]
+    }
+  }
+}

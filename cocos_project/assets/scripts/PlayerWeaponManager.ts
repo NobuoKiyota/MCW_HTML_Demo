@@ -1,6 +1,7 @@
 import { _decorator, Component, Enum, CCInteger } from 'cc';
 import { GameDatabase } from './GameDatabase';
-import { computeWeaponLevelStats } from './WeaponCalc';
+import { computeWeaponLevelStats, isWeaponUnlocked, checkLoadoutEquip, canAffordWeaponUnlock, unlockWeapon } from './WeaponCalc';
+import { DataManager } from './DataManager';
 const { ccclass, property } = _decorator;
 
 /**
@@ -89,6 +90,17 @@ export class PlayerWeaponManager extends Component {
     @property({ type: CCInteger, tooltip: "Group6武器のテスト用Lv(0=未強化)" })
     public group6Lv: number = 0;
 
+    // 解放条件(WeaponCalc.ts)の動作確認用テストフラグ。本番の解放UI(ショップ画面等)はまだ無いため、
+    // このコンポーネントを解放フローの簡易テストハーネスとして使う。
+    @property({ tooltip: "テスト用: trueにするとresolveLoadout()の最初にunlockedEquipmentIdsを空にする" +
+        "(前回のPreviewで解放した分をリセットして、未解放状態からもう一度テストしたい時用)。moneyは変更しない。" })
+    public testResetUnlocks: boolean = false;
+
+    @property({ tooltip: "テスト用: trueにすると、現在選択中(None以外)の武器を実際の解放フロー" +
+        "(WeaponCalc.unlockWeapon())に通してから発射判定を行う。クレジットが足りない場合は" +
+        "自動的に不足分を補充してから解放するので、コスト消費が正しく動くかも合わせて確認できる。" })
+    public testAutoUnlockSelected: boolean = false;
+
     // 選択中の武器(Noneは除外)をWeapons.csv経由でShotPatternIDへ変換し、あわせてWeaponCalc経由で
     // 各武器の現在Lvでの実Scale値・WT(発射間隔)比率を計算して返す
     // (PlayerController.setScaleMultipliers()/setIntervalMultipliers()が使う倍率)。
@@ -96,8 +108,15 @@ export class PlayerWeaponManager extends Component {
     // ゼロ除算を避けて1.0(無補正)のまま扱う。
     // 該当WeaponIDがWeapons.csvに無い/ShotPatternID未設定の場合はコンソール警告のみでスキップする
     // (PlayerController.waitForShotPattern()側の「1つ失敗しても他は続行する」設計と揃えてある)。
+    //
+    // 解放条件(Equipment.csv側のUnlockCost/DataManager.data.unlockedEquipmentIds)・装備条件(weight合計<=capacity)は
+    // WeaponCalc.ts(isWeaponUnlocked/checkLoadoutEquip)で判定する。未解放の武器はここで弾いて
+    // ロードアウトに含めない(選んでいるのにログでスキップされる=未解放、というのがテスト時の
+    // 確認ポイントになる)。重量オーバーは弾かずログ警告のみに留める(どの武器が原因か個別に
+    // わかった方がテストしやすいため、全滅させない)。
     public resolveLoadout(): { shotPatternIds: string[]; scaleMultByPatternId: { [shotPatternId: string]: number }; intervalMultByPatternId: { [shotPatternId: string]: number } } {
         const db = GameDatabase.instance;
+        const saveData = DataManager.instance.data;
         const selections: { weaponId: string; lv: number }[] = [
             { weaponId: GROUP1_WEAPON_IDS[this.group1Weapon - 1], lv: this.group1Lv },
             { weaponId: GROUP2_WEAPON_IDS[this.group2Weapon - 1], lv: this.group2Lv },
@@ -107,19 +126,58 @@ export class PlayerWeaponManager extends Component {
             { weaponId: GROUP6_WEAPON_IDS[this.group6Weapon - 1], lv: this.group6Lv },
         ];
 
+        // テスト用: 前回Previewでの解放状態をリセットしたい場合(moneyは触らない、あくまで
+        // unlockedEquipmentIdsだけをクリアして「未解放」状態からもう一度確認できるようにする)。
+        if (this.testResetUnlocks) {
+            saveData.unlockedEquipmentIds = [];
+            console.log('[PlayerWeaponManager] testResetUnlocks: unlockedEquipmentIdsをクリアしました。');
+        }
+
+        // テスト用: 選択中の武器を実際の解放フロー(WeaponCalc.unlockWeapon())に通す。
+        // クレジット不足なら不足分だけ補充してから解放する(コスト消費そのものの動作確認も兼ねる)。
+        if (this.testAutoUnlockSelected) {
+            for (const { weaponId } of selections) {
+                if (!weaponId) continue;
+                const weapon = db ? db.getWeaponData(weaponId) : null;
+                if (!weapon || isWeaponUnlocked(weapon, saveData)) continue;
+                if (!canAffordWeaponUnlock(weapon, saveData)) {
+                    const shortfall = weapon._equipment.unlockCost - saveData.money;
+                    console.log(`[PlayerWeaponManager] testAutoUnlockSelected: '${weaponId}'解放のためテスト用クレジット${shortfall}を補充します。`);
+                    DataManager.instance.addResource('credits', shortfall);
+                }
+                const ok = unlockWeapon(weapon, DataManager.instance);
+                console.log(`[PlayerWeaponManager] testAutoUnlockSelected: '${weaponId}' 解放${ok ? '成功' : '失敗'}(cost=${weapon._equipment.unlockCost}, 残クレジット=${saveData.money}）`);
+            }
+        }
+
         const shotPatternIds: string[] = [];
         const scaleMultByPatternId: { [shotPatternId: string]: number } = {};
         const intervalMultByPatternId: { [shotPatternId: string]: number } = {};
+        const equippedWeaponIds: string[] = [];
         for (const { weaponId, lv } of selections) {
             if (!weaponId) continue; // index -1 => None
             const weapon = db ? db.getWeaponData(weaponId) : null;
-            if (weapon && weapon.shotPatternId) {
-                shotPatternIds.push(weapon.shotPatternId);
-                const stats = computeWeaponLevelStats(weapon, lv);
-                scaleMultByPatternId[weapon.shotPatternId] = stats.scale;
-                intervalMultByPatternId[weapon.shotPatternId] = weapon.wtMin > 0 ? stats.wt / weapon.wtMin : 1.0;
-            } else {
+            if (!weapon || !weapon.shotPatternId) {
                 console.warn(`[PlayerWeaponManager] Weapon '${weaponId}' がWeapons.csvに見つからない、またはShotPatternID未設定です。この武器はスキップされます。`);
+                continue;
+            }
+            if (!isWeaponUnlocked(weapon, saveData)) {
+                console.warn(`[PlayerWeaponManager] Weapon '${weaponId}' は未解放です(unlockCost=${weapon._equipment.unlockCost}、所持クレジット=${saveData.money})。この武器はスキップされます。`);
+                continue;
+            }
+            equippedWeaponIds.push(weaponId);
+            shotPatternIds.push(weapon.shotPatternId);
+            const stats = computeWeaponLevelStats(weapon, lv);
+            scaleMultByPatternId[weapon.shotPatternId] = stats.scale;
+            intervalMultByPatternId[weapon.shotPatternId] = weapon.wtMin > 0 ? stats.wt / weapon.wtMin : 1.0;
+        }
+
+        if (equippedWeaponIds.length > 0) {
+            const check = checkLoadoutEquip(equippedWeaponIds, saveData);
+            if (!check.ok) {
+                console.warn(`[PlayerWeaponManager] 装備重量オーバー: 合計${check.totalWeight} > capacity${check.capacity} (装備中: ${equippedWeaponIds.join(', ')})`);
+            } else {
+                console.log(`[PlayerWeaponManager] 装備重量: ${check.totalWeight}/${check.capacity} OK`);
             }
         }
         return { shotPatternIds, scaleMultByPatternId, intervalMultByPatternId };

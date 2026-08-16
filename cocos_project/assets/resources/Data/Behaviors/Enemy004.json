@@ -15,14 +15,6 @@
             "next": 7
         },
         {
-            "id": 7,
-            "type": "Attack",
-            "params": {
-                "shotPatternId": "SPREAD02"
-            },
-            "next": null
-        },
-        {
             "id": 6,
             "type": "Spin",
             "params": {
@@ -54,6 +46,14 @@
                 "angleRef": 9
             },
             "next": 8
+        },
+        {
+            "id": 7,
+            "type": "Attack",
+            "params": {
+                "shotPatternId": "SP_ENE004"
+            },
+            "next": null
         }
     ],
     "_editor": {
@@ -92,6 +92,32 @@
                 "color": "#2a3a4a",
                 "bgcolor": "#1c2833"
             }
+        },
+        "nodeSizes": {
+            "1": [
+                140,
+                26
+            ],
+            "2": [
+                210,
+                190
+            ],
+            "6": [
+                210,
+                170
+            ],
+            "7": [
+                210,
+                58
+            ],
+            "8": [
+                210,
+                78
+            ],
+            "9": [
+                210,
+                130
+            ]
         },
         "groups": []
     }

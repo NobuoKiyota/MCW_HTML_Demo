@@ -1,0 +1,78 @@
+{
+  "ver": "2.3.14",
+  "importer": "gltf",
+  "imported": true,
+  "uuid": "c8ed4887-4ab9-48b2-8120-b67108ec30be",
+  "files": [],
+  "subMetas": {
+    "3ad3b": {
+      "importer": "gltf-mesh",
+      "uuid": "c8ed4887-4ab9-48b2-8120-b67108ec30be@3ad3b",
+      "displayName": "",
+      "id": "3ad3b",
+      "name": "part_00_mesh.mesh",
+      "userData": {
+        "gltfIndex": 0,
+        "triangleCount": 3016
+      },
+      "ver": "1.1.1",
+      "imported": true,
+      "files": [
+        ".bin",
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "59a07": {
+      "importer": "gltf-scene",
+      "uuid": "c8ed4887-4ab9-48b2-8120-b67108ec30be@59a07",
+      "displayName": "",
+      "id": "59a07",
+      "name": "SweapBlade003.prefab",
+      "userData": {
+        "gltfIndex": 0
+      },
+      "ver": "1.0.14",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "imageMetas": [],
+    "lods": {
+      "enable": false,
+      "hasBuiltinLOD": false,
+      "options": [
+        {
+          "screenRatio": 0.25,
+          "faceCount": 1
+        },
+        {
+          "screenRatio": 0.125,
+          "faceCount": 0.25
+        },
+        {
+          "screenRatio": 0.01,
+          "faceCount": 0.1
+        }
+      ]
+    },
+    "assetFinder": {
+      "meshes": [
+        "c8ed4887-4ab9-48b2-8120-b67108ec30be@3ad3b"
+      ],
+      "skeletons": [],
+      "textures": [],
+      "materials": [],
+      "scenes": [
+        "c8ed4887-4ab9-48b2-8120-b67108ec30be@59a07"
+      ]
+    },
+    "dumpMaterials": false,
+    "depthWriteInAlphaModeBlend": false,
+    "useVertexColors": false
+  }
+}

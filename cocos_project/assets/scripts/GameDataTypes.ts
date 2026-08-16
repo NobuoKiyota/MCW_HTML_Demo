@@ -230,7 +230,7 @@ export class SpawnTableData {
     @property({ tooltip: "出現サイクル(1体ずつ生成する間隔のプリセット): Instant(全て同時) / Rapid / Normal / Slow。実際の秒数はGameManager側のプリセット表で計算する(CSVに秒数を直接手打ちしない)" })
     public cycle: string = "Instant";
 
-    public slots: string[] = []; // TypeID_1..8 のうち "None" 以外の値のみ
+    public slots: string[] = []; // TypeID_1..12 のうち "None" 以外の値のみ
 
     @property
     public note: string = "";
@@ -253,6 +253,11 @@ export class MissionDifficultyData {
 
     @property({ type: CCInteger, tooltip: "ミッション生成時に組み合わせるSpawnTableの本数" })
     public tableCount: number = 3;
+
+    // SpawnTableID_1~8(各列プルダウンでSpawnTables.csvのID or Noneを選ぶ、TypeID_1~12等と同じ
+    // 規約)のうちNoneでない値だけをまとめたもの。空(=全列None)なら従来通りlv一致の全SpawnTable行を
+    // 候補にする(後方互換、BehaviorTestController.refreshMissionPreview()参照)。
+    public spawnTableIds: string[] = [];
 
     @property
     public note: string = "";
@@ -299,6 +304,12 @@ export class PlayerUpgradeParamData {
  * 読み書きがダブルクォート内カンマに対応していないため、カンマは使わない)。
  * 例: "00;10" = (0,0)と(1,0)の2マス。
  */
+// UnlockItemID_1~3/UnlockItemQty_1~3をパースした結果。EquipmentUnlock.ts参照。
+export interface IUnlockItemRequirement {
+    itemId: string; // Items.csvのID
+    qty: number;
+}
+
 @ccclass('EquipmentData')
 export class EquipmentData {
     @property
@@ -315,6 +326,13 @@ export class EquipmentData {
 
     @property
     public note: string = "";
+
+    @property({ type: CCFloat, tooltip: "解放に必要なクレジット(0=最初から解放済み、UnlockItemsも空の場合のみ)。DataManager.data.unlockedEquipmentIdsとセットで使う(EquipmentUnlock.ts参照)" })
+    public unlockCost: number = 0;
+
+    // UnlockItemID_1/UnlockItemQty_1 ~ UnlockItemID_3/UnlockItemQty_3(最大3種類)をパースした結果。
+    // ItemIDが空の枠は無視する。GameDatabase.parseEquipmentCSV()が設定する。
+    public unlockItems: IUnlockItemRequirement[] = [];
 }
 
 /**
@@ -395,6 +413,12 @@ export class WeaponData {
 
     @property
     public note: string = "";
+
+    @property({ tooltip: "Equipment.csv(EquipmentData)側のID。Customize画面グリッド用の形状を紐付ける(未設定なら形状未定義のまま)。解放条件(UnlockCost等)もこちらのEquipmentData側で管理する(EquipmentUnlock.ts参照)" })
+    public equipmentId: string = "";
+
+    // Runtime Cache (GameDatabaseがequipmentId経由で解決する。EnemyDataの_shotPattern等と同じ規約)
+    public _equipment: EquipmentData = null;
 }
 
 /**

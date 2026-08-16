@@ -25,14 +25,28 @@
   ],
   "_props": [
     {
-      "lineColor": {
+      "baseColor": {
         "__type__": "cc.Color",
-        "r": 114,
-        "g": 112,
-        "b": 99,
+        "r": 213,
+        "g": 253,
+        "b": 255,
         "a": 255
       },
-      "gridScale": 3,
+      "lineColor": {
+        "__type__": "cc.Color",
+        "r": 37,
+        "g": 32,
+        "b": 0,
+        "a": 255
+      },
+      "specularColor": {
+        "__type__": "cc.Color",
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      },
+      "gridScale": 12.3,
       "lineWidth": 0,
       "shininess": 50
     }

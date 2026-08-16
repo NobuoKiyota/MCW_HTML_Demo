@@ -1,12 +1,5 @@
 ID,GraphPath,Note
-1Shot01,Data/ShotPatterns/1Shot01,LP:0.5 SP:7 DMG:8
-1Shot02,Data/ShotPatterns/1Shot02,LP:0.4 SP:7 DMG:7
-1ShotHM01,Data/ShotPatterns/1ShotHM01,Copied from 1Shot01
-1Shot03,Data/ShotPatterns/1Shot03,LP:0.35 SP:10 DMG:6
-1Shot04,Data/ShotPatterns/1Shot04,LP:0.25 SP:8 DMG:4
-1Shot05,Data/ShotPatterns/1Shot05,LP:0.5 SP:12 DMG:10
-1ShotHM02,Data/ShotPatterns/1ShotHM02,Copied from 1ShotHM01
-1ShotAim01,Data/ShotPatterns/1ShotAim01,Copied from 1Shot01
+SP_ENE001,Data/ShotPatterns/SP_ENE001,LP:0.5 SP:7 DMG:8
 Empty,Data/ShotPatterns/Empty,
 SP_PLAYER_BASIC,Data/ShotPatterns/SP_PLAYER_BASIC,Player default weapon (was PlayerController.fire())
 SPREAD01,Data/ShotPatterns/SPREAD01,Demo: spread shot (MultiFire
@@ -41,3 +34,29 @@ P32_SolarLay,Data/ShotPatterns/P32_SolarLay,Copied from P31_LaserCannon
 P33_BusterLance,Data/ShotPatterns/P33_BusterLance,Copied from P32_SolarLay
 P34_AetherSlicer,Data/ShotPatterns/P34_AetherSlicer,Copied from P33_BusterLance
 P35_Ouroboros,Data/ShotPatterns/P35_Ouroboros,Copied from P34_AetherSlicer
+P41_ShockWave,Data/ShotPatterns/P41_ShockWave,自機中心に円形拡大するWave系(WideBeamのgrowScale応用、pierceCount:-1で初撃のみ)
+P51_SweapBlade,Data/ShotPatterns/P51_SweapBlade,自機周辺を周回し続けるCircle系(LaserBeamのorbitRadius/orbitSpeed応用、常駐コンパニオン型)
+P42_DistortionSurge,Data/ShotPatterns/P42_DistortionSurge,Copied from P41_ShockWave
+P43_GravitonNova,Data/ShotPatterns/P43_GravitonNova,Copied from P42_DistortionSurge
+P52_OrbitCutter,Data/ShotPatterns/P52_OrbitCutter,Copied from P51_SweapBlade
+P53_ThermalCleaver,Data/ShotPatterns/P53_ThermalCleaver,Copied from P52_OrbitCutter
+P54_DeathScythe,Data/ShotPatterns/P54_DeathScythe,Copied from P53_ThermalCleaver
+SP_ENE002,Data/ShotPatterns/SP_ENE002,Copied from SP_ENE001
+SP_ENE003,Data/ShotPatterns/SP_ENE003,Copied from SP_ENE002
+SP_ENE004,Data/ShotPatterns/SP_ENE004,Copied from SP_ENE003
+SP_ENE005,Data/ShotPatterns/SP_ENE005,Copied from SP_ENE004
+SP_ENE006,Data/ShotPatterns/SP_ENE006,Copied from SP_ENE005
+SP_ENE007,Data/ShotPatterns/SP_ENE007,Copied from SP_ENE006
+SP_ENE008_Multi,Data/ShotPatterns/SP_ENE008_Multi,Copied from SPREAD01
+SP_ENE009_Multi,Data/ShotPatterns/SP_ENE009_Multi,Copied from SP_ENE008_Multi
+SP_ENE010_Multi,Data/ShotPatterns/SP_ENE010_Multi,Copied from SP_ENE009
+SP_ENE011,Data/ShotPatterns/SP_ENE011,Copied from SP_ENE001
+SP_ENE012,Data/ShotPatterns/SP_ENE012,Copied from SP_ENE011
+SP_ENE013,Data/ShotPatterns/SP_ENE013,Copied from SP_ENE012
+SP_ENE014,Data/ShotPatterns/SP_ENE014,Copied from SP_ENE013
+SP_ENE015_Multi,Data/ShotPatterns/SP_ENE015_Multi,Copied from SP_ENE008_Multi
+SP_ENE016_Horming,Data/ShotPatterns/SP_ENE016_Horming,Copied from SP_ENE014
+SP_ENE017,Data/ShotPatterns/SP_ENE017,Copied from SP_ENE014
+SP_ENE018_Multi,Data/ShotPatterns/SP_ENE018_Multi,Copied from SP_ENE015_Multi
+SP_ENE019_Horming,Data/ShotPatterns/SP_ENE019_Horming,Copied from SP_ENE016_Horming
+SP_ENE020_Multi,Data/ShotPatterns/SP_ENE020_Multi,Copied from SP_ENE018_Multi
