@@ -1,5 +1,6 @@
 import { GameDatabase } from './GameDatabase';
 import { IGameManager } from './Constants';
+import { DataManager } from './DataManager';
 
 /**
  * PlayerUpgrade.csv(9パラメータ: HP/CP/SP/AC/DF/TN/CR/VOS/WOS)のLv別実値・コストを計算する。
@@ -13,12 +14,32 @@ import { IGameManager } from './Constants';
 // 個別に配列を複製しない(9パラメータの正式リストはここが唯一の情報源)。
 export const PARAM_IDS = ['HP', 'CP', 'SP', 'AC', 'DF', 'TN', 'CR', 'VOS', 'WOS'];
 
+// 9パラメータの現在Lv合計("TotalUpgrade: ★n"、SideBarUI.ts)。MissionUI.tsのMissionLv/SubLv
+// 解放判定にもこの値をそのまま使う(表示側と判定側で数値がズレないよう、集計はここ1箇所のみで行う)。
+export function getTotalUpgradeStars(shipId?: string): number {
+    const data = DataManager.instance ? DataManager.instance.data : null;
+    if (!data) return 0;
+    const targetShipId = shipId || data.currentShipId || 'Default';
+    const shipLevels = data.playerParamLevels[targetShipId];
+    if (!shipLevels) return 0;
+
+    let total = 0;
+    for (const paramId of PARAM_IDS) {
+        total += shipLevels[paramId] || 0;
+    }
+    return total;
+}
+
+// 指数を1.0(標準)からどれだけ離すかで序盤/終盤の伸び方の急さを決める。以前は超早熟が0.35と
+// 極端で、Lv1(進捗1%)時点で最終値の約20%まで達してしまっていた(例: CP MinValue150→850の
+// レンジでLv1が約290、というように"1回上げただけでいきなり倍近く"に見える)。5種類とも
+// 1.0から離れすぎないよう緩め、超早熟でもLv1時点で最終値の約8%程度に収まる範囲に調整した。
 export const GROWTH_EXPONENTS: { [key: string]: number } = {
-    '超早熟': 0.35,
-    '早熟': 0.6,
+    '超早熟': 0.55,
+    '早熟': 0.75,
     '標準': 1.0,
-    '晩成': 1.6,
-    '超晩成': 2.2,
+    '晩成': 1.3,
+    '超晩成': 1.6,
 };
 
 export const MATERIAL_PREFIX: { [key: string]: string } = {
@@ -154,6 +175,20 @@ export function getUpgradeStepInfo(paramId: string, currentLv: number, gm: IGame
         creditsCost,
         material,
     };
+}
+
+// 現在Lvにおける実値(HP/CP/SP/AC/DF/TN/CR/VOS/WOS)を1つだけ取り出す共通ヘルパー。
+// SideBarUI.tsの表示・PlayerController.tsの実際のmaxHp反映など、値そのものだけが欲しい
+//呼び出し元はgetUpgradeStepInfo()を毎回自前で組み立てず、ここを呼ぶ(重複防止)。
+// GameDatabase未準備/該当パラメータ無しの場合は0を返す。
+export function getUpgradedParamValue(paramId: string, gm: IGameManager, shipId?: string): number {
+    const data = DataManager.instance ? DataManager.instance.data : null;
+    if (!data || !gm) return 0;
+    const targetShipId = shipId || data.currentShipId || 'Default';
+    const shipLevels = data.playerParamLevels[targetShipId];
+    const currentLv = (shipLevels && shipLevels[paramId]) || 0;
+    const info = getUpgradeStepInfo(paramId, currentLv, gm);
+    return info ? info.currentValue : 0;
 }
 
 // Resetで返金するクレジット/アイテムを、Lv1..currentLvの購入履歴を式から再計算して求める。

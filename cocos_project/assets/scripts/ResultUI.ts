@@ -1,7 +1,8 @@
-import { _decorator, Component, Node, Label, director, Color, Widget, Graphics, Button, BlockInputEvents, instantiate, Prefab, resources, tween, v3, UIOpacity, UITransform, Size } from 'cc';
+import { _decorator, Component, Node, Label, Color, Widget, Graphics, Button, BlockInputEvents, tween, v3, UIOpacity } from 'cc';
 import { GameManager } from './GameManager';
 import { SoundManager } from './SoundManager';
 import { DataManager } from './DataManager';
+import { instantiatePrefabButton } from './UIButtonPrefab';
 
 const { ccclass, property } = _decorator;
 
@@ -37,7 +38,9 @@ export class ResultUI extends Component {
         this.earnedReward = reward;
         this.previousTotal = prevTotal;
 
-        this.startSequence();
+        // startSequence()内で例外が起きても(QuickHomeButtonで戻れるとはいえ)原因が分かるように
+        // ログには残す。UnhandledPromiseRejectionとして握りつぶされるのを防ぐ意味もある。
+        this.startSequence().catch(err => console.error("[ResultUI] startSequence failed:", err));
     }
 
     private setupBackground() {
@@ -140,9 +143,9 @@ export class ResultUI extends Component {
 
         // Show NEXT Button
         console.log("[ResultUI] Creating NEXT button...");
-        this.createPhaseButton("NEXT", 0, -280, () => {
+        this.createPhaseButton(0, -280, () => {
             console.log("[ResultUI] NEXT clicked.");
-            this.startPhaseTwo();
+            this.startPhaseTwo().catch(err => console.error("[ResultUI] startPhaseTwo failed:", err));
         });
     }
 
@@ -194,49 +197,15 @@ export class ResultUI extends Component {
         this.createHomeButton(0, -280);
     }
 
-    private createPhaseButton(text: string, x: number, y: number, callback: () => void) {
-        const btnNode = new Node("PhaseBtn");
-        this.contentNode.addChild(btnNode);
-        btnNode.setPosition(x, y);
-
-        const w = 240;
-        const h = 70;
-        const trans = btnNode.addComponent(UITransform);
-        trans.setContentSize(w, h);
-
-        const gr = btnNode.addComponent(Graphics);
-        gr.fillColor = new Color(0, 100, 200);
-        gr.roundRect(-w / 2, -h / 2, w, h, 10);
-        gr.fill();
-        gr.strokeColor = Color.CYAN;
-        gr.lineWidth = 3;
-        gr.stroke();
-
-        const lblNode = new Node("Label");
-        btnNode.addChild(lblNode);
-        const lbl = lblNode.addComponent(Label);
-        lbl.string = text;
-        lbl.fontSize = 32;
-
-        const btn = btnNode.addComponent(Button);
-        btn.transition = Button.Transition.SCALE;
-        btnNode.on(Button.EventType.CLICK, callback, this);
-
-        btnNode.addComponent(UIOpacity).opacity = 0;
-        this.fadeIn(btnNode, 0.5);
-
-        tween(btnNode)
-            .repeatForever(
-                tween()
-                    .to(0.8, { scale: v3(1.05, 1.05, 1) }, { easing: 'sineInOut' })
-                    .to(0.8, { scale: v3(1.0, 1.0, 1) }, { easing: 'sineInOut' })
-            )
-            .start();
+    private createPhaseButton(x: number, y: number, callback: () => void) {
+        instantiatePrefabButton("Prefabs/Canvas/Button-Next", this.contentNode, x, y, callback, this.node, "NEXT", new Color(0, 100, 200));
     }
+
+    private static readonly BUTTON_NODE_NAMES = ["Button-Next", "Button-Home", "ButtonFallback"];
 
     private fadeIn(node: Node, duration: number): Promise<void> {
         return new Promise(resolve => {
-            if (SoundManager.instance && node.name !== "PhaseBtn" && node.name !== "HomeButton_Fallback") {
+            if (SoundManager.instance && !ResultUI.BUTTON_NODE_NAMES.includes(node.name)) {
                 SoundManager.instance.playSE("result_listup");
             }
             const opacity = node.getComponent(UIOpacity) || node.addComponent(UIOpacity);
@@ -298,53 +267,7 @@ export class ResultUI extends Component {
     }
 
     private createHomeButton(x: number, y: number) {
-        console.log("[ResultUI] Creating HOME button...");
-        resources.load("Prefabs/UI/Button-240x60Prefab", Prefab, (err, prefab) => {
-            let btnNode: Node;
-            if (!err && prefab) {
-                console.log("[ResultUI] Using Home Button Prefab.");
-                btnNode = instantiate(prefab);
-            } else {
-                console.warn("[ResultUI] Home Button Prefab not found. Using Fallback.");
-                btnNode = new Node("HomeButton_Fallback");
-                const trans = btnNode.addComponent(UITransform);
-                trans.setContentSize(240, 60);
-
-                const gr = btnNode.addComponent(Graphics);
-                gr.fillColor = new Color(0, 150, 255);
-                gr.roundRect(-120, -30, 240, 60, 10);
-                gr.fill();
-
-                const lbl = this.createLabel("HOME", 0, 0, 30, Color.WHITE, true);
-                btnNode.addChild(lbl);
-            }
-
-            this.contentNode.addChild(btnNode);
-            btnNode.setPosition(x, y);
-
-            // Fix TypeError: Ensure UIOpacity is present before setting opacity
-            const opacity = btnNode.getComponent(UIOpacity) || btnNode.addComponent(UIOpacity);
-            opacity.opacity = 0;
-            this.fadeIn(btnNode, 1.0);
-
-            const btn = btnNode.getComponent(Button) || btnNode.addComponent(Button);
-            btn.transition = Button.Transition.SCALE;
-
-            // Ensure button interaction is enabled
-            btn.interactable = true;
-            btnNode.active = true;
-
-            // Listen on button component for more reliability
-            btnNode.on(Button.EventType.CLICK, () => this.onHomeClicked(), this);
-
-            tween(btnNode)
-                .repeatForever(
-                    tween()
-                        .to(0.8, { scale: v3(1.1, 1.1, 1) }, { easing: 'sineInOut' })
-                        .to(0.8, { scale: v3(1.0, 1.0, 1) }, { easing: 'sineInOut' })
-                )
-                .start();
-        });
+        instantiatePrefabButton("Prefabs/Canvas/Button-Home", this.contentNode, x, y, () => this.onHomeClicked(), this.node, "HOME", new Color(0, 150, 255));
     }
 
     private onHomeClicked() {

@@ -128,141 +128,148 @@ let smSortDir = 1;
 
 // GameManagerEditor 側の状態。assets/resources/Data/GameManagerConfig.json を読み書きする。
 // 新しいパラメータを増やす時はGC_SCHEMAに1行足すだけでよい(UI側の構造は変えなくてよい設計)。
+// category: 項目数が増えて見づらくなったため導入した見出しグルーピング用のキー(必須ではないが
+// GC_SCHEMA内では全項目に付ける運用とする)。同じcategoryが連続する限り見出しは1回だけ描画される
+// (renderSettingsForm参照)。並び順=表示順なので、新項目は該当categoryのブロック内に足すこと。
 const GC_SCHEMA = [
     {
-        key: 'playerShipScaleMultiplier', label: 'Player機 Scale倍率', step: 0.05, min: 0.1, max: 5, default: 1,
+        key: 'playerShipScaleMultiplier', category: 'Player機', label: 'Player機 Scale倍率', step: 0.05, min: 0.1, max: 5, default: 1,
         note: 'Player.prefab内3Dモデルの基準スケールに掛ける倍率(PlayerController.tsが適用)',
     },
     {
-        key: 'playerShipBaseRotationX', label: 'Player機 基準X回転(度)', step: 1, min: 0, max: 360, default: 0,
+        key: 'playerShipBaseRotationX', category: 'Player機', label: 'Player機 基準X回転(度)', step: 1, min: 0, max: 360, default: 0,
         note: 'Player機3DモデルのX軸基準角度。Prefab保存値は使わずこちらが基準(PlayerController.tsが適用)',
     },
     {
-        key: 'playerShipBaseRotationY', label: 'Player機 基準Y回転(度)', step: 1, min: 0, max: 360, default: 90,
+        key: 'playerShipBaseRotationY', category: 'Player機', label: 'Player機 基準Y回転(度)', step: 1, min: 0, max: 360, default: 90,
         note: 'Player機3DモデルのY軸基準角度。Prefab保存値は使わずこちらが基準(PlayerController.tsが適用)',
     },
     {
-        key: 'ambientSkyIllum', label: 'Ambient Sky Illum', step: 500, min: 0, max: 100000, default: 20000,
-        note: 'シーンのAmbient(cc.AmbientInfo)のSky Illumを起動時に上書きする(GameManager.tsが適用)',
-    },
-    {
-        key: 'groundLightingColor', type: 'color', label: 'Ground Lighting Color', default: '#333333',
-        note: 'シーンのAmbient(cc.AmbientInfo)のGround Lighting Color(groundAlbedo)を起動時に上書きする(GameManager.tsが適用)',
-    },
-    {
-        key: 'videoBGZoomScale', label: '背景動画 ズーム倍率', step: 0.01, min: 1, max: 1.5, default: 1.08,
-        note: 'Ingame背景動画のKen Burns風ズームの最大倍率(GameManager.tsが適用)',
-    },
-    {
-        key: 'videoBGZoomDurationSec', label: '背景動画 ズーム周期(秒)', step: 1, min: 5, max: 120, default: 25,
-        note: '拡大→縮小それぞれに掛ける秒数(往復1周期はこの2倍)',
-    },
-    {
-        key: 'videoBGColorCycleAmplitude', label: '背景動画 色相振幅', step: 1, min: 0, max: 100, default: 55,
-        note: '背景動画の色合いをsin波で揺らす際のR/G/Bチャンネル振幅(0で色合い変化なし)',
-    },
-    {
-        key: 'videoBGColorCycleSpeed', label: '背景動画 色相速度', step: 0.01, min: 0, max: 1, default: 0.06,
-        note: '色合いが周期変化する速さ(大きいほど速く色が回る)',
-    },
-    {
-        key: 'videoBGBrightnessAmplitude', label: '背景動画 明滅振幅', step: 0.01, min: 0, max: 0.5, default: 0.125,
-        note: '背景動画の明るさをsin波で揺らす振幅(0で明滅なし、最大0.5で0.5〜1.0の範囲)',
-    },
-    {
-        key: 'videoBGBrightnessSpeed', label: '背景動画 明滅速度', step: 0.01, min: 0, max: 1, default: 0.15,
-        note: '明るさが周期変化する速さ',
-    },
-    {
-        key: 'missionMaxDuplicateSpawnTable', label: 'Mission 同一SpawnTableクールダウン(回)', step: 1, min: 1, max: 10, default: 2,
-        note: '一度選ばれたSpawnTable IDを、その後何回ぶんの抽選から除外するか(経過後は再び候補に復帰。1ミッション内の総出現回数に上限は無い、GlobalRule、MissionManager実装予定が参照)',
-    },
-    {
-        key: 'missionMarginStartKm', label: 'Mission 開始margin距離(A)', step: 1, min: 0, max: 200, default: 15,
-        note: 'ミッション総距離D = A + SpawnTable合計(B) + 終了margin(C)',
-    },
-    {
-        key: 'missionMarginEndKm', label: 'Mission 終了margin距離(C)', step: 1, min: 0, max: 200, default: 15,
-        note: '同上。開始/終了margin区間は敵を出現させない想定',
-    },
-    {
-        key: 'missionAssumedMaxSpeedKmPerMin', label: 'Mission 想定最高速度(km/分)', step: 10, min: 10, max: 2000, default: 600,
-        note: '目標到達時間の算出に使う想定最高速度。実際のPlayerController速度とは独立した抽象値',
-    },
-    {
-        key: 'missionTargetSpeedRatio', label: 'Mission 目標速度係数', step: 0.05, min: 0.1, max: 1, default: 0.5,
-        note: '目標時間(秒) = (D ÷ (想定最高速度×この係数)) × 60。常に最高速度では走らない前提の補正',
-    },
-    {
-        key: 'missionCargoWeightBaseMin', label: 'Mission 貨物重量下限(Lv1,t)', step: 1, min: 0, max: 500, default: 30,
-        note: 'Lv1の貨物重量ランダム範囲の下限。Lv毎にmissionCargoWeightPerLv×(Lv-1)を加算',
-    },
-    {
-        key: 'missionCargoWeightBaseMax', label: 'Mission 貨物重量上限(Lv1,t)', step: 1, min: 0, max: 500, default: 50,
-        note: 'Lv1の貨物重量ランダム範囲の上限',
-    },
-    {
-        key: 'missionCargoWeightPerLv', label: 'Mission 貨物重量Lv加算(t)', step: 1, min: 0, max: 100, default: 10,
-        note: 'Lvが1上がるごとに重量下限/上限へ加算するt数',
-    },
-    {
-        key: 'missionCargoPriceBase', label: 'Mission 貨物単価(Lv1)', step: 1, min: 0, max: 1000, default: 30,
-        note: 'H = 重量 × 単価。単価 = missionCargoPriceBase + missionCargoPricePerLv×(Lv-1)',
-    },
-    {
-        key: 'missionCargoPricePerLv', label: 'Mission 貨物単価Lv加算', step: 1, min: 0, max: 200, default: 20,
-        note: 'Lvが1上がるごとに単価へ加算する値',
-    },
-    {
-        key: 'missionBonusStepSeconds', label: 'Mission ボーナス刻み秒数', step: 1, min: 1, max: 60, default: 2,
-        note: '目標時間との差がこの秒数を1刻みとしてボーナス/ペナルティ%を計算する',
-    },
-    {
-        key: 'missionBonusPercentPerStep', label: 'Mission 刻みあたり%', step: 1, min: 1, max: 20, default: 2,
-        note: '1刻みあたりのボーナス(早着)/ペナルティ(遅着)パーセント',
-    },
-    {
-        key: 'missionBonusCapPercent', label: 'Mission ボーナス上限%', step: 1, min: 0, max: 100, default: 20,
-        note: '早着ボーナスの上限パーセント',
-    },
-    {
-        key: 'missionPenaltyFloorPercent', label: 'Mission ペナルティ下限%', step: 1, min: 0, max: 100, default: 50,
-        note: '遅着ペナルティの下限(最低保証)。最終倍率は最低でも(100-この値)%は支払われる',
-    },
-    {
-        key: 'contactInvincibleFrames', label: 'Player 被弾後無敵時間(フレーム)', step: 1, min: 0, max: 120, default: 5,
+        key: 'contactInvincibleFrames', category: 'Player機', label: 'Player 被弾後無敵時間(フレーム)', step: 1, min: 0, max: 120, default: 5,
         note: '弾・Enemy機体接触どちらのダメージでも共通で発生する無敵時間(フレーム数、秒数ではない)。PlayerController.tsが適用',
     },
     {
-        key: 'resetRefundPercent', label: 'Upgrade Reset返金割合(%)', step: 1, min: 0, max: 100, default: 80,
+        key: 'ambientSkyIllum', category: 'Ambient / Lighting', label: 'Ambient Sky Illum', step: 500, min: 0, max: 100000, default: 20000,
+        note: 'シーンのAmbient(cc.AmbientInfo)のSky Illumを起動時に上書きする(GameManager.tsが適用)',
+    },
+    {
+        key: 'groundLightingColor', category: 'Ambient / Lighting', type: 'color', label: 'Ground Lighting Color', default: '#333333',
+        note: 'シーンのAmbient(cc.AmbientInfo)のGround Lighting Color(groundAlbedo)を起動時に上書きする(GameManager.tsが適用)',
+    },
+    {
+        key: 'videoBGZoomScale', category: '背景動画演出', label: '背景動画 ズーム倍率', step: 0.01, min: 1, max: 1.5, default: 1.08,
+        note: 'Ingame背景動画のKen Burns風ズームの最大倍率(GameManager.tsが適用)',
+    },
+    {
+        key: 'videoBGZoomDurationSec', category: '背景動画演出', label: '背景動画 ズーム周期(秒)', step: 1, min: 5, max: 120, default: 25,
+        note: '拡大→縮小それぞれに掛ける秒数(往復1周期はこの2倍)',
+    },
+    {
+        key: 'videoBGColorCycleAmplitude', category: '背景動画演出', label: '背景動画 色相振幅', step: 1, min: 0, max: 100, default: 55,
+        note: '背景動画の色合いをsin波で揺らす際のR/G/Bチャンネル振幅(0で色合い変化なし)',
+    },
+    {
+        key: 'videoBGColorCycleSpeed', category: '背景動画演出', label: '背景動画 色相速度', step: 0.01, min: 0, max: 1, default: 0.06,
+        note: '色合いが周期変化する速さ(大きいほど速く色が回る)',
+    },
+    {
+        key: 'videoBGBrightnessAmplitude', category: '背景動画演出', label: '背景動画 明滅振幅', step: 0.01, min: 0, max: 0.5, default: 0.125,
+        note: '背景動画の明るさをsin波で揺らす振幅(0で明滅なし、最大0.5で0.5〜1.0の範囲)',
+    },
+    {
+        key: 'videoBGBrightnessSpeed', category: '背景動画演出', label: '背景動画 明滅速度', step: 0.01, min: 0, max: 1, default: 0.15,
+        note: '明るさが周期変化する速さ',
+    },
+    {
+        key: 'initialCredit', category: 'Economy', label: '初期保有Credit', step: 100, min: 0, max: 1000000, default: 0,
+        note: '真の初回起動(既存セーブが無い場合)のみ適用される初期クレジット。既にプレイ中のセーブには影響しない(DataManager.isNewSaveで判定、GameManager.tsが適用)',
+    },
+    {
+        key: 'missionMaxDuplicateSpawnTable', category: 'Mission', label: 'Mission 同一SpawnTableクールダウン(回)', step: 1, min: 1, max: 10, default: 2,
+        note: '一度選ばれたSpawnTable IDを、その後何回ぶんの抽選から除外するか(経過後は再び候補に復帰。1ミッション内の総出現回数に上限は無い、GlobalRule、MissionManager実装予定が参照)',
+    },
+    {
+        key: 'missionMarginStartKm', category: 'Mission', label: 'Mission 開始margin距離(A)', step: 1, min: 0, max: 200, default: 15,
+        note: 'ミッション総距離D = A + SpawnTable合計(B) + 終了margin(C)',
+    },
+    {
+        key: 'missionMarginEndKm', category: 'Mission', label: 'Mission 終了margin距離(C)', step: 1, min: 0, max: 200, default: 15,
+        note: '同上。開始/終了margin区間は敵を出現させない想定',
+    },
+    {
+        key: 'missionAssumedMaxSpeedKmPerMin', category: 'Mission', label: 'Mission 想定最高速度(km/分)', step: 10, min: 10, max: 2000, default: 600,
+        note: '目標到達時間の算出に使う想定最高速度。実際のPlayerController速度とは独立した抽象値',
+    },
+    {
+        key: 'missionTargetSpeedRatio', category: 'Mission', label: 'Mission 目標速度係数', step: 0.05, min: 0.1, max: 1, default: 0.5,
+        note: '目標時間(秒) = (D ÷ (想定最高速度×この係数)) × 60。常に最高速度では走らない前提の補正',
+    },
+    {
+        key: 'missionCargoWeightBaseMin', category: 'Mission', label: 'Mission 貨物重量下限(Lv1,t)', step: 1, min: 0, max: 500, default: 30,
+        note: 'Lv1の貨物重量ランダム範囲の下限。Lv毎にmissionCargoWeightPerLv×(Lv-1)を加算',
+    },
+    {
+        key: 'missionCargoWeightBaseMax', category: 'Mission', label: 'Mission 貨物重量上限(Lv1,t)', step: 1, min: 0, max: 500, default: 50,
+        note: 'Lv1の貨物重量ランダム範囲の上限',
+    },
+    {
+        key: 'missionCargoWeightPerLv', category: 'Mission', label: 'Mission 貨物重量Lv加算(t)', step: 1, min: 0, max: 100, default: 10,
+        note: 'Lvが1上がるごとに重量下限/上限へ加算するt数',
+    },
+    {
+        key: 'missionCargoPriceBase', category: 'Mission', label: 'Mission 貨物単価(Lv1)', step: 1, min: 0, max: 1000, default: 30,
+        note: 'H = 重量 × 単価。単価 = missionCargoPriceBase + missionCargoPricePerLv×(Lv-1)',
+    },
+    {
+        key: 'missionCargoPricePerLv', category: 'Mission', label: 'Mission 貨物単価Lv加算', step: 1, min: 0, max: 200, default: 20,
+        note: 'Lvが1上がるごとに単価へ加算する値',
+    },
+    {
+        key: 'missionBonusStepSeconds', category: 'Mission', label: 'Mission ボーナス刻み秒数', step: 1, min: 1, max: 60, default: 2,
+        note: '目標時間との差がこの秒数を1刻みとしてボーナス/ペナルティ%を計算する',
+    },
+    {
+        key: 'missionBonusPercentPerStep', category: 'Mission', label: 'Mission 刻みあたり%', step: 1, min: 1, max: 20, default: 2,
+        note: '1刻みあたりのボーナス(早着)/ペナルティ(遅着)パーセント',
+    },
+    {
+        key: 'missionBonusCapPercent', category: 'Mission', label: 'Mission ボーナス上限%', step: 1, min: 0, max: 100, default: 20,
+        note: '早着ボーナスの上限パーセント',
+    },
+    {
+        key: 'missionPenaltyFloorPercent', category: 'Mission', label: 'Mission ペナルティ下限%', step: 1, min: 0, max: 100, default: 50,
+        note: '遅着ペナルティの下限(最低保証)。最終倍率は最低でも(100-この値)%は支払われる',
+    },
+    {
+        key: 'resetRefundPercent', category: 'Upgrade', label: 'Upgrade Reset返金割合(%)', step: 1, min: 0, max: 100, default: 80,
         note: 'Upgrade GUIのResetボタンで、消費済みクレジット/アイテムをこの割合だけ払い戻す',
     },
     {
-        key: 'tnLerpDivisor', label: 'TN→lerpFactor 除数', step: 10, min: 100, max: 2000, default: 600,
+        key: 'tnLerpDivisor', category: 'Upgrade', label: 'TN→lerpFactor 除数', step: 10, min: 100, max: 2000, default: 600,
         note: 'PlayerUpgrade.csvのTN(生のpixel/sec値)をPlayerController.lerpFactorへ変換する際の除数。lerpFactor = TN ÷ この値',
     },
     {
-        key: 'upgradeCostUnitScale', label: 'Upgrade コスト単価係数', step: 0.1, min: 0.1, max: 50, default: 1.9,
+        key: 'upgradeCostUnitScale', category: 'Upgrade', label: 'Upgrade コスト単価係数', step: 0.1, min: 0.1, max: 50, default: 1.9,
         note: 'PlayerUpgradeManagerのLv別プレビューと共有する校正値。finalLevelCost = StarValue × MaxLv × この値',
     },
     {
-        key: 'missionEarlyBaselineCredits', label: 'Upgrade 序盤ミッション基準クレジット', step: 100, min: 100, max: 100000, default: 1500,
+        key: 'missionEarlyBaselineCredits', category: 'Upgrade', label: 'Upgrade 序盤ミッション基準クレジット', step: 100, min: 100, max: 100000, default: 1500,
         note: 'PlayerUpgradeManagerのLv別プレビューと共有する校正値。Lv1付近のコスト→実クレジット換算に使う',
     },
     {
-        key: 'missionLateBaselineCredits', label: 'Upgrade 終盤ミッション基準クレジット', step: 1000, min: 100, max: 1000000, default: 50000,
+        key: 'missionLateBaselineCredits', category: 'Upgrade', label: 'Upgrade 終盤ミッション基準クレジット', step: 1000, min: 100, max: 1000000, default: 50000,
         note: 'PlayerUpgradeManagerのLv別プレビューと共有する校正値。MaxLv付近のコスト→実クレジット換算に使う',
     },
     {
-        key: 'upgradeButtonFontSize', label: 'Upgrade BtnUpgrade文字サイズ', step: 1, min: 8, max: 48, default: 24,
+        key: 'upgradeButtonFontSize', category: 'Upgrade', label: 'Upgrade BtnUpgrade文字サイズ', step: 1, min: 8, max: 48, default: 24,
         note: 'UpgradeUIの各行のBtnUpgrade内Labelのフォントサイズ',
     },
     {
-        key: 'upgradeNoticeFontSize', label: 'Upgrade 説明文文字サイズ', step: 1, min: 8, max: 48, default: 16,
+        key: 'upgradeNoticeFontSize', category: 'Upgrade', label: 'Upgrade 説明文文字サイズ', step: 1, min: 8, max: 48, default: 16,
         note: 'UpgradeUIの各行のLabelNotice(効果説明文)のフォントサイズ',
     },
     {
-        key: 'upgradeSharedInfoFontSize', label: 'Upgrade 共有情報欄文字サイズ', step: 1, min: 8, max: 48, default: 24,
+        key: 'upgradeSharedInfoFontSize', category: 'Upgrade', label: 'Upgrade 共有情報欄文字サイズ', step: 1, min: 8, max: 48, default: 24,
         note: 'UpgradeUI上部の共有情報欄(クレジット/必要素材)のフォントサイズ',
     },
 ];
@@ -567,12 +574,14 @@ function updateRowWarning(tr, rowIndex) {
 // cost(Lv)は逆数(2-指数)の形状カーブを使う(早熟ほど終盤の必要コストが相対的に高く、
 // 晩成ほど低くなる)。実行時計算式(将来PlayerManager.ts側)を実装する際もこの対応表と
 // 完全に一致させること(このJSはNode/Electron側、実行時はCocos TS側で完全に別実装になるため)。
+// PlayerUpgradeCalc.tsのGROWTH_EXPONENTSと完全一致させること(超早熟がLv1で最終値の約20%まで
+// 達してしまう極端さを緩和し、5種類とも1.0から離れすぎないよう調整済み)。
 const PLAYER_UPGRADE_GROWTH_EXPONENTS = {
-    '超早熟': 0.35,
-    '早熟': 0.6,
+    '超早熟': 0.55,
+    '早熟': 0.75,
     '標準': 1.0,
-    '晩成': 1.6,
-    '超晩成': 2.2,
+    '晩成': 1.3,
+    '超晩成': 1.6,
 };
 
 // パーツ分類→アイテムIDプレフィックスの対応(Items.csvに各Lv01~10が登録済みの前提)。
@@ -2690,7 +2699,19 @@ function renderSettingsForm(formEl, schema, values, onChange) {
     if (!formEl) return;
     formEl.innerHTML = '';
 
-    schema.forEach(({ key, label, type, step, min, max, note }) => {
+    // categoryが付いた項目(現状GC_SCHEMAのみ、BULLET_CONFIG_SCHEMAはcategory無しでよい)は、
+    // 直前の項目とcategoryが変わるたびに見出しを1回だけ挟む。項目数が増えて縦に長くなった
+    // GameManagerEditorタブを見出しで区切って探しやすくするための最小限の変更。
+    let lastCategory = undefined;
+    schema.forEach(({ key, label, type, step, min, max, note, category }) => {
+        if (category !== undefined && category !== lastCategory) {
+            const header = document.createElement('div');
+            header.className = 'gc-category-header';
+            header.textContent = category;
+            formEl.appendChild(header);
+            lastCategory = category;
+        }
+
         const row = document.createElement('div');
         row.className = 'gc-row';
 
@@ -3504,6 +3525,8 @@ module.exports = Editor.Panel.define({
         .gc-btn-save { padding: 6px 14px; background: #28a745; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
         .gc-btn-save:hover { background: #218838; }
         .gc-form { flex: 1; overflow: auto; background: #1a1a1a; border-radius: 6px; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+        .gc-category-header { color: #4da6ff; font-weight: bold; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #3a3a3a; padding-bottom: 4px; margin-top: 4px; }
+        .gc-category-header:first-child { margin-top: 0; }
         .gc-row { display: grid; grid-template-columns: 220px 140px 1fr; align-items: center; gap: 12px; }
         .gc-label { color: #ddd; font-weight: bold; }
         .gc-input { background: #2a2a2a; border: 1px solid #444; color: #fff; padding: 5px 8px; border-radius: 3px; font-size: 12px; }

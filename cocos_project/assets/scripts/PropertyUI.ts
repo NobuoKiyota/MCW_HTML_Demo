@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Label, Color, Graphics, BlockInputEvents, UITransform, Size, Button, director } from 'cc';
 import { DataManager } from './DataManager';
-import { GAME_SETTINGS } from './Constants';
+import { GameDatabase } from './GameDatabase';
 import { SoundManager } from './SoundManager';
 
 const { ccclass, property } = _decorator;
@@ -124,7 +124,11 @@ export class PropertyUI extends Component {
 
             const itemId = itemKeys[i];
             const count = inventory[itemId];
-            const def = GAME_SETTINGS.ECONOMY.ITEMS[itemId];
+            // Items.csv(GameDatabase.getItemData)を正とする。旧GAME_SETTINGS.ECONOMY.ITEMS(廃止済みの
+            // ID体系)を参照していたため、現行のItems.csv由来のIDが「名前不明」のまま生IDで表示されて
+            // いたのを修正。GameDatabase未ロード/該当ID無しの場合のみ生IDへフォールバックする。
+            const db = GameDatabase.instance;
+            const def = db ? db.getItemData(itemId) : null;
             const itemName = def ? def.name : itemId;
 
             const itemNode = new Node("Item_" + itemId);

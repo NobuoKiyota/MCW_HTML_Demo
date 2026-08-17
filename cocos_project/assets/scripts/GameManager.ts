@@ -188,6 +188,9 @@ export class GameManager extends Component implements IGameManager {
     public upgradeButtonFontSize: number = 24;
     public upgradeNoticeFontSize: number = 16;
     public upgradeSharedInfoFontSize: number = 24;
+    // 初回起動(セーブ未作成)時のみDataManagerへ適用する初期保有クレジット。既存セーブには
+    // 影響しない(GameManagerConfig.json由来、GameManagerEditorタブで調整)。
+    public initialCredit: number = 0;
 
     // 背景動画のKen Burns風ズーム/色合い周期変化/明滅のパラメータ。既定値はこれらの演出を
     // 最初に実装した際の固定値と同じ - GameManagerEditorタブから調整できる。
@@ -551,6 +554,7 @@ export class GameManager extends Component implements IGameManager {
                 resetRefundPercent?: number; tnLerpDivisor?: number;
                 upgradeCostUnitScale?: number; missionEarlyBaselineCredits?: number; missionLateBaselineCredits?: number;
                 upgradeButtonFontSize?: number; upgradeNoticeFontSize?: number; upgradeSharedInfoFontSize?: number;
+                initialCredit?: number;
             };
 
             if (typeof config.playerShipScaleMultiplier === 'number') {
@@ -591,6 +595,10 @@ export class GameManager extends Component implements IGameManager {
             if (typeof config.upgradeButtonFontSize === 'number') this.upgradeButtonFontSize = config.upgradeButtonFontSize;
             if (typeof config.upgradeNoticeFontSize === 'number') this.upgradeNoticeFontSize = config.upgradeNoticeFontSize;
             if (typeof config.upgradeSharedInfoFontSize === 'number') this.upgradeSharedInfoFontSize = config.upgradeSharedInfoFontSize;
+            if (typeof config.initialCredit === 'number') {
+                this.initialCredit = config.initialCredit;
+                this.applyInitialCreditIfNewSave();
+            }
 
             const scene = director.getScene();
             const ambient = scene && (scene as any).globals ? (scene as any).globals.ambient : null;
@@ -608,6 +616,22 @@ export class GameManager extends Component implements IGameManager {
 
             console.log(`[GameManager] GameManagerConfig loaded. playerShipScaleMultiplier=${this.playerShipScaleMultiplier}`);
         });
+    }
+
+    /**
+     * GameManagerConfig.jsonのinitialCreditを、DataManager.isNewSave(真の初回起動、または
+     * HomeUIのResetボタンによるフルリセット直後)の場合のみDataManager.data.moneyへ適用する。
+     * 既にプレイ中のセーブのmoneyを後から上書きしてしまわないためのガード。
+     * loadGameManagerConfig()(起動時1回)と、HomeUIのResetボタン(DataManager.reset()の直後)の
+     * 両方から呼ばれる - Reset後はDataManager.reset()がisNewSaveを再びtrueにするため、
+     * ここを呼び直すだけでResetのたびに最新のinitialCreditが反映される。
+     */
+    public applyInitialCreditIfNewSave() {
+        if (DataManager.instance && DataManager.instance.isNewSave) {
+            DataManager.instance.data.money = this.initialCredit;
+            DataManager.instance.save();
+            console.log(`[GameManager] Applied initialCredit=${this.initialCredit} to fresh save.`);
+        }
     }
 
     /**
@@ -1122,6 +1146,7 @@ export class GameManager extends Component implements IGameManager {
             UIManager.instance.updateDist(this.playState.distance);
             UIManager.instance.updateSpeed(currentSpeed);
             UIManager.instance.updateTimer(this.playState.elapsedTime);
+            UIManager.instance.updateMissionStats(this.playState.killedEnemies || 0, this.playState.damageDealt || 0);
         }
 
         // Debug Label Update
@@ -1347,7 +1372,11 @@ export class GameManager extends Component implements IGameManager {
     public triggerGoalSequence() {
         if (this.state === GameState.RESULT) return;
         this.state = GameState.RESULT;
-        this.applyCameraForState();
+        // applyCameraForState()はここでは呼ばない(以前はここで即座に呼んでいたため、Ingame画面が
+        // まだ完全に見えている状態でカメラ/Canvasだけ先にworld(0,0)→(640,360)へジャンプし、
+        // 画面全体が一瞬(-640,-360)ずれて見えるバグがあった)。GOALテキスト表示~ブラックアウトが
+        // 完全に不透明になるまでの間はIngame座標のままにしておき、画面が黒で覆われた後
+        // (下のblackout opacity=255到達コールバック内)でカメラを移動させる。
 
         console.log("[GameManager] GOAL Distance reached! Triggering sequence...");
 
@@ -1410,6 +1439,9 @@ export class GameManager extends Component implements IGameManager {
                     .to(0.5, { opacity: 255 }) // Halved from 1.0
                     .call(() => {
                         goalNode.destroy();
+                        // 画面が完全に黒で覆われた今のタイミングでカメラ/CanvasをUI状態の座標
+                        // (640,360)へ移動する(triggerGoalSequence()冒頭のコメント参照)。
+                        this.applyCameraForState();
                         this.onMissionComplete();
                         // Fade in blackout briefly or let ResultUI handle its own appearance
                         tween(opacity)
@@ -1421,6 +1453,9 @@ export class GameManager extends Component implements IGameManager {
                     .start();
             }, 1.0); // Wait 1s (Halved from 2s) for GOAL text to be seen
         } else {
+            // Canvasが見つからずGOAL演出自体を出せない異常系。ブラックアウトによる遮蔽が無いので
+            // カメラ移動が一瞬見えてしまう可能性はあるが、演出無しの即時完了ではこれが精一杯。
+            this.applyCameraForState();
             this.onMissionComplete();
         }
     }

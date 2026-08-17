@@ -4,7 +4,8 @@ import { GameManager } from './GameManager';
 import { GameState } from './Constants';
 import { UIManager } from './UIManager';
 import { SoundManager } from './SoundManager';
-import { getUpgradeStepInfo } from './PlayerUpgradeCalc';
+import { getTotalUpgradeStars, getUpgradedParamValue } from './PlayerUpgradeCalc';
+import { computeEquippedWeight } from './CustomizeCalc';
 
 const { ccclass, property } = _decorator;
 
@@ -102,9 +103,29 @@ export class SideBarUI extends Component {
     @property(Label)
     public moneyTitleLabel: Label = null; // New: Display current credits in Right Panel
 
+    // 改造(Vehicle Upgrade)の合計購入回数を★nで表示する。Prefab側に手動で用意した
+    // "TotalUpgradeLabel"という名前のノードがあればそれを使う(setupNodes()参照)。
+    @property(Label)
+    public totalUpgradeLabel: Label = null;
+
+    // そのミッション中の撃墜数/与ダメージ(GameManager.playState.killedEnemies/damageDealt由来、
+    // ミッション開始時に0リセットされる)。GameManager.update()からUIManager経由で毎フレーム
+    // updateMissionStats()が呼ばれる(SideBarUI.tsにはGameManager本体への直接参照を持たせない
+    // 既存方針を踏襲)。
+    @property(Label)
+    public shootDownScoreLabel: Label = null;
+    @property(Label)
+    public damageCounterLabel: Label = null;
+
     // State for Dynamic Layout
     private _isPowerActive: boolean = false;
     private _isRapidActive: boolean = false;
+
+    // ダメージカウンターの表示上の「カウントアップ演出」用。実値(_targetDamage)へ向けて
+    // _displayedDamageを毎フレーム加速的に近づける(常に上昇し続けているように見せる)。
+    // 値が減った(=ミッション開始でリセットされた)場合は演出せず即座に追従する。
+    private _displayedDamage: number = 0;
+    private _targetDamage: number = 0;
 
     onLoad() {
         this.node.active = true;
@@ -168,8 +189,27 @@ export class SideBarUI extends Component {
         // RightPanelラベル
         if (!this.shipNameLabel) this.shipNameLabel = this.createLabel(this.rightPanel, "VEHICLE STATUS", 0, 310, 20, Color.YELLOW, false);
         if (!this.moneyTitleLabel) this.moneyTitleLabel = this.createLabel(this.rightPanel, "CREDITS: 0", 0, 280, 24, Color.WHITE, false);
+        // TotalUpgradeLabelはPrefab側に手動で用意されている想定(Inspectorで未割当の場合のみ、
+        // 名前で探す→それでも無ければ最終手段としてcreateLabelでフォールバック生成する)。
+        if (!this.totalUpgradeLabel) {
+            const found = this.findChildByNames(this.rightPanel, ["TotalUpgradeLabel"]);
+            this.totalUpgradeLabel = (found && found.getComponent(Label)) || this.createLabel(this.rightPanel, "TotalUpgrade: ★0", 0, 250, 20, Color.WHITE, false);
+        }
         if (!this.shipStatsLabel) this.shipStatsLabel = this.createLabel(this.rightPanel, "MAX HP: 100\nACCEL: 100\n...", 0, 80, 20, Color.WHITE, false);
-        if (!this.cargoLabel) this.cargoLabel = this.createLabel(this.rightPanel, "CARGO: -- / --", 0, -120, 20, Color.YELLOW, false);
+        // CARGO/Shoot-Down/DamageはLabel見出し+実数を2行表示にするため、フォールバック生成時の
+        // Y間隔も2行ぶん確保する(30px間隔だと1行目と2行目が次のLabelと重なってしまうため60pxに)。
+        if (!this.cargoLabel) this.cargoLabel = this.createLabel(this.rightPanel, "CARGO\n-- / --", 0, -140, 20, Color.YELLOW, false);
+        // ShootDownScoreLabel/DamageCounterLabelもTotalUpgradeLabelと同じく、Prefab側に手動で
+        // 用意されている場合はそれを使う(名前の表記ゆれをいくつか試す。それでも見つからなければ
+        // 最終手段としてcreateLabelでフォールバック生成する)。
+        if (!this.shootDownScoreLabel) {
+            const found = this.findChildByNames(this.rightPanel, ["ShootDownScoreLabel", "Shoot-DownScoreLabel", "ShootDownScore", "Shoot-DownScore"]);
+            this.shootDownScoreLabel = (found && found.getComponent(Label)) || this.createLabel(this.rightPanel, "SHOOT DOWN\n0", 0, -200, 20, Color.WHITE, false);
+        }
+        if (!this.damageCounterLabel) {
+            const found = this.findChildByNames(this.rightPanel, ["DamageCounterLabel", "DamageCounter"]);
+            this.damageCounterLabel = (found && found.getComponent(Label)) || this.createLabel(this.rightPanel, "DAMAGE\n0", 0, -260, 20, Color.WHITE, false);
+        }
 
         console.log("[SideBarUI] setupNodes completed. Nodes created.");
     }
@@ -244,6 +284,16 @@ export class SideBarUI extends Component {
                 node.setPosition(x, y);
             }
         }
+    }
+
+    // Prefab側に手動で用意されたノードを、いくつかの想定名で順に探す(表記ゆれ対策)。
+    // 見つからなければnull(呼び出し側がcreateLabel()等でフォールバック生成する)。
+    private findChildByNames(parent: Node, names: string[]): Node | null {
+        for (const name of names) {
+            const found = parent.getChildByName(name);
+            if (found) return found;
+        }
+        return null;
     }
 
     private createPanel(name: string, w: number, isLeft: boolean, color: Color): Node {
@@ -445,6 +495,34 @@ export class SideBarUI extends Component {
         }
     }
 
+    // GameManager.playState.killedEnemies/damageDealt(ミッション開始時に0リセット、以後加算のみ)
+    // をそのまま表示する。撃墜数は即座に反映、ダメージは_targetDamageに記録するだけで実際の
+    // 表示更新(カウントアップ演出)はupdate()側が行う。
+    public updateMissionStats(kills: number, damage: number) {
+        if (this.shootDownScoreLabel && this.shootDownScoreLabel.isValid) {
+            this.shootDownScoreLabel.string = `SHOOT DOWN\n${kills}`;
+        }
+        this._targetDamage = damage;
+    }
+
+    update(deltaTime: number) {
+        if (!this.damageCounterLabel || !this.damageCounterLabel.isValid) return;
+        if (this._displayedDamage === this._targetDamage) return;
+
+        if (this._targetDamage < this._displayedDamage) {
+            // ミッション開始等でリセットされた場合は演出せず即座に追従する。
+            this._displayedDamage = this._targetDamage;
+        } else {
+            // 常に上昇し続けているように見せるカウントアップ演出。差分の一定割合+最低1/フレームで
+            // 近づけることで、差が大きい時は速く・小さい時もゼロに漸近して止まらないようにする。
+            const diff = this._targetDamage - this._displayedDamage;
+            const step = Math.max(1, diff * deltaTime * 6);
+            this._displayedDamage = Math.min(this._targetDamage, this._displayedDamage + step);
+        }
+
+        this.damageCounterLabel.string = `DAMAGE\n${Math.floor(this._displayedDamage)}`;
+    }
+
     public updateMissionInfo(dist: number) {
         if (!this.node || !this.node.isValid) return;
         if (!this.missionLabel || !this.missionLabel.isValid) return;
@@ -472,13 +550,8 @@ export class SideBarUI extends Component {
     // PlayerUpgrade.csvの現在Lvにおける実値を取得する(GameDatabase未準備の間は0)。
     private getUpgradedValue(paramId: string): number {
         const gm = GameManager.instance;
-        const data = DataManager.instance ? DataManager.instance.data : null;
-        if (!gm || !data) return 0;
-        const shipId = data.currentShipId || 'Default';
-        const shipLevels = data.playerParamLevels[shipId];
-        const currentLv = (shipLevels && shipLevels[paramId]) || 0;
-        const info = getUpgradeStepInfo(paramId, currentLv, gm);
-        return info ? info.currentValue : 0;
+        if (!gm) return 0;
+        return getUpgradedParamValue(paramId, gm);
     }
 
     public updateShipInfo() {
@@ -510,18 +583,28 @@ export class SideBarUI extends Component {
             const vos = this.getUpgradedValue('VOS');
             const wos = this.getUpgradedValue('WOS');
             this.shipStatsLabel.string =
-                `HP: ${hp.toFixed(0)}\nSP: ${sp.toFixed(0)}\nAC: ${ac.toFixed(0)}\nDF: ${df.toFixed(1)}\n` +
+                `HP: ${hp.toFixed(0)}\nCP: ${cp.toFixed(0)}\nSP: ${sp.toFixed(0)}\nAC: ${ac.toFixed(0)}\nDF: ${df.toFixed(1)}\n` +
                 `TN: ${tn.toFixed(0)}\nCR: ${cr.toFixed(0)}\nVOS: ${vos.toFixed(0)}%\nWOS: ${wos.toFixed(0)}%`;
         }
 
         if (this.cargoLabel) {
             if (!isIngame) {
-                this.cargoLabel.string = "CARGO: -- / --";
+                // 容量(CP)自体はミッション中でなくても既に分かっている値なので、Upgrade直後に
+                // 効果を確認できるよう常に表示する("-- / --"だとCPを上げても何も見えず
+                // 変化が分からないという問題があった)。積載重量側も、旧仕様の「ミッション専用の
+                // 貨物重量」ではなく、Customizeで現在装備中のパーツ(武器)の合計重量を表示する
+                // ことで、Home画面でも装備変更の影響がすぐ分かるようにする。
+                const equippedWeight = computeEquippedWeight(data.gridData ? data.gridData.equippedParts : null);
+                this.cargoLabel.string = `CARGO\n${equippedWeight.toFixed(0)} / ${cp.toFixed(0)}`;
             } else {
                 const gm = GameManager.instance;
                 const currentCargo = gm && gm.currentMission ? gm.currentMission.cargoWeight : 0;
-                this.cargoLabel.string = `CARGO: ${currentCargo} / ${cp.toFixed(0)}`;
+                this.cargoLabel.string = `CARGO\n${currentCargo} / ${cp.toFixed(0)}`;
             }
+        }
+
+        if (this.totalUpgradeLabel) {
+            this.totalUpgradeLabel.string = `TotalUpgrade\n★${getTotalUpgradeStars()}`;
         }
 
         if (!isIngame) {

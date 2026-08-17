@@ -4,8 +4,8 @@ import { PlayerController } from './PlayerController';
 import { GameDatabase } from './GameDatabase';
 import { DataManager } from './DataManager';
 import { Enemy } from './Enemy';
-import { SpawnTableData } from './GameDataTypes';
 import { PlayerWeaponManager } from './PlayerWeaponManager';
+import { generateMissionFromDifficultyRow, GeneratedMission } from './MissionGenerator';
 const { ccclass, property } = _decorator;
 
 /**
@@ -65,13 +65,8 @@ export class BehaviorTestController extends Component {
 
     // Mission(仮生成)プレビュー。ModCountMinとの比較に使う総改造回数は0~30をランダム抽選する
     // (PlayerManager未実装のため、実際の機体改造回数の代わりに使うテスト用の値)。
-    private _currentMissionPreview: {
-        modCount: number; lv: number; tableCount: number;
-        tableIds: string[]; tableDists: number[];
-        distA: number; distB: number; distC: number; distD: number;
-        rewardG: number; cargoWeight: number; cargoPrice: number; rewardH: number;
-        targetTimeSec: number;
-    } | null = null;
+    // 生成ロジック自体はMissionGenerator.ts(MissionUI.tsと共通)に一元化済み。
+    private _currentMissionPreview: GeneratedMission | null = null;
 
     // MissionDifficulty.csvに実際に登録されているModCountMin値の一覧(重複除去・昇順)。
     // Prev/Nextはこの中を巡回する(DBが読み込まれた時点で1度だけ算出する)。
@@ -359,9 +354,8 @@ export class BehaviorTestController extends Component {
     // --- Mission(仮生成) ---
     // MissionDifficulty.csv(Lv, ModCountMin, TableCount, SpawnTableIDs)とSpawnTables.csv(Lv, SubLv, Dist)
     // から、「機体の総改造回数(modCount)」を仮の乱数(0~30、PlayerManager未実装のためのプレースホルダー)
-    // として1件のミッションをプレビュー生成する。候補プールはSpawnTableIDsが指定されていればそれのみ、
-    // 空ならlv一致の全SpawnTable行(従来通り)。実際の生成アルゴリズムはMissionManager実装時に
-    // ここから移植する想定。
+    // として1件のミッションをプレビュー生成する。生成アルゴリズム自体はMissionGenerator.tsに
+    // 一元化済み(MissionUI.tsの本番SELECT MISSION画面と共有)。
 
     private refreshMissionPreview(modCount: number) {
         const db = GameDatabase.instance;
@@ -370,65 +364,7 @@ export class BehaviorTestController extends Component {
         const diff = db.getMissionDifficultyForModCount(modCount);
         if (!diff) { this._currentMissionPreview = null; return; }
 
-        // MissionDifficulty.csv側でSpawnTableIDsが指定されていればそれだけを候補にする(個別選定)。
-        // 未指定(空)なら従来通りlv一致の全SpawnTable行を候補にする(後方互換)。
-        const pool = diff.spawnTableIds && diff.spawnTableIds.length > 0
-            ? db.spawnTables.filter(st => diff.spawnTableIds.includes(st.id))
-            : db.spawnTables.filter(st => st.lv === diff.lv);
-        if (pool.length === 0) { this._currentMissionPreview = null; return; }
-
-        // ローテーション式抽選: 一度選ばれたSpawnTable IDは、その後
-        // missionMaxDuplicateSpawnTable(GameManagerConfig.jsonのGlobalRule)回ぶんの抽選から
-        // 除外され、その回数が経過すると再び候補に復帰する。1ミッション内での総出現回数に上限は
-        // 設けない(ガチャ的に長いミッションでは同じTableが何度も出ることがあり得るのは意図通り)。
-        // 目的はあくまで「直近で連続/近接して同じTableばかり選ばれる」のを防ぐことで、
-        // 全候補を必ず1回は出現させる保証は無い。pool.length <= 除外ターン数だと毎回全滅する
-        // 可能性があるため、その場合はクールダウンを1ターン進めて再試行する(guardで無限ループ防止、
-        // 300回で諦める)。
-        const cooldownTurns = Math.max(1, this.gameManager.missionMaxDuplicateSpawnTable || 2);
-        const cooldown: { [id: string]: number } = {};
-        const selected: SpawnTableData[] = [];
-        let guard = 0;
-        while (selected.length < diff.tableCount && guard < 300) {
-            guard++;
-            const eligible = pool.filter(st => (cooldown[st.id] || 0) <= 0);
-            if (eligible.length === 0) {
-                for (const id in cooldown) cooldown[id] = Math.max(0, cooldown[id] - 1);
-                continue;
-            }
-            const cand = eligible[Math.floor(Math.random() * eligible.length)];
-            selected.push(cand);
-            for (const id in cooldown) cooldown[id] = Math.max(0, cooldown[id] - 1);
-            cooldown[cand.id] = cooldownTurns;
-        }
-        // SubLv昇順(弱い順)に並べ、開始margin(A)を消費した直後から順に発火させる。
-        selected.sort((a, b) => a.subLv - b.subLv);
-
-        const gm = this.gameManager;
-        const distA = gm.missionMarginStartKm;
-        const distC = gm.missionMarginEndKm;
-        const distB = selected.reduce((sum, st) => sum + st.dist, 0);
-        const distD = distA + distB + distC;
-
-        const lv = diff.lv;
-        const rewardG = Math.round(distD * lv);
-
-        const wMin = gm.missionCargoWeightBaseMin + (lv - 1) * gm.missionCargoWeightPerLv;
-        const wMax = gm.missionCargoWeightBaseMax + (lv - 1) * gm.missionCargoWeightPerLv;
-        const cargoWeight = Math.round(wMin + Math.random() * Math.max(0, wMax - wMin));
-        const cargoPrice = gm.missionCargoPriceBase + (lv - 1) * gm.missionCargoPricePerLv;
-        const rewardH = cargoWeight * cargoPrice;
-
-        const assumedSpeed = Math.max(0.001, gm.missionAssumedMaxSpeedKmPerMin * gm.missionTargetSpeedRatio);
-        const targetTimeSec = (distD / assumedSpeed) * 60;
-
-        this._currentMissionPreview = {
-            modCount, lv, tableCount: diff.tableCount,
-            tableIds: selected.map(s => s.id), tableDists: selected.map(s => s.dist),
-            distA, distB, distC, distD,
-            rewardG, cargoWeight, cargoPrice, rewardH,
-            targetTimeSec,
-        };
+        this._currentMissionPreview = generateMissionFromDifficultyRow(diff, modCount, this.gameManager);
     }
 
     // 表示は改造回数のみ(詳細なミッション内訳はMission開始/結果表示側でのみ使う)。

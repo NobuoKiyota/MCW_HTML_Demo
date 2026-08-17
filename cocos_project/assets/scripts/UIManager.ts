@@ -362,6 +362,12 @@ export class UIManager extends Component {
         }
     }
 
+    public updateMissionStats(kills: number, damage: number) {
+        if (this.sideBarUI && this.sideBarUI.isValid) {
+            this.sideBarUI.updateMissionStats(kills, damage);
+        }
+    }
+
     private getRarityColor(rarity: number): Color {
         switch (rarity) {
             case 5: return new Color(255, 215, 0, 255);   // Gold

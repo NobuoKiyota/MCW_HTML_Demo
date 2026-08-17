@@ -11,6 +11,7 @@ import { PropertyUI } from './PropertyUI';
 import { HistoryUI } from './HistoryUI';
 import { UpgradeUI } from './UpgradeUI';
 import { CustomizeUI } from './CustomizeUI';
+import { instantiatePrefabButton } from './UIButtonPrefab';
 
 const { ccclass, property } = _decorator;
 
@@ -223,9 +224,12 @@ export class HomeUI extends Component {
         lbl.horizontalAlign = Label.HorizontalAlign.CENTER;
 
         // YES Button
-        this.createDialogButton(winNode, "YES", -80, -50, Color.RED, () => {
+        instantiatePrefabButton("Prefabs/Canvas/Button-Yes", winNode, -80, -50, () => {
             if (DataManager.instance) {
                 DataManager.instance.reset(); // Full Reset instead of custom
+                // Resetで再び「初回起動」相当になるため、GameManagerConfig.jsonのinitialCreditを
+                // 再適用する(でないとmoneyがgetInitialData()の既定値0のままになってしまう)。
+                if (GameManager.instance) GameManager.instance.applyInitialCreditIfNewSave();
                 SoundManager.instance.playSE("click"); // YESでclick音
                 this.refreshUI();
                 if (UIManager.instance && UIManager.instance.sideBarUI) {
@@ -235,13 +239,13 @@ export class HomeUI extends Component {
                 console.log("[HomeUI] Data Reset Complete");
                 dialogNode.destroy();
             }
-        });
+        }, dialogNode, "YES", Color.RED, 0.5, 0.65);
 
         // NO Button
-        this.createDialogButton(winNode, "NO", 80, -50, Color.GRAY, () => {
+        instantiatePrefabButton("Prefabs/Canvas/Button-No", winNode, 80, -50, () => {
             SoundManager.instance.playSE("cansel", "System"); // NOでcancel音
             dialogNode.destroy();
-        });
+        }, dialogNode, "NO", Color.GRAY, 0.5, 0.65);
     }
 
     /**
@@ -336,7 +340,7 @@ export class HomeUI extends Component {
         lbl.horizontalAlign = Label.HorizontalAlign.CENTER;
 
         // YES Button
-        this.createDialogButton(winNode, "YES", -80, -60, Color.GREEN, () => {
+        instantiatePrefabButton("Prefabs/Canvas/Button-Yes", winNode, -80, -60, () => {
             const data = DataManager.instance.data;
             if (data.money >= cost) {
                 DataManager.instance.addResource("money", -cost);
@@ -353,13 +357,13 @@ export class HomeUI extends Component {
                 SoundManager.instance.playSE("error", "System");
                 console.warn("[HomeUI] Not enough credits for repair.");
             }
-        });
+        }, dialogNode, "YES", Color.GREEN, 0.5, 0.65);
 
         // NO Button
-        this.createDialogButton(winNode, "NO", 80, -60, Color.RED, () => {
+        instantiatePrefabButton("Prefabs/Canvas/Button-No", winNode, 80, -60, () => {
             SoundManager.instance.playSE("cansel", "System");
             dialogNode.destroy();
-        });
+        }, dialogNode, "NO", Color.RED, 0.5, 0.65);
 
         // Nodes created via `new Node(...)` default to the DEFAULT layer and don't
         // inherit it from their parent - without this, Window/Text/Buttons are built
@@ -373,29 +377,6 @@ export class HomeUI extends Component {
         for (const child of node.children) {
             this.forceUILayer(child);
         }
-    }
-
-    private createDialogButton(parent: Node, text: string, x: number, y: number, color: Color, onClick: () => void) {
-        const btnNode = new Node("Btn" + text);
-        parent.addChild(btnNode);
-        btnNode.setPosition(x, y);
-
-        const w = 100;
-        const h = 45;
-        const gr = btnNode.addComponent(Graphics);
-        gr.fillColor = color;
-        gr.roundRect(-w / 2, -h / 2, w, h, 5);
-        gr.fill();
-
-        const lblNode = new Node("Label");
-        btnNode.addChild(lblNode);
-        const lbl = lblNode.addComponent(Label);
-        lbl.string = text;
-        lbl.fontSize = 20;
-
-        const btn = btnNode.addComponent(Button);
-        btn.transition = Button.Transition.SCALE;
-        btnNode.on(Button.EventType.CLICK, onClick, this);
     }
 
     private videoBG = new VideoBackground();

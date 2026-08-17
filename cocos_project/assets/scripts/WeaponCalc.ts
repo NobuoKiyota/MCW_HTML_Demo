@@ -57,8 +57,9 @@ export function getWeaponLevelStats(weaponId: string, lv: number): WeaponLevelSt
  * 解放条件のデータ自体はEquipmentData(weapon._equipment、EquipmentUnlock.ts参照)側に移した
  * ため、ここではWeapons.csv固有の判定は行わず、weapon._equipment経由でEquipmentUnlock.tsへ
  * 委譲するだけの薄いラッパーになっている(武器も武器以外も同じ解放ロジックで扱うため)。
- * weightは元々Weapons.csvにあった「装備コスト(CP消費等)」列(WeaponData.weight)で、
- * DataManager.data.capacityとの予算チェックに使う(こちらはWeapons.csv側のまま)。
+ * weightは以前Weapons.csv側にも重複して存在したが(WeaponData.weight)、Equipment.csv側
+ * (EquipmentData.weight)への一元管理に統合済み。weapon._equipment.weightを情報源とし、
+ * DataManager.data.capacityとの予算チェックに使う。
  * PlayerWeaponManager.resolveLoadout()がこれらを呼んで、未解放/予算超過の武器をロードアウトから
  * 除外する(実際にどう弾かれるかをInspectorのドロップダウン+Previewのコンソールログで確認できる)。
  */
@@ -102,7 +103,7 @@ export function checkLoadoutEquip(weaponIds: string[], saveData: ISaveData): Loa
     for (const id of weaponIds) {
         const weapon = db ? db.getWeaponData(id) : null;
         if (!weapon) continue; // 存在しないIDはWeapons.csv側の問題、ここでは無視して他を続行
-        totalWeight += weapon.weight;
+        totalWeight += weapon._equipment ? weapon._equipment.weight : 0;
         if (!isWeaponUnlocked(weapon, saveData)) lockedWeaponIds.push(id);
     }
 

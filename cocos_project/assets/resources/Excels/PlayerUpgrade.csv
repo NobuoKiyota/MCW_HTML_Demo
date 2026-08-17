@@ -1,10 +1,10 @@
 ParamID,Label,MinValue,MaxValue,GrowthType,StarValue,MaterialCategory,MaxLv
-HP,Hull Durability,100,150,早熟,3,装甲強化パーツ,20
-CP,Cargo Capacity,150,220,超早熟,2,装甲強化パーツ,20
-SP,Max Speed,550,570,晩成,4,高性能エンジンパーツ,20
-AC,Acceleration,100,125,標準,3,高性能エンジンパーツ,20
-DF,Shield,0,5,晩成,3,装甲強化パーツ,20
-TN,Turning,60,90,標準,2,高性能エンジンパーツ,20
-CR,Pickup Range,100,200,早熟,5,電脳強化パーツ,20
-VOS,Vehicle OS,100,110,晩成,6,電脳強化パーツ,20
-WOS,Weapon OS,100,110,超晩成,8,電脳強化パーツ,20
+HP,Hull Durability,100,600,標準,3,装甲強化パーツ,100
+CP,Cargo Capacity,150,850,超早熟,2,装甲強化パーツ,100
+SP,Max Speed,550,650,晩成,4,高性能エンジンパーツ,100
+AC,Acceleration,100,140,標準,3,高性能エンジンパーツ,100
+DF,Shield,0,25,晩成,3,装甲強化パーツ,100
+TN,Turning,60,100,標準,2,高性能エンジンパーツ,100
+CR,Pickup Range,100,400,早熟,5,電脳強化パーツ,100
+VOS,Vehicle OS,100,150,晩成,6,電脳強化パーツ,100
+WOS,Weapon OS,100,150,超晩成,8,電脳強化パーツ,100

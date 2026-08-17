@@ -172,6 +172,9 @@ export class ItemData {
     @property({ type: CCFloat })
     public weight: number = 10;
 
+    @property({ type: CCFloat, tooltip: "1個あたりの売却額。Materialアイテムが所持数上限(99)を超えた場合、超過分の自動売却に使う(DataManager.addResource参照)" })
+    public sellPrice: number = 0;
+
     @property
     public note: string = "";
 }
@@ -333,11 +336,18 @@ export class EquipmentData {
     // UnlockItemID_1/UnlockItemQty_1 ~ UnlockItemID_3/UnlockItemQty_3(最大3種類)をパースした結果。
     // ItemIDが空の枠は無視する。GameDatabase.parseEquipmentCSV()が設定する。
     public unlockItems: IUnlockItemRequirement[] = [];
+
+    // 非武器パーツ(Armor/Utility等)の重量(CustomizeCalc.computeEquippedWeight()参照)。
+    // Category=Weaponの行はWeaponData.weight(Weapons.csv)側が重量の情報源なので、
+    // 二重計上を避けるためこちらは0のままにしておく想定。
+    @property({ type: CCFloat, tooltip: "装備重量(非武器パーツのみ使用。武器はWeapons.csv側のWeightが情報源)" })
+    public weight: number = 0;
 }
 
 /**
  * 武器マスタデータ (assets/resources/Excels/Weapons.csv)
- * 装備としてのメタデータ(Weight/StarValue/Group/Category等)＋Lv別成長パラメータを持ち、
+ * 装備としてのメタデータ(StarValue/Group/Category等、Weightのみ二重管理を避けるためEquipment.csv
+ * (equipmentId経由の_equipment.weight)に一元化済み)＋Lv別成長パラメータを持ち、
  * ShotPatternIDで実際の発射グラフ(ShotPatternData)と紐付ける。PlayerUpgradeParamDataと同じく
  * MinValue/MaxValue/GrowthType/MaxLvから各Lvの実値をべき指数カーブで計算する想定だが、
  * 対象パラメータがSP/Dmg/Scale/WTの4つ(min===maxの列は成長しない扱い)ある点が異なる
@@ -357,8 +367,8 @@ export class WeaponData {
     @property({ type: CCInteger, tooltip: "排他グループ(同グループ内は1つしか装備できない、等の将来ルール用)" })
     public group: number = 1;
 
-    @property({ type: CCFloat, tooltip: "装備コスト(CP消費等)" })
-    public weight: number = 0;
+    // 装備コスト(CP消費等)はEquipment.csv(EquipmentData.weight、_equipment経由)に一元化した。
+    // 以前はWeapons.csv側にも同名のWeight列があり二重管理になっていたため、こちらは削除済み。
 
     @property({ type: CCInteger, tooltip: "パラメータ価値(★の数)。ShapeCellsの形状とは非連動" })
     public starValue: number = 1;

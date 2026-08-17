@@ -1,5 +1,6 @@
 import { _decorator, Component, sys } from 'cc';
 import { GAME_SETTINGS, SAVE_KEY } from './Constants';
+import { GameDatabase } from './GameDatabase';
 const { ccclass, property } = _decorator;
 
 export interface IGridPart {
@@ -58,6 +59,10 @@ export interface ISaveData {
 export class DataManager {
     private static _instance: DataManager;
     public data: ISaveData;
+    // load()時点でsys.localStorageにセーブが存在しなかった(=真の初回起動)場合のみtrue。
+    // GameManager.loadGameManagerConfig()がGameManagerConfig.jsonのinitialCreditを反映する際、
+    // 既にプレイ中のセーブのmoneyを上書きしてしまわないためのガードに使う。
+    public isNewSave: boolean = false;
 
     public static get instance(): DataManager {
         if (!this._instance) {
@@ -77,11 +82,20 @@ export class DataManager {
             maxHp: 100,
             parts: [], // Inventory Parts (Not equipped)
             gridData: {
-                // 新SHIP_LAYOUT(8x8)の"2"(解放済み・初期装備の土台)セルはx=3,y=3の2x2ブロックのみ
-                // なので、そこにちょうど収まる初期コックピットを1つだけ置く(仮。実際の初期装備構成は
-                // 別途デザイン確定次第調整)。
+                // Cockpit(2x2、x=3,y=3)+初期装備武器WPN_BeamGun/EQ01_BeamGun(横1x2、x=3,y=2)を
+                // 初期配置する。EQ01_BeamGunはEquipment.csv上でUnlockCost=0・UnlockItems無しの
+                // 「最初から解放済み」武器なので、unlockedEquipmentIdsに追加しなくても
+                // isEquipmentUnlocked()側で常に解放済み扱いになる(EquipmentUnlock.ts参照)。
+                // 武器ぶんのマス(y=2, x=3-4)はSHIP_LAYOUT側も合わせて解放済み("2")にしてある。
                 equippedParts: [
                     { x: 3, y: 3, w: 2, h: 2, type: "Cockpit" },
+                    {
+                        x: 3, y: 2, w: 2, h: 1, type: "Fire",
+                        id: "part_initial_weapon",
+                        weaponId: "WPN_BeamGun",
+                        equipmentId: "EQ01_BeamGun",
+                        cells: [{ x: 0, y: 0 }, { x: 1, y: 0 }],
+                    },
                 ],
                 layout: JSON.parse(JSON.stringify(GAME_SETTINGS.SHIP_LAYOUT))
             },
@@ -109,6 +123,7 @@ export class DataManager {
 
     public load(): ISaveData {
         const json = sys.localStorage.getItem(SAVE_KEY);
+        this.isNewSave = !json;
         const defaults = this.getInitialData();
         if (json) {
             try {
@@ -165,8 +180,28 @@ export class DataManager {
 
             // Limit 99 per item
             const current = this.data.inventory[type];
-            const newValue = Math.min(99, current + amount);
-            this.data.inventory[type] = newValue;
+            const newTotal = current + amount;
+
+            // 加算(amount>0)で上限99を超えるMaterialアイテムは、超過分をItems.csvのSellPriceで
+            // 自動売却してクレジットに変換する(従来は超過分をそのまま破棄していた)。
+            // 消費(amount<0、Upgrade/Equipment解放でのアイテム消費)や、Material以外のTypeは
+            // 従来通り単純に99でキャップするだけ(SellPrice未設定=0なら売却額も0、破棄と実質同じ)。
+            if (amount > 0 && newTotal > 99) {
+                const itemDef = GameDatabase.instance ? GameDatabase.instance.getItemData(type) : null;
+                this.data.inventory[type] = 99;
+                if (itemDef && itemDef.type === "Material") {
+                    const overflow = newTotal - 99;
+                    const sellPrice = itemDef.sellPrice > 0 ? itemDef.sellPrice : 0;
+                    const soldValue = overflow * sellPrice;
+                    if (soldValue > 0) {
+                        this.data.money += soldValue;
+                        this.data.careerStats.totalCreditsEarned += soldValue;
+                    }
+                    console.log(`[DataManager] ${type} exceeded 99 (+${amount}). Auto-sold ${overflow} for ${soldValue} credits (SellPrice=${sellPrice}).`);
+                }
+            } else {
+                this.data.inventory[type] = Math.min(99, newTotal);
+            }
 
             if (amount > 0) {
                 this.data.careerStats.itemsCollected += amount;
@@ -210,6 +245,10 @@ export class DataManager {
     public reset() {
         sys.localStorage.removeItem(SAVE_KEY);
         this.data = this.getInitialData();
+        // フルリセット後は再び「真の初回起動」相当の状態として扱う。GameManagerConfig.jsonの
+        // initialCreditをGameManager.applyInitialCreditIfNewSave()で再適用できるようにする
+        // (でなければリセットしても直前のmoneyがgetInitialData()のデフォルト0のまま残ってしまう)。
+        this.isNewSave = true;
     }
 
     public customReset(money: number, totalDist: number) {

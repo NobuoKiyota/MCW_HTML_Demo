@@ -2,7 +2,9 @@ import { _decorator, Component, Node, Label, Button, Color, Graphics, RichText, 
 import { DataManager } from './DataManager';
 import { GameManager } from './GameManager';
 import { SoundManager } from './SoundManager';
-import { getUpgradeStepInfo, computeRefund, PARAM_IDS } from './PlayerUpgradeCalc';
+import { UIManager } from './UIManager';
+import { getUpgradeStepInfo, computeRefund, PARAM_IDS, UpgradeStepInfo } from './PlayerUpgradeCalc';
+import { instantiatePrefabButton } from './UIButtonPrefab';
 
 const { ccclass, property } = _decorator;
 
@@ -156,6 +158,10 @@ export class UpgradeUI extends Component {
         if (btnBack) {
             btnBack.off(Button.EventType.CLICK);
             btnBack.on(Button.EventType.CLICK, this.onBackClicked, this);
+            // 「Back」「Close」「X」等、画面ごとにバラバラだった「元の画面へ戻る」ボタンの文言を
+            // 「HOME」に統一する(Prefab自体は変更せず、子Labelの文字列だけ実行時に上書きする)。
+            const label = btnBack.getComponentInChildren(Label);
+            if (label) label.string = "HOME";
         } else {
             console.warn("[UpgradeUI] BtnBack not found.");
         }
@@ -223,8 +229,16 @@ export class UpgradeUI extends Component {
         }
     }
 
-    // 共有情報欄(sharedInfoLabel)に、指定パラメータの次Lvのコスト/必要素材を表示する。
-    // armed=trueの間は「もう一度タップで確定」の案内を付け足す(2段階タップの1回目)。
+    // パラメータの実値を表示用に整形する。VOS/WOSは倍率(%)、DFは小数点1桁、それ以外は整数。
+    // SideBarUI.tsのStatus欄の表示形式と合わせてある。
+    private formatParamValue(paramId: string, value: number): string {
+        if (paramId === 'VOS' || paramId === 'WOS') return `${value.toFixed(0)}%`;
+        if (paramId === 'DF') return value.toFixed(1);
+        return value.toFixed(0);
+    }
+
+    // 共有情報欄(sharedInfoLabel)に、指定パラメータの次Lvのコスト/必要素材/効果値の変化を表示する。
+    // armed=trueの間は「もう一度タップで確認ダイアログを開く」案内を付け足す(2段階タップの1回目)。
     private updateSharedInfo(paramId: string, armed: boolean) {
         if (!this.sharedInfoLabel) return;
         const gm = GameManager.instance;
@@ -254,8 +268,13 @@ export class UpgradeUI extends Component {
             itemLine = `${info.material.itemId} x${info.material.quantity} (have ${have})`;
         }
 
+        const valueLine = (info.nextValue != null)
+            ? `${this.formatParamValue(paramId, info.currentValue)} ▶ <color=#66ff66>${this.formatParamValue(paramId, info.nextValue)}</color>`
+            : '';
+
         let text =
             `<color=${creditColor}>${info.label} ▶Lv${info.currentLv + 1} : ${info.creditsCost} credits</color>\n` +
+            `${valueLine}\n` +
             `<color=${itemColor}>${itemLine}</color>`;
         if (armed) text += '\n<color=#ffff00>Tap again to confirm.</color>';
         this.sharedInfoLabel.string = text;
@@ -263,7 +282,9 @@ export class UpgradeUI extends Component {
 
     // ①BtnUpgradeのクリック処理(2段階タップ)。
     //   1回目(未選択、または別の行を選択中): このパラメータを選択して共有情報欄に表示するだけ。
-    //   2回目(既にこのパラメータが選択済み): 実際に購入する。
+    //   2回目(既にこのパラメータが選択済み): 確認ダイアログ(showUpgradeConfirm)を開く
+    //   (以前はここで即購入していたが、実行前に必ず確認させたいという要望のため
+    //   ワンクッション挟むようにした。購入の実処理自体はexecuteUpgradePurchase()に分離)。
     private onUpgradeClicked(paramId: string) {
         const gm = GameManager.instance;
         if (!gm) return;
@@ -278,15 +299,88 @@ export class UpgradeUI extends Component {
             return;
         }
 
+        SoundManager.instance.playSE('click');
+        this.showUpgradeConfirm(paramId, info);
+    }
+
+    // Upgrade実行確認ダイアログ。コスト/必要素材/効果値の変化(現在値▶次Lv値)を表示し、
+    // YESで実際に購入する。素材/クレジット不足はここで初めて弾く(以前のonUpgradeClicked内の
+    // チェックをそのまま移動しただけ、判定内容は変更していない)。
+    private showUpgradeConfirm(paramId: string, info: UpgradeStepInfo | null) {
+        if (!info) return;
+        if (this.dialogNode) {
+            this.dialogNode.destroy();
+            this.dialogNode = null;
+        }
+
         const data = DataManager.instance.data;
         const hasEnoughCredits = data.money >= (info.creditsCost || 0);
         const hasEnoughMaterial = !info.material || !info.material.itemId ||
             (data.inventory[info.material.itemId] || 0) >= info.material.quantity;
+        const creditColor = hasEnoughCredits ? '#ffffff' : '#ff4444';
 
-        if (!hasEnoughCredits || !hasEnoughMaterial) {
-            SoundManager.instance.playSE('error', 'System');
-            return;
+        let itemLine = 'No material required';
+        let itemColor = '#ffffff';
+        if (info.material && info.material.itemId) {
+            const have = data.inventory[info.material.itemId] || 0;
+            itemColor = have >= info.material.quantity ? '#ffffff' : '#ff4444';
+            itemLine = `${info.material.itemId} x${info.material.quantity} (have ${have})`;
         }
+        const valueLine = (info.nextValue != null)
+            ? `${this.formatParamValue(paramId, info.currentValue)} ▶ <color=#66ff66>${this.formatParamValue(paramId, info.nextValue)}</color>`
+            : '';
+
+        this.dialogNode = new Node("UpgradeConfirmDialog");
+        this.root.addChild(this.dialogNode);
+
+        const bg = this.dialogNode.addComponent(Graphics);
+        bg.fillColor = new Color(0, 0, 0, 200);
+        bg.rect(-2000, -2000, 4000, 4000);
+        bg.fill();
+        this.dialogNode.addComponent(BlockInputEvents);
+
+        const winNode = new Node("Window");
+        this.dialogNode.addChild(winNode);
+        const winGr = winNode.addComponent(Graphics);
+        winGr.fillColor = new Color(20, 40, 60, 255);
+        winGr.roundRect(-260, -140, 520, 280, 10);
+        winGr.fill();
+        winGr.strokeColor = Color.CYAN;
+        winGr.lineWidth = 3;
+        winGr.stroke();
+
+        const txtNode = new Node("Text");
+        winNode.addChild(txtNode);
+        txtNode.setPosition(0, 40);
+        const richText = txtNode.addComponent(RichText);
+        richText.fontSize = 24;
+        richText.maxWidth = 460;
+        richText.horizontalAlign = RichText.HorizontalAlign.CENTER;
+        richText.string =
+            `<outline color=#000000 width=2>${info.label} Lv${info.currentLv} ▶ Lv${info.currentLv + 1}</outline>\n` +
+            `<outline color=#000000 width=2>${valueLine}</outline>\n` +
+            `<outline color=#000000 width=2><color=${creditColor}>${info.creditsCost} credits</color></outline>\n` +
+            `<outline color=#000000 width=2><color=${itemColor}>${itemLine}</color></outline>`;
+
+        instantiatePrefabButton("Prefabs/Canvas/Button-Yes", winNode, -90, -90, () => {
+            if (!hasEnoughCredits || !hasEnoughMaterial) {
+                SoundManager.instance.playSE('error', 'System');
+                return;
+            }
+            this.executeUpgradePurchase(paramId, info);
+            this.closeDialog();
+        }, this.dialogNode, "YES", Color.GREEN, 0.5, 0.65);
+        instantiatePrefabButton("Prefabs/Canvas/Button-No", winNode, 90, -90, () => {
+            SoundManager.instance.playSE("click");
+            this.closeDialog();
+        }, this.dialogNode, "NO", Color.GRAY, 0.5, 0.65);
+
+        this.forceUILayer(this.dialogNode);
+    }
+
+    // 実際の購入処理(旧onUpgradeClickedの2回目タップ部分をそのまま移設)。
+    private executeUpgradePurchase(paramId: string, info: UpgradeStepInfo) {
+        const currentLv = this.getCurrentLv(paramId);
 
         DataManager.instance.addResource('credits', -(info.creditsCost || 0));
         if (info.material && info.material.itemId) {
@@ -296,9 +390,16 @@ export class UpgradeUI extends Component {
         DataManager.instance.save();
 
         SoundManager.instance.playSE('upgrade', 'System');
-        // 購入後も選択状態を保つ(同じ行を続けてタップすれば次のLvもすぐ買える)。
+        // 購入後も選択状態を保つ(同じ行を続けてタップすれば次のLvもすぐ確認ダイアログを開ける)。
         this.refreshAll();
         this.updateSharedInfo(paramId, true);
+        // SideBarUIのCREDITS/CARGO/TotalUpgrade表示はaddResource()だけでは自動更新されない
+        // (このUIとSideBarUIは別コンポーネントで、明示的に呼ばない限り再描画されない)ため、
+        // ここで明示的に更新する。これが無いと購入は実際に成功していてもクレジットが
+        // 減っていないように見えてしまう。
+        if (UIManager.instance && UIManager.instance.sideBarUI) {
+            UIManager.instance.sideBarUI.updateShipInfo();
+        }
     }
 
     private onResetClicked(paramId: string) {
@@ -358,14 +459,14 @@ export class UpgradeUI extends Component {
             `<outline color=#000000 width=2>When a reset is performed, ${refundPercent}% of the credits and materials are refunded.</outline>\n` +
             `<outline color=#000000 width=2><color=#ff4444>!!! No further refund is provided if the amount exceeds 99 units.</color></outline>`;
 
-        this.createDialogButton(winNode, "YES", -90, -90, Color.RED, () => {
+        instantiatePrefabButton("Prefabs/Canvas/Button-Yes", winNode, -90, -90, () => {
             this.executeReset(paramIds);
             this.closeDialog();
-        });
-        this.createDialogButton(winNode, "NO", 90, -90, Color.GRAY, () => {
+        }, this.dialogNode, "YES", Color.RED, 0.5, 0.65);
+        instantiatePrefabButton("Prefabs/Canvas/Button-No", winNode, 90, -90, () => {
             SoundManager.instance.playSE("click");
             this.closeDialog();
-        });
+        }, this.dialogNode, "NO", Color.GRAY, 0.5, 0.65);
 
         this.forceUILayer(this.dialogNode);
     }
@@ -415,29 +516,9 @@ export class UpgradeUI extends Component {
         SoundManager.instance.playSE('upgrade', 'System');
         console.log(`[UpgradeUI] Reset ${paramIds.join(', ')}: refunded ${totalCreditRefund} credits + ${JSON.stringify(totalItemRefund)}`);
         this.refreshAll();
-    }
-
-    private createDialogButton(parent: Node, text: string, x: number, y: number, color: Color, onClick: () => void) {
-        const btnNode = new Node("Btn" + text);
-        parent.addChild(btnNode);
-        btnNode.setPosition(x, y);
-
-        const w = 120;
-        const h = 48;
-        const gr = btnNode.addComponent(Graphics);
-        gr.fillColor = color;
-        gr.roundRect(-w / 2, -h / 2, w, h, 6);
-        gr.fill();
-
-        const lblNode = new Node("Label");
-        btnNode.addChild(lblNode);
-        const lbl = lblNode.addComponent(Label);
-        lbl.string = text;
-        lbl.fontSize = 22;
-
-        const btn = btnNode.addComponent(Button);
-        btn.transition = Button.Transition.SCALE;
-        btnNode.on(Button.EventType.CLICK, onClick, this);
+        if (UIManager.instance && UIManager.instance.sideBarUI) {
+            UIManager.instance.sideBarUI.updateShipInfo();
+        }
     }
 
     /** Recursively force a node subtree onto the UI_2D layer so MainCamera can see it (matches HomeUI/MissionUI). */

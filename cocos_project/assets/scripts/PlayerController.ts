@@ -6,6 +6,7 @@ import { BuffVisualEffect } from './BuffVisualEffect';
 import { SoundManager } from './SoundManager';
 import { GameDatabase } from './GameDatabase';
 import { ShotRuntime } from './ShotRuntime';
+import { getUpgradedParamValue } from './PlayerUpgradeCalc';
 
 const { ccclass, property } = _decorator;
 
@@ -196,10 +197,15 @@ export class PlayerController extends Component {
         this.loadStats();
         this.resetBuffs(); // Ensure clean state on retry/start
 
-        // Load HP from DataManager
+        // Load HP from DataManager. maxHpは以前DataManager.data.maxHp(常に既定値100固定、
+        // Upgrade GUIでHPを上げても一切更新されなかった)をそのまま使っていたため、SideBarUIの
+        // Status欄(PlayerUpgrade.csv基準の実値)と食い違っていた。CP等と同じくPlayerUpgrade.csvの
+        // 現在Lvから都度計算し、data.maxHpにも書き戻しておく(HomeUIの機体修理等、他の場所でも
+        // data.maxHpを直接読んでいるため、そちらも最新値に保つ)。
         if (DataManager.instance) {
             this.hp = DataManager.instance.data.hp;
-            this.maxHp = DataManager.instance.data.maxHp;
+            this.maxHp = this._gm ? getUpgradedParamValue('HP', this._gm) : DataManager.instance.data.maxHp;
+            if (this.maxHp > 0) DataManager.instance.data.maxHp = this.maxHp;
         }
 
         // Init UI

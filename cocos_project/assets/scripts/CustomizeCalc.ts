@@ -28,6 +28,24 @@ export function getCellUnlockCost(): number {
     return GAME_SETTINGS.ECONOMY.CELL_UNLOCK_COST;
 }
 
+// 現在装備中のパーツの合計重量(SideBarUIのCARGO表示、ミッション外での「今の積載量」用)。
+// 重量はEquipment.csv(EquipmentData.weight)に一元化されている(武器もWeapons.csv側のWeight列を
+// 廃止しEquipment.csv側へ移植済み、WeaponCalc.checkLoadoutEquip()も同様にEquipment.csv側を見る)。
+// equipmentIdはplaceEquipment()により武器/非武器を問わず常にセットされるため、このIDだけで済む。
+export function computeEquippedWeight(equippedParts: IGridPart[]): number {
+    if (!equippedParts) return 0;
+    const db = GameDatabase.instance;
+    if (!db) return 0;
+
+    let total = 0;
+    for (const part of equippedParts) {
+        if (!part.equipmentId) continue;
+        const equipment = db.getEquipmentData(part.equipmentId);
+        if (equipment) total += equipment.weight;
+    }
+    return total;
+}
+
 export function canAffordCellUnlock(saveData: ISaveData): boolean {
     return !!saveData && saveData.money >= getCellUnlockCost();
 }

@@ -1,21 +1,81 @@
-import { _decorator, Component, Node, Label, Color, Sprite, UITransform, Size, Widget, Graphics, LabelOutline, Button, EventHandler, BlockInputEvents, instantiate, Vec3, director, RichText, Layers } from 'cc';
+import { _decorator, Component, Node, Label, Color, Sprite, SpriteFrame, resources, UITransform, Size, Widget, Graphics, LabelOutline, Button, EventHandler, BlockInputEvents, instantiate, Vec3, director, RichText, Layers } from 'cc';
 import { GameManager } from './GameManager';
 import { SoundManager } from './SoundManager';
 import { DataManager } from './DataManager';
 import { GameDatabase } from './GameDatabase';
 import { IMissionData } from './Constants';
+import { getTotalUpgradeStars } from './PlayerUpgradeCalc';
+import { generateMissionFromDifficultyRow } from './MissionGenerator';
+import { instantiatePrefabButton } from './UIButtonPrefab';
+import { UpgradeUI } from './UpgradeUI';
+import { CustomizeUI } from './CustomizeUI';
 
 const { ccclass, property } = _decorator;
 
-// MISSION_LIST is now loaded from GameDatabase (CSV)
+// MissionLv(1〜10)ごとのボタン基調色。参考パレット画像のLv01〜Lv10の16進コードから採用
+// (いずれも"RRGGBB+アルファ2桁"の並びだったため、RGB部分のみを使う)。
+const MISSION_LV_COLORS: string[] = [
+    '#85FF00', '#00FF8F', '#F7FF33', '#A911FF', '#A50000',
+    '#00BBA5', '#0000BB', '#BB3400', '#86005B', '#002686',
+];
+
+function getMissionLvColor(lv: number): Color {
+    const idx = Math.max(0, Math.min(MISSION_LV_COLORS.length - 1, lv - 1));
+    const c = new Color();
+    Color.fromHEX(c, MISSION_LV_COLORS[idx]);
+    return c;
+}
 
 @ccclass('MissionUI')
 export class MissionUI extends Component {
+
+    // ミッションボタン背景(assets/resources/png/MissionBG.png、600x80の白黒バースト柄)。
+    // MissionLvごとの色はGraphicsの塗りではなくSprite.colorのTintで表現する(SideBarUI.tsの
+    // "png/LeftSide"等と同じ、resources.load(path + "/spriteFrame", SpriteFrame, ...)の規約)。
+    // 開くたびに何度もロードし直さないよう、ロード済みのSpriteFrameをクラス全体でキャッシュする。
+    private static _missionBgFrame: SpriteFrame | null = null;
+    private static _missionBgLoading: boolean = false;
+    private static _pendingSprites: Sprite[] = [];
+
+    private static requestMissionBgSprite(sprite: Sprite) {
+        if (MissionUI._missionBgFrame) {
+            sprite.spriteFrame = MissionUI._missionBgFrame;
+            return;
+        }
+        MissionUI._pendingSprites.push(sprite);
+        if (MissionUI._missionBgLoading) return;
+        MissionUI._missionBgLoading = true;
+        resources.load("png/MissionBG/spriteFrame", SpriteFrame, (err, frame) => {
+            MissionUI._missionBgLoading = false;
+            if (err || !frame) {
+                console.warn("[MissionUI] Failed to load png/MissionBG spriteFrame. Falling back to flat color buttons.", err);
+                return;
+            }
+            MissionUI._missionBgFrame = frame;
+            for (const s of MissionUI._pendingSprites) {
+                if (s && s.isValid) s.spriteFrame = frame;
+            }
+            MissionUI._pendingSprites = [];
+        });
+    }
 
     private contentNode: Node = null;
     private dialogNode: Node = null;
 
     private displayedMissions: IMissionData[] = [];
+    // displayedMissionsと同じ順序で、各ミッションがそのLv内で何番目のSubLv(ModCountMin昇順)
+    // から生成されたかを保持する(ボタン表示用、IMissionData自体はゲームプレイ側の型なので
+    // 表示専用のこの情報は混ぜずに別配列で持つ)。
+    private displayedSubLvIndices: number[] = [];
+    // 現在のページ(Lv)に定義されている総SubLv数と、そのうち★で解放済みのSubLv数。
+    private pageSubLvTotal: number = 0;
+    private pageSubLvUnlocked: number = 0;
+
+    // ★合計(TotalUpgrade)と、それによって解放されている最大MissionLv。
+    private totalStars: number = 0;
+    private unlockedMaxLv: number = 0;
+    // 現在表示中のページ(=MissionLv、1〜unlockedMaxLv)。
+    private currentPage: number = 1;
 
     onLoad() {
         // Force to center (0,0) if added to Canvas
@@ -23,7 +83,14 @@ export class MissionUI extends Component {
             this.node.setPosition(0, 0, 0);
         }
 
-        // 全画面を覆ってタッチイベントをブロック（モーダル化）
+        // UpgradeUI/CustomizeUIは常駐node+active切り替えで開閉する作りのため、開いたまま
+        // SideBarUIのDESTINATIONラベル等からMissionUIを開くと、閉じ忘れた方の中身が
+        // MissionUIのモーダル背景を突き抜けて見えてしまう(階層が崩れる問題の原因)。
+        // MissionUIを開く直前に、他の全画面オーバーレイは強制的に閉じておく。
+        if (UpgradeUI.instance) UpgradeUI.instance.close();
+        if (CustomizeUI.instance) CustomizeUI.instance.close();
+
+        // 全画面を覆ってタッチイベントをブロック(モーダル化)
         try {
             this.setupModalBackground();
         } catch (e) {
@@ -38,25 +105,84 @@ export class MissionUI extends Component {
         const db = GameDatabase.instance;
         if (db && db.isReady) {
             this.unschedule(this.checkDatabaseAndInit);
-            this.shuffleMissions();
+
+            this.totalStars = getTotalUpgradeStars();
+            const diff = db.getMissionDifficultyForModCount(this.totalStars);
+            this.unlockedMaxLv = diff ? diff.lv : 0;
+            // 通常はMissionDifficulty.csvにLv1/ModCountMin0の行が必ずあるため0にはならない想定だが、
+            // データ未整備等でnullだった場合の保険として1にフォールバックする。
+            if (this.unlockedMaxLv <= 0) this.unlockedMaxLv = 1;
+            // 開いた直後は「今の最前線」のLvページを見せる。
+            this.currentPage = this.unlockedMaxLv;
+
+            this.rollMissionsForPage(this.currentPage);
             this.initUI();
         }
     }
 
-    private shuffleMissions() {
+    // 指定MissionLvページの候補を、解放済み(ModCountMin <= totalStars)なSubLv行の中から
+    // 重複無しで最大3件ランダムに選び、それぞれ実際のミッション情報(距離/報酬/貨物/目標時間)を
+    // 生成する。既に通過済みのLv(=totalStarsがそのLvの最大ModCountMinを超えている)なら
+    // そのLv内の全SubLv行が対象になるため、過去のLvへ戻って任意の構成を選び直せる。
+    private rollMissionsForPage(lv: number) {
         const db = GameDatabase.instance;
-        if (!db || !db.missions || db.missions.length === 0) return;
+        const gm = GameManager.instance;
+        this.displayedMissions = [];
+        this.displayedSubLvIndices = [];
+        this.pageSubLvTotal = 0;
+        this.pageSubLvUnlocked = 0;
+        if (!db || !gm) return;
 
-        // Clone and Shuffle
-        const all = [...db.missions];
-        for (let i = all.length - 1; i > 0; i--) {
+        // そのLvに定義されている全SubLv行(ModCountMin昇順)。何番目か(SubLv表示用)と、
+        // うち何個が★で解放済みかをここから求める。
+        const allRowsForLv = db.missionDifficulties.filter(md => md.lv === lv).sort((a, b) => a.modCountMin - b.modCountMin);
+        this.pageSubLvTotal = allRowsForLv.length;
+
+        const eligible = allRowsForLv.filter(md => md.modCountMin <= this.totalStars);
+        this.pageSubLvUnlocked = eligible.length;
+        if (eligible.length === 0) return;
+
+        // Shuffle
+        const pool = [...eligible];
+        for (let i = pool.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
-            [all[i], all[j]] = [all[j], all[i]];
+            [pool[i], pool[j]] = [pool[j], pool[i]];
         }
+        const picks = pool.slice(0, 3);
 
-        // Pick top 3
-        this.displayedMissions = all.slice(0, 3);
-        console.log(`[MissionUI] Shuffled missions. Displaying: ${this.displayedMissions.map(m => m.id).join(", ")}`);
+        const missions: IMissionData[] = [];
+        const subLvIndices: number[] = [];
+        let seq = 0;
+        for (const diff of picks) {
+            const gen = generateMissionFromDifficultyRow(diff, this.totalStars, gm);
+            if (!gen) continue;
+            seq++;
+
+            // 実際に選ばれたSpawnTable群のslots(TypeID_1..12)をそのまま合算してenemyPatternに
+            // する。以前はenemyPatternが常に空/実在しないIDだったため、GameManager.spawnEnemy()が
+            // 常にdb.getRandomEnemy()(完全ランダム)にフォールバックしていた
+            // (=SubLv1で選ばれたはずのDEB001以外の敵も湧いていた原因)。同じ敵が複数テーブルの
+            // slotsに重複して入っていれば、その分だけ出現率が上がる(重複除去はしない)。
+            const enemyPattern: string[] = [];
+            for (const tableId of gen.tableIds) {
+                const table = db.getSpawnTableData(tableId);
+                if (table && table.slots) enemyPattern.push(...table.slots);
+            }
+
+            missions.push({
+                id: Date.now() + seq,
+                stars: gen.lv,
+                distance: Math.round(gen.distD),
+                enemyPattern,
+                reward: Math.round(gen.rewardG + gen.rewardH),
+                cargoWeight: gen.cargoWeight,
+                targetTime: Math.round(gen.targetTimeSec),
+            });
+            subLvIndices.push(allRowsForLv.indexOf(diff) + 1);
+        }
+        this.displayedMissions = missions;
+        this.displayedSubLvIndices = subLvIndices;
+        console.log(`[MissionUI] Rolled ${missions.length} mission(s) for Lv${lv} SubLv[${subLvIndices.join(',')}]/${this.pageSubLvTotal} (unlocked ${this.pageSubLvUnlocked}/${this.pageSubLvTotal}, totalStars=${this.totalStars}, unlockedMaxLv=${this.unlockedMaxLv}).`);
     }
 
     private initUI() {
@@ -66,8 +192,8 @@ export class MissionUI extends Component {
         // ミッションボタン生成
         this.createMissionButtons();
 
-        // 閉じるボタン
-        this.createCloseButton();
+        // 閉じるボタン(Reselectの右隣にHomeボタンとして配置)
+        this.createHomeButton();
 
         // 再抽選ボタン
         this.createReselectButton();
@@ -114,78 +240,134 @@ export class MissionUI extends Component {
         this.contentNode = new Node("Content");
         this.node.addChild(this.contentNode);
 
-        // 配置を中央に（親ノードが中央にある前提）
+        // 配置を中央に(親ノードが中央にある前提)
         this.contentNode.setPosition(0, 0);
     }
 
     private createMissionButtons() {
-        let y = 150;
+        // ページ見出し(タイトル/MissionLv表示/PREV・NEXT)とミッションボタン列が重なっていた
+        // (ページ見出しのY=195に対し、1件目のボタン(高さ80)がY=150で上端Y=190まで来ていたため)。
+        // タイトル/見出しを上に、ボタン開始位置を下にずらして間隔を確保する。
+        let y = 110;
         const gap = 110;
+        const lvColor = getMissionLvColor(this.currentPage);
 
         // タイトル
         const titleNode = new Node("Title");
         this.contentNode.addChild(titleNode);
-        titleNode.setPosition(0, 250);
+        titleNode.setPosition(0, 260);
         const lbl = titleNode.addComponent(Label);
         lbl.string = "SELECT MISSION";
         lbl.fontSize = 40;
         const out = titleNode.addComponent(LabelOutline);
-        out.width = 2;
+        out.color = lvColor;
+        out.width = 3;
 
-        this.displayedMissions.forEach((mission, index) => {
-            this.createButton(mission, 0, y);
+        // ページ表示("MissionLv N")+PREV/NEXT。解放済みページ(1〜unlockedMaxLv)しか
+        // 移動できない(未解放Lvはページ自体を作らないため、ユーザー指示通り表示不要)。
+        this.createPageLabel(lvColor);
+        this.createPageNavButton("PrevPageBtn", -260, 210, "<", this.currentPage > 1, () => this.changePage(-1));
+        this.createPageNavButton("NextPageBtn", 260, 210, ">", this.currentPage < this.unlockedMaxLv, () => this.changePage(1));
+
+        if (this.displayedMissions.length === 0) {
+            const emptyNode = new Node("EmptyLabel");
+            this.contentNode.addChild(emptyNode);
+            emptyNode.setPosition(0, 40);
+            const emptyLbl = emptyNode.addComponent(Label);
+            emptyLbl.string = "No missions available on this level yet.";
+            emptyLbl.fontSize = 22;
+            emptyLbl.color = Color.GRAY;
+            return;
+        }
+
+        this.displayedMissions.forEach((mission, i) => {
+            const subLv = this.displayedSubLvIndices[i] || 0;
+            this.createButton(mission, subLv, 0, y);
             y -= gap;
         });
     }
 
-    private createReselectButton() {
-        const btnNode = new Node("ReselectBtn");
-        this.contentNode.addChild(btnNode);
-        btnNode.setPosition(0, -240); // 画面下部
+    private createPageLabel(lvColor: Color) {
+        const pageNode = new Node("PageLabel");
+        this.contentNode.addChild(pageNode);
+        pageNode.setPosition(0, 210);
+        const lbl = pageNode.addComponent(Label);
+        lbl.string = `MissionLv ${this.currentPage} / ${this.unlockedMaxLv}  (SubLv ${this.pageSubLvUnlocked}/${this.pageSubLvTotal} unlocked)`;
+        lbl.fontSize = 24;
+        lbl.color = lvColor;
+        const out = pageNode.addComponent(LabelOutline);
+        out.width = 2;
+    }
 
-        const w = 240;
-        const h = 60;
+    private createPageNavButton(name: string, x: number, y: number, text: string, enabled: boolean, onClick: () => void) {
+        const btnNode = new Node(name);
+        this.contentNode.addChild(btnNode);
+        btnNode.setPosition(x, y);
+
+        const w = 48;
+        const h = 48;
         const gr = btnNode.addComponent(Graphics);
-        gr.fillColor = new Color(100, 100, 100);
-        gr.roundRect(-w / 2, -h / 2, w, h, 10);
+        gr.fillColor = enabled ? new Color(60, 60, 60, 255) : new Color(30, 30, 30, 180);
+        gr.roundRect(-w / 2, -h / 2, w, h, 8);
         gr.fill();
-        gr.strokeColor = Color.YELLOW;
-        gr.lineWidth = 3;
+        gr.strokeColor = enabled ? Color.WHITE : new Color(90, 90, 90, 255);
+        gr.lineWidth = 2;
+        gr.roundRect(-w / 2, -h / 2, w, h, 8);
         gr.stroke();
 
         const lblNode = new Node("Label");
         btnNode.addChild(lblNode);
         const lbl = lblNode.addComponent(Label);
-        lbl.string = "RESELECT";
-        lbl.fontSize = 28;
-        lbl.color = Color.YELLOW;
+        lbl.string = text;
+        lbl.fontSize = 26;
+        lbl.color = enabled ? Color.WHITE : new Color(100, 100, 100, 255);
+
+        if (!enabled) return;
 
         const btn = btnNode.addComponent(Button);
         btn.transition = Button.Transition.SCALE;
-
+        btn.zoomScale = 0.9;
         btnNode.on(Button.EventType.CLICK, () => {
             SoundManager.instance.playSE("click");
-            this.shuffleMissions();
-            this.initUI();
+            onClick();
         }, this);
     }
 
-    private createButton(mission: IMissionData, x: number, y: number) {
+    private changePage(delta: number) {
+        const next = this.currentPage + delta;
+        if (next < 1 || next > this.unlockedMaxLv) return;
+        this.currentPage = next;
+        this.rollMissionsForPage(this.currentPage);
+        this.initUI();
+    }
+
+    private createReselectButton() {
+        instantiatePrefabButton("Prefabs/Canvas/Button-Reselect", this.contentNode, -130, -240, () => {
+            SoundManager.instance.playSE("click");
+            // 現在のページ(Lv)内だけを再抽選する(ページを跨がない)。
+            this.rollMissionsForPage(this.currentPage);
+            this.initUI();
+        }, this.node, "RESELECT", new Color(100, 100, 100));
+    }
+
+    private createButton(mission: IMissionData, subLv: number, x: number, y: number) {
         const btnNode = new Node(`MissionBtn_${mission.id}`);
         this.contentNode.addChild(btnNode);
         btnNode.setPosition(x, y);
 
-        // 背景 (Graphics)
+        // 背景 (Sprite) - assets/resources/png/MissionBG.png(600x80の白黒バースト柄)を
+        // MissionLvごとの色でTintして使う。Cocos 3.8のcc.Graphicsにはネイティブなグラデーション
+        // 塗りが無いため、以前は塗り+ハイライト円の重ね塗りで近似していたが、専用アートを
+        // 用意してもらえたためSprite.colorでの単純Tintに置き換えた(ロードはクラス全体で
+        // キャッシュ、複数ボタンが同時に要求しても1回だけfetchする - requestMissionBgSprite参照)。
         const w = 600;
         const h = 80;
-        const gr = btnNode.addComponent(Graphics);
-        gr.fillColor = new Color(0, 100, 200, 255);
-        gr.roundRect(-w / 2, -h / 2, w, h, 10);
-        gr.fill();
-        // 枠線
-        gr.strokeColor = Color.WHITE;
-        gr.lineWidth = 2;
-        gr.stroke();
+        const baseColor = getMissionLvColor(mission.stars);
+        const uiTrans = btnNode.addComponent(UITransform);
+        uiTrans.setContentSize(w, h);
+        const sprite = btnNode.addComponent(Sprite);
+        sprite.color = baseColor;
+        MissionUI.requestMissionBgSprite(sprite);
 
         // ボタンコンポーネント(クリック判定用 - 遷移アニメーション等に使う)
         const btn = btnNode.addComponent(Button);
@@ -203,41 +385,19 @@ export class MissionUI extends Component {
         const label = labelNode.addComponent(Label);
         label.fontSize = 20; // Slightly smaller to fit info
         label.color = Color.WHITE;
+        const labelOutline = labelNode.addComponent(LabelOutline);
+        labelOutline.width = 2;
 
-        // 敵リストを表示しない
-        // const enemies = mission.enemyPattern.length > 3 ? 
-        //     `${mission.enemyPattern.slice(0, 2).join(", ")}...` : 
-        //     mission.enemyPattern.join(", ");
-
-        label.string = `★${mission.stars}  DIST: ${mission.distance}km  TIME: ${mission.targetTime}s  CARGO: ${mission.cargoWeight}`;
+        label.string = `Lv${mission.stars}-SubLv${subLv}  DIST: ${mission.distance}km  TIME: ${mission.targetTime}s  CARGO: ${mission.cargoWeight}`;
         label.lineHeight = 40; // 1行表示のため調整
     }
 
-    private createCloseButton() {
-        const btnNode = new Node("CloseBtn");
-        this.contentNode.addChild(btnNode);
-        btnNode.setPosition(350, 250); // 右上
-
-        const gr = btnNode.addComponent(Graphics);
-        gr.fillColor = Color.RED;
-        gr.circle(0, 0, 25);
-        gr.fill();
-        gr.strokeColor = Color.WHITE;
-        gr.lineWidth = 2;
-        gr.stroke();
-
-        const lblNode = new Node("X");
-        btnNode.addChild(lblNode);
-        const lbl = lblNode.addComponent(Label);
-        lbl.string = "X";
-        lbl.fontSize = 30;
-
-        const btn = btnNode.addComponent(Button);
-        btn.transition = Button.Transition.SCALE;
-
-        btnNode.on(Button.EventType.CLICK, () => {
+    // 右上の"X"閉じるボタンは廃止し、Reselectの右隣に「Home」として統一した
+    // (Home/Back/Closeが画面ごとにバラバラの文言・見た目だったため)。
+    private createHomeButton() {
+        instantiatePrefabButton("Prefabs/Canvas/Button-Home", this.contentNode, 130, -240, () => {
             this.close();
-        }, this);
+        }, this.node, "HOME", new Color(0, 150, 255));
     }
 
     // --- Events ---
@@ -259,7 +419,7 @@ export class MissionUI extends Component {
             this.dialogNode.destroy();
         }
 
-        // 半透明背景（さらに上）
+        // 半透明背景(さらに上)
         this.dialogNode = new Node("Dialog");
         this.node.addChild(this.dialogNode);
 
@@ -314,17 +474,17 @@ export class MissionUI extends Component {
             richText.string = `<outline color=#000000 width=3>Start Mission?\nDistance: ${mission.distance}km\nCargo: ${mission.cargoWeight} / Cap: ${capacity}${warning}\nProceed?</outline>`;
 
             // YES Button
-            this.createDialogButton(winNode, "YES", -120, -120, Color.GREEN, () => {
+            instantiatePrefabButton("Prefabs/Canvas/Button-Yes", winNode, -120, -120, () => {
                 SoundManager.instance.playSE("click");
                 this.startGame(mission);
                 this.closeDialog();
-            });
+            }, this.dialogNode, "YES", Color.GREEN);
 
             // NO Button
-            this.createDialogButton(winNode, "NO", 120, -120, Color.RED, () => {
+            instantiatePrefabButton("Prefabs/Canvas/Button-No", winNode, 120, -120, () => {
                 SoundManager.instance.playSE("click");
                 this.closeDialog();
-            });
+            }, this.dialogNode, "NO", Color.RED);
         }
 
         this.forceUILayer(this.dialogNode);

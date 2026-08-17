@@ -2,7 +2,6 @@ import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab, resources
 import { EnemyData, BehaviorData, ShotPatternData, DropData, SoundData, BehaviorGraph, ShotGraph, ItemData, DropTableData, SpawnTableData, MissionDifficultyData, PlayerUpgradeParamData, EquipmentData, WeaponData } from './GameDataTypes';
 import { CSVHelper } from './CSVHelper';
 import { SoundManager } from './SoundManager';
-import { IMissionData } from './Constants'; // New
 const { ccclass, property } = _decorator;
 
 /**
@@ -40,7 +39,6 @@ export class GameDatabase extends Component {
     public equipment: EquipmentData[] = [];
     public weapons: WeaponData[] = [];
     public sounds: SoundData[] = [];
-    public missions: IMissionData[] = []; // New
 
     // --- CSV Assets ---
     @property({ type: TextAsset, tooltip: "CSV: Enemies" })
@@ -78,9 +76,6 @@ export class GameDatabase extends Component {
 
     @property({ type: TextAsset, tooltip: "CSV: Sounds" })
     public soundCsv: TextAsset = null;
-
-    @property({ type: TextAsset, tooltip: "CSV: Missions" })
-    public missionCsv: TextAsset = null;
 
     // Singleton access helper (Component based)
     public static instance: GameDatabase = null;
@@ -166,7 +161,6 @@ export class GameDatabase extends Component {
         this.weapons = [];
         this.sounds = []; // Clear old sounds
         this.enemies = []; // Clear runtime list
-        this.missions = []; // Clear mission list
 
         // Items/DropTables/SpawnTables fall back to an ASYNC resources.load() whenever their
         // Inspector TextAsset property isn't assigned (the normal case now that they're edited
@@ -251,29 +245,13 @@ export class GameDatabase extends Component {
         if (this.soundCsv) this.parseSoundCSV(this.soundCsv.text);
         if (this.enemyCsv) this.parseEnemyCSV(this.enemyCsv.text);
 
-        if (this.missionCsv) {
-            this.parseMissionCSV(this.missionCsv.text);
-        } else {
-            console.log("[GameDatabase] missionCsv property is null. Attempting fallback load from resources/Data/missions...");
-            resources.load("Data/missions", TextAsset, (err, asset) => {
-                if (!err && asset) {
-                    this.missionCsv = asset as TextAsset;
-                    this.parseMissionCSV(this.missionCsv.text);
-                    console.log("[GameDatabase] Fallback mission load successful.");
-                    // Check if MissionUI needs update (if already instantiated)
-                } else {
-                    console.warn("[GameDatabase] Fallback mission load failed. Please assign missionCsv in Inspector.");
-                }
-            });
-        }
-
         // If Items/DropTables/SpawnTables were all synchronous (Inspector-assigned), this fires
         // immediately; otherwise onAsyncCsvDone() fires it once the last one resolves.
         if (pendingAsync === 0) this.finishLoadAllCSV();
     }
 
     private finishLoadAllCSV() {
-        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.items.length} Items, ${this.dropTables.length} DropTables, ${this.spawnTables.length} SpawnTables, ${this.missionDifficulties.length} MissionDifficulties, ${this.playerUpgradeParams.length} PlayerUpgradeParams, ${this.equipment.length} Equipment, ${this.weapons.length} Weapons, ${this.behaviors.length} Behaviors, ${this.shotPatterns.length} ShotPatterns, ${this.drops.length} Drops, ${this.missions.length} Missions`);
+        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.items.length} Items, ${this.dropTables.length} DropTables, ${this.spawnTables.length} SpawnTables, ${this.missionDifficulties.length} MissionDifficulties, ${this.playerUpgradeParams.length} PlayerUpgradeParams, ${this.equipment.length} Equipment, ${this.weapons.length} Weapons, ${this.behaviors.length} Behaviors, ${this.shotPatterns.length} ShotPatterns, ${this.drops.length} Drops`);
 
         this.isReady = true;
 
@@ -295,6 +273,7 @@ export class GameDatabase extends Component {
             item.min = row.Min !== undefined && row.Min !== "" ? parseInt(row.Min) : 1;
             item.max = row.Max !== undefined && row.Max !== "" ? parseInt(row.Max) : 1;
             item.weight = row.Weight !== undefined && row.Weight !== "" ? parseFloat(row.Weight) : 10;
+            item.sellPrice = row.SellPrice !== undefined && row.SellPrice !== "" ? parseFloat(row.SellPrice) : 0;
             item.note = row.Note || "";
             return item;
         });
@@ -402,6 +381,7 @@ export class GameDatabase extends Component {
             e.shapeCells = this.parseShapeCells(String(row.ShapeCells || ""));
             e.note = row.Note || "";
             e.unlockCost = row.UnlockCost !== undefined && row.UnlockCost !== "" ? parseFloat(row.UnlockCost) : 0;
+            e.weight = row.Weight !== undefined && row.Weight !== "" ? parseFloat(row.Weight) : 0;
             // UnlockItemID_1/UnlockItemQty_1 ~ _3(最大3種類)。ItemIDが空の枠は無視する。
             e.unlockItems = [];
             for (let i = 1; i <= 3; i++) {
@@ -424,7 +404,6 @@ export class GameDatabase extends Component {
             w.name = row.Name || row.ID;
             w.shotPatternId = row.ShotPatternID || "";
             w.group = row.Group !== undefined && row.Group !== "" ? parseInt(row.Group) : 1;
-            w.weight = row.Weight !== undefined && row.Weight !== "" ? parseFloat(row.Weight) : 0;
             w.starValue = row.StarValue !== undefined && row.StarValue !== "" ? parseInt(row.StarValue) : 1;
             w.type = row.Type || "Fire";
             w.penetrate = row.Penetrate !== undefined && row.Penetrate !== "" ? parseInt(row.Penetrate) : 0;
@@ -592,23 +571,6 @@ export class GameDatabase extends Component {
         if (SoundManager.instance) {
             SoundManager.instance.preloadSounds(this.sounds);
         }
-    }
-
-    private parseMissionCSV(text: string) {
-        const data = CSVHelper.parse(text);
-        this.missions = data.map(row => {
-            const patternStr = row.EnemyPattern || "Normal";
-            return {
-                id: row.ID,
-                stars: row.Stars || 1,
-                distance: row.Distance || 3000,
-                targetTime: row.TargetTime || 60,
-                reward: row.Reward || 100,
-                cargoWeight: row.CargoWeight || 30,
-                enemyPattern: patternStr.split(';')
-            } as IMissionData;
-        });
-        console.log(`[GameDatabase] Loaded ${this.missions.length} Missions.`);
     }
 
     // --- Getters ---
