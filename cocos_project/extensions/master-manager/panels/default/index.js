@@ -14,6 +14,7 @@ const CSV_FILES = [
     { label: 'Behaviors', file: 'Behaviors.csv' },
     { label: 'ShotPatterns', file: 'ShotPatterns.csv' },
     { label: 'Sounds', file: 'Sounds.csv' },
+    { label: 'GridCellManager', file: 'GridCells.csv' },
 ];
 
 // ID-reference schema: for a given CSV file, which columns are "foreign keys" into another
@@ -97,6 +98,13 @@ const SCHEMA = {
         SpawnTableID_6: { file: 'SpawnTables.csv', column: 'ID', includeNone: true, isSelect: true },
         SpawnTableID_7: { file: 'SpawnTables.csv', column: 'ID', includeNone: true, isSelect: true },
         SpawnTableID_8: { file: 'SpawnTables.csv', column: 'ID', includeNone: true, isSelect: true },
+    },
+    'GridCells.csv': {
+        // UnlockItemID_1~3(Equipment.csvのUnlockItemID_1~3と同じ規約)。何回目の解放かで
+        // コストが決まるため、行はTierの昇順(1回目,2回目,3回目…)で並べる想定。
+        UnlockItemID_1: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
+        UnlockItemID_2: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
+        UnlockItemID_3: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
     },
 };
 

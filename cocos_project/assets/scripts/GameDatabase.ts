@@ -1,5 +1,6 @@
 import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab, resources, director, JsonAsset } from 'cc';
-import { EnemyData, BehaviorData, ShotPatternData, DropData, SoundData, BehaviorGraph, ShotGraph, ItemData, DropTableData, SpawnTableData, MissionDifficultyData, PlayerUpgradeParamData, EquipmentData, WeaponData } from './GameDataTypes';
+import { EnemyData, BehaviorData, ShotPatternData, DropData, SoundData, BehaviorGraph, ShotGraph, ItemData, DropTableData, SpawnTableData, MissionDifficultyData, PlayerUpgradeParamData, EquipmentData, WeaponData, GridCellData } from './GameDataTypes';
+import { GAME_SETTINGS } from './Constants';
 import { CSVHelper } from './CSVHelper';
 import { SoundManager } from './SoundManager';
 const { ccclass, property } = _decorator;
@@ -39,6 +40,7 @@ export class GameDatabase extends Component {
     public equipment: EquipmentData[] = [];
     public weapons: WeaponData[] = [];
     public sounds: SoundData[] = [];
+    public gridCells: GridCellData[] = [];
 
     // --- CSV Assets ---
     @property({ type: TextAsset, tooltip: "CSV: Enemies" })
@@ -76,6 +78,9 @@ export class GameDatabase extends Component {
 
     @property({ type: TextAsset, tooltip: "CSV: Sounds" })
     public soundCsv: TextAsset = null;
+
+    @property({ type: TextAsset, tooltip: "CSV: GridCells" })
+    public gridCellCsv: TextAsset = null;
 
     // Singleton access helper (Component based)
     public static instance: GameDatabase = null;
@@ -161,6 +166,7 @@ export class GameDatabase extends Component {
         this.weapons = [];
         this.sounds = []; // Clear old sounds
         this.enemies = []; // Clear runtime list
+        this.gridCells = [];
 
         // Items/DropTables/SpawnTables fall back to an ASYNC resources.load() whenever their
         // Inspector TextAsset property isn't assigned (the normal case now that they're edited
@@ -239,6 +245,15 @@ export class GameDatabase extends Component {
             });
         }
 
+        if (this.gridCellCsv) this.parseGridCellCSV(this.gridCellCsv.text);
+        else {
+            pendingAsync++;
+            resources.load("Excels/GridCells", TextAsset, (err, asset) => {
+                if (!err && asset) this.parseGridCellCSV(asset.text);
+                onAsyncCsvDone();
+            });
+        }
+
         if (this.behaviorCsv) this.parseBehaviorCSV(this.behaviorCsv.text);
         if (this.shotPatternCsv) this.parseShotPatternCSV(this.shotPatternCsv.text);
         if (this.dropCsv) this.parseDropCSV(this.dropCsv.text);
@@ -251,7 +266,7 @@ export class GameDatabase extends Component {
     }
 
     private finishLoadAllCSV() {
-        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.items.length} Items, ${this.dropTables.length} DropTables, ${this.spawnTables.length} SpawnTables, ${this.missionDifficulties.length} MissionDifficulties, ${this.playerUpgradeParams.length} PlayerUpgradeParams, ${this.equipment.length} Equipment, ${this.weapons.length} Weapons, ${this.behaviors.length} Behaviors, ${this.shotPatterns.length} ShotPatterns, ${this.drops.length} Drops`);
+        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.items.length} Items, ${this.dropTables.length} DropTables, ${this.spawnTables.length} SpawnTables, ${this.missionDifficulties.length} MissionDifficulties, ${this.playerUpgradeParams.length} PlayerUpgradeParams, ${this.equipment.length} Equipment, ${this.weapons.length} Weapons, ${this.behaviors.length} Behaviors, ${this.shotPatterns.length} ShotPatterns, ${this.drops.length} Drops, ${this.gridCells.length} GridCells`);
 
         this.isReady = true;
 
@@ -433,6 +448,28 @@ export class GameDatabase extends Component {
         console.log(`[GameDatabase] Loaded ${this.weapons.length} Weapons.`);
     }
 
+    private parseGridCellCSV(text: string) {
+        const data = CSVHelper.parse(text);
+        this.gridCells = data.map(row => {
+            const c = new GridCellData();
+            c.tier = row.Tier !== undefined && row.Tier !== "" ? parseInt(row.Tier) : 1;
+            c.unlockCost = row.UnlockCost !== undefined && row.UnlockCost !== "" ? parseFloat(row.UnlockCost) : GAME_SETTINGS.ECONOMY.CELL_UNLOCK_COST;
+            c.unlockItems = [];
+            for (let i = 1; i <= 3; i++) {
+                const itemId = row[`UnlockItemID_${i}`];
+                if (!itemId) continue;
+                const qtyRaw = row[`UnlockItemQty_${i}`];
+                const qty = qtyRaw !== undefined && qtyRaw !== "" ? parseInt(qtyRaw) : 1;
+                c.unlockItems.push({ itemId, qty: Math.max(1, qty) });
+            }
+            c.note = row.Note || "";
+            return c;
+        });
+        // Tier昇順に並べておく(getGridCellDataForTier()のフォールバック=「最大Tier」判定を簡単にするため)。
+        this.gridCells.sort((a, b) => a.tier - b.tier);
+        console.log(`[GameDatabase] Loaded ${this.gridCells.length} GridCells.`);
+    }
+
     private parseBehaviorCSV(text: string) {
         const data = CSVHelper.parse(text);
         this.behaviors = data.map(row => {
@@ -591,6 +628,17 @@ export class GameDatabase extends Component {
         if (!name) return null;
         const cleanName = name.replace(".prefab", "");
         return this.itemPrefabs.find(p => p.data.name === cleanName) || null;
+    }
+
+    // 「プレイヤーが何回目に解放するセルか」(tier、1回目/2回目…)でGridCells.csvから該当行を探す。
+    // 完全一致が無ければ、定義済みの中で最大のTierの行にフォールバックする(例: 20行しか
+    // 定義していないのに21個目を解放しようとした場合、20回目のコストを使い続ける)。
+    // 1行も無ければnull(呼び出し側がGAME_SETTINGS.ECONOMY.CELL_UNLOCK_COSTにフォールバックする)。
+    public getGridCellDataForTier(tier: number): GridCellData | null {
+        if (this.gridCells.length === 0) return null;
+        const exact = this.gridCells.find(c => c.tier === tier);
+        if (exact) return exact;
+        return this.gridCells[this.gridCells.length - 1]; // Tier昇順ソート済み(parseGridCellCSV参照)なので末尾=最大Tier
     }
 
     public getBehaviorData(id: string): BehaviorData | null {

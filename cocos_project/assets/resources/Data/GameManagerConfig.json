@@ -11,7 +11,7 @@
   "videoBGColorCycleSpeed": 0.06,
   "videoBGBrightnessAmplitude": 0.125,
   "videoBGBrightnessSpeed": 0.15,
-  "initialCredit": 500,
+  "initialCredit": 5000,
   "missionMaxDuplicateSpawnTable": 2,
   "missionMarginStartKm": 15,
   "missionMarginEndKm": 15,

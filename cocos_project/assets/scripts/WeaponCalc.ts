@@ -1,7 +1,8 @@
 import { GameDatabase } from './GameDatabase';
 import { WeaponData } from './GameDataTypes';
-import { GROWTH_EXPONENTS } from './PlayerUpgradeCalc';
+import { GROWTH_EXPONENTS, computeUpgradeCurve, creditsPerCostUnitAt } from './PlayerUpgradeCalc';
 import { ISaveData } from './DataManager';
+import { IGameManager } from './Constants';
 import { isEquipmentUnlocked, canAffordEquipmentUnlock, unlockEquipment } from './EquipmentUnlock';
 
 /**
@@ -9,8 +10,8 @@ import { isEquipmentUnlocked, canAffordEquipmentUnlock, unlockEquipment } from '
  * PlayerUpgradeCalc.computeUpgradeCurveと同じprogress^G補間を使うが、対象パラメータが
  * 1武器につき複数(SP/Dmg/Scale/WT、Countは任意)ある点が異なるため、1Lvぶんの全ステータスを
  * まとめて返す形にしてある。Min===Maxの列はprogressに関わらず常に一定(=そのステータスは
- * このLvレンジでは成長しない)。コスト計算はDevice同様、Weapon強化の購入コスト方式が固まって
- * いないため未実装(必要になったらPlayerUpgradeCalc.computeUpgradeCurveのcost部分を移植する)。
+ * このLvレンジでは成長しない)。Lvアップ購入コストはcomputeWeaponUpgradeCost()参照
+ * (PlayerUpgradeCalc.computeUpgradeCurveのcost部分を流用)。
  * extensions/master-manager/panels/default/index.jsのWeaponManagerプレビュー計算式と
  * 完全に一致させること。
  */
@@ -50,6 +51,55 @@ export function getWeaponLevelStats(weaponId: string, lv: number): WeaponLevelSt
     const weapon = db ? db.getWeaponData(weaponId) : null;
     if (!weapon) return null;
     return computeWeaponLevelStats(weapon, lv);
+}
+
+export interface WeaponUpgradeMaterial {
+    itemId: string;
+    qty: number;
+}
+
+export interface WeaponUpgradeCost {
+    nextLv: number;
+    creditsCost: number;
+    material: WeaponUpgradeMaterial | null;
+}
+
+/**
+ * 武器Lvアップ(currentLv → currentLv+1)の購入コスト。MaxLv到達済みならnull。
+ * クレジットはPlayerUpgradeCalc.computeUpgradeCurve/creditsPerCostUnitAtをそのまま流用する
+ * (StarValue×GrowthTypeで序盤/終盤のクレジットカーブを作る設計を、PlayerUpgrade.csvと同じく
+ * Weapons.csv側にもそのまま適用する。関数自体は複製せず再利用)。
+ * 素材はweapon._equipment.unlockItems(Equipment.csvのUnlockItemID_1~3、その武器の解放時に
+ * 使った素材と同じもの)の先頭1種類だけを使い、progress^G(GrowthType由来の指数)でLv進捗に
+ * 応じて個数をスケールする。PlayerUpgradeCalc.computeMaterialRequirement()は
+ * MATERIAL_START_LV=10以降でしか素材を要求しない設計だが、武器のMaxLvは通常10前後(=PlayerUpgrade
+ * 側のLvレンジよりずっと短い)なのでその前提が噛み合わず、ここでは毎Lvで素材を要求する専用の
+ * 簡易カーブにしている。
+ */
+export function computeWeaponUpgradeCost(weapon: WeaponData, currentLv: number, gm: IGameManager): WeaponUpgradeCost | null {
+    if (!weapon || !gm) return null;
+    const maxLv = Math.max(1, weapon.maxLv);
+    const clampedLv = Math.max(0, Math.min(currentLv, maxLv));
+    if (clampedLv >= maxLv) return null; // MaxLv到達済み
+
+    const nextLv = clampedLv + 1;
+    const curve = computeUpgradeCurve(0, 1, weapon.growthType, maxLv, weapon.starValue, gm.upgradeCostUnitScale);
+    const entry = curve[nextLv - 1];
+    const perUnit = creditsPerCostUnitAt(nextLv, maxLv, gm);
+    const creditsCost = Math.round(entry.cost * perUnit);
+
+    let material: WeaponUpgradeMaterial | null = null;
+    const unlockItems = weapon._equipment ? weapon._equipment.unlockItems : null;
+    if (unlockItems && unlockItems.length > 0) {
+        const g = GROWTH_EXPONENTS[weapon.growthType] !== undefined ? GROWTH_EXPONENTS[weapon.growthType] : 1.0;
+        const progress = nextLv / maxLv;
+        const qMin = 1;
+        const qMax = qMin + Math.round((weapon.starValue || 1) * 10 / 3);
+        const qty = Math.max(1, Math.round(qMin + (qMax - qMin) * Math.pow(progress, g)));
+        material = { itemId: unlockItems[0].itemId, qty };
+    }
+
+    return { nextLv, creditsCost, material };
 }
 
 /**

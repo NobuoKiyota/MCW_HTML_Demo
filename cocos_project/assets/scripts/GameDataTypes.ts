@@ -267,6 +267,31 @@ export class MissionDifficultyData {
 }
 
 /**
+ * Customize画面グリッドのセル解放コスト (assets/resources/Excels/GridCells.csv)
+ * どのセルか(x,y)ではなく、「プレイヤーがこれまでに何回セルを購入したか」という通し番号
+ * (Tier、1回目/2回目/3回目…)でコストを引く。CustomizeCalc.countPurchasedCells()が
+ * DataManager.data.gridData.layoutと初期テンプレート(GAME_SETTINGS.SHIP_LAYOUT)の"2"の
+ * 個数差から購入済み回数を算出し、次のTier(購入済み回数+1)の行をここから引く。
+ * 該当Tierの行が無い場合は、定義済みの中で最大のTierの行にフォールバックする(それも無ければ
+ * GAME_SETTINGS.ECONOMY.CELL_UNLOCK_COSTの固定値・アイテム無しにフォールバック、後方互換)。
+ */
+@ccclass('GridCellData')
+export class GridCellData {
+    @property({ type: CCInteger, tooltip: "何回目の解放か(1回目/2回目/3回目…)" })
+    public tier: number = 1;
+
+    @property({ type: CCFloat, tooltip: "この回の解放に必要なクレジット" })
+    public unlockCost: number = 200;
+
+    // UnlockItemID_1/UnlockItemQty_1 ~ _3(最大3種類、EquipmentDataのunlockItemsと同じ規約)。
+    // ItemIDが空の枠は無視する。GameDatabase.parseGridCellCSV()が設定する。
+    public unlockItems: IUnlockItemRequirement[] = [];
+
+    @property
+    public note: string = "";
+}
+
+/**
  * 機体永続強化パラメータ定義 (assets/resources/Excels/PlayerUpgrade.csv)
  * PlayerManager(実装予定)が、MinValue/MaxValue/GrowthType/MaxLvから各Lv1..MaxLvの実値・必要コストを
  * べき指数カーブで自動計算する際の元データ。GrowthTypeの5種と指数の対応はMasterManagerパネルの

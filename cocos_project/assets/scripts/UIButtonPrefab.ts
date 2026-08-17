@@ -23,6 +23,8 @@ export function instantiatePrefabButton(
     fallbackColor: Color,
     fadeInDuration: number = 0.5,
     scale: number = 1,
+    interactable: boolean = true,
+    onReady?: (interactiveNode: Node) => void,
 ) {
     resources.load(prefabPath, Prefab, (err, prefab) => {
         let rootNode: Node;
@@ -36,6 +38,11 @@ export function instantiatePrefabButton(
             // 元プレハブは全て240x60固定。呼び出し側の間隔が狭い(Yes/Noを±90等)場合は
             // scale<1を渡してもらい、はみ出し/重なりを防ぐ(中心位置はx,yのまま、見た目だけ縮小)。
             if (scale !== 1) interactiveNode.setScale(scale, scale, 1);
+            // ロード成功時はfallbackTextを無視していた(=常にPrefab自体に焼き込まれたラベル文字列
+            // (YES/NO等)がそのまま出ていた)のを修正: 呼び出し側が同じPrefabを別ラベルで使い回せる
+            // よう、ここでも明示的に上書きする(EJECT/LEVEL UP等、Button-Yes/No/Reselectの使い回しに必要)。
+            const lbl = interactiveNode.getComponentInChildren(Label);
+            if (lbl) lbl.string = fallbackText;
         } else {
             console.warn(`[UIButtonPrefab] Failed to load ${prefabPath}. Using fallback.`, err);
             rootNode = new Node("ButtonFallback");
@@ -70,6 +77,12 @@ export function instantiatePrefabButton(
         tween(opacity).to(fadeInDuration, { opacity: 255 }).start();
 
         interactiveNode.on(Button.EventType.CLICK, onClick);
+
+        if (!interactable) {
+            const btn = interactiveNode.getComponent(Button) || interactiveNode.getComponentInChildren(Button);
+            if (btn) btn.interactable = false;
+        }
+        if (onReady) onReady(interactiveNode);
     });
 }
 

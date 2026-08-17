@@ -16,6 +16,9 @@ export interface IGridPart {
     cells?: { x: number; y: number }[];
     weaponId?: string; // Weapons.csvのID(武器として配置した場合のみ)。無ければCockpit/Engine等の非武器パーツ。
     equipmentId?: string; // Equipment.csvのID。武器/非武器問わず配置元のEQ_を常に記録する(再配置除外の判定に使う)。
+    // 武器の永続強化Lv(未設定/undefinedはLv0=未強化)。武器以外の非武器パーツには意味を持たない。
+    // WeaponCalc.computeWeaponLevelStats()/computeWeaponUpgradeCost()が読み書きする。
+    lv?: number;
 }
 
 export interface ISaveData {
@@ -82,19 +85,19 @@ export class DataManager {
             maxHp: 100,
             parts: [], // Inventory Parts (Not equipped)
             gridData: {
-                // Cockpit(2x2、x=3,y=3)+初期装備武器WPN_BeamGun/EQ01_BeamGun(横1x2、x=3,y=2)を
-                // 初期配置する。EQ01_BeamGunはEquipment.csv上でUnlockCost=0・UnlockItems無しの
-                // 「最初から解放済み」武器なので、unlockedEquipmentIdsに追加しなくても
-                // isEquipmentUnlocked()側で常に解放済み扱いになる(EquipmentUnlock.ts参照)。
-                // 武器ぶんのマス(y=2, x=3-4)はSHIP_LAYOUT側も合わせて解放済み("2")にしてある。
+                // 初期装備武器WPN_BeamGun/EQ01_BeamGun(横1x2、x=2,y=2)を6x6ダイヤ型レイアウトの
+                // 中央上段に配置する(SHIP_LAYOUT参照、中央2x2ブロックの上段がBeamGunの土台)。
+                // EQ01_BeamGunはEquipment.csv上でUnlockCost=0・UnlockItems無しの「最初から解放済み」
+                // 武器なので、unlockedEquipmentIdsに追加しなくてもisEquipmentUnlocked()側で常に
+                // 解放済み扱いになる(EquipmentUnlock.ts参照)。lv:0=未強化から開始。
                 equippedParts: [
-                    { x: 3, y: 3, w: 2, h: 2, type: "Cockpit" },
                     {
-                        x: 3, y: 2, w: 2, h: 1, type: "Fire",
+                        x: 2, y: 2, w: 2, h: 1, type: "Fire",
                         id: "part_initial_weapon",
                         weaponId: "WPN_BeamGun",
                         equipmentId: "EQ01_BeamGun",
                         cells: [{ x: 0, y: 0 }, { x: 1, y: 0 }],
+                        lv: 0,
                     },
                 ],
                 layout: JSON.parse(JSON.stringify(GAME_SETTINGS.SHIP_LAYOUT))
