@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Label, Tween, tween, v3, UIOpacity, director, LabelOutline, Color, UITransform, Vec3, Widget, Button, BlockInputEvents, Layers } from 'cc';
+import { _decorator, Component, Node, Label, Tween, tween, v3, UIOpacity, director, LabelOutline, Color, UITransform, Vec3, Widget, Button, BlockInputEvents, Layers, Graphics, Canvas } from 'cc';
 import { SideBarUI } from './SideBarUI';
 import { SettingsManager } from './SettingsManager';
 import { GameManager } from './GameManager';
@@ -286,19 +286,200 @@ export class UIManager extends Component {
         }
     }
 
+    // --- Overlay coordination -------------------------------------------
+    // Home画面のフルスクリーンオーバーレイ(MissionUI/CustomizeUI/UpgradeUI/PropertyUI/
+    // HistoryUI等)は同時に1つしか開けないようにする。以前はMissionUI.onLoad()がUpgradeUI/
+    // CustomizeUIだけを名指しで閉じる一方通行の実装で、CustomizeUI.open()側には対応する
+    // 処理が無かったため「MissionUIを開いたままCustomizeを開くと表示が重なって操作不能になる」
+    // 不具合があった。各画面が互いをimportして閉じ合う(N対N)代わりに、ここに「現在開いている
+    // ものと、それを閉じる関数」を1つだけ記録し、次のオーバーレイが開く直前に自動で閉じる。
+    // 各画面はopen()/onLoad()の先頭でnotifyOverlayOpening()を、閉じる際(close()やonDestroy())に
+    // notifyOverlayClosed()を呼ぶだけでよい。
+    private currentOverlayName: string | null = null;
+    private currentOverlayClose: (() => void) | null = null;
+    // node.destroy()はonDestroy()の実行をフレーム末尾まで遅延させる(isValidは即falseになるが
+    // コンポーネントのライフサイクルコールバックは同期的には走らない)。そのため「同じ名前の
+    // オーバーレイが即座に閉じて開き直す」ケース(例: MissionUIが開いている状態でSideBarUIの
+    // DESTINATIONラベルを再度押す→UIManager.openMissionUI()が呼ばれる)で、旧インスタンスの
+    // 遅延onDestroy()が後から発火すると、名前だけの一致判定(===name)では新インスタンスの
+    // 登録を誤って消してしまう(結果、Blockerがフェードアウトしてしまい「ガードが効かない」
+    // 症状になっていた)。世代カウンタを追加し、閉じる側は「自分が登録した世代と一致する時だけ」
+    // 実際にクリアするようにする。
+    private overlayGeneration = 0;
+
+    // 各画面自前のBlockInputEvents(CustomizeUIのPanel、MissionUI/PropertyUI/HistoryUIの
+    // 全画面Dimmer等)は、そのノード自身のUITransform境界内でしか入力を止められない。
+    // UpgradeUIには元々それすら無く、CustomizeUIのPanelも画面全体を覆うサイズとは限らない
+    // ため、「パネルの外側なら下の階層(HomeUIのボタン等)をクリックできてしまう」隙間が
+    // 残っていた。そこで共有の全画面Blockerを用意し、overlay側のノードのすぐ手前のsibling
+    // (=同じ親の中で、overlay自身より1つだけ描画順が手前)に差し込むようにした。
+    //
+    // ただしこれだけでは不十分だった: MissionUI/PropertyUI/HistoryUIは永続Canvas配下に、
+    // HomeUIのCustomize/Upgradeボタン等はprefab-Home内蔵Canvas配下という「別カメラ・別ツリー」
+    // に住んでいる。描画順(z-order)はCocosの2D UIバッチャーがツリーをまたいでも一貫して
+    // 解決してくれる一方、タッチ/クリックのヒットテストはカメラ単位で行われる。
+    // 一度は「別ツリー側にも同じBlockInputEvents方式のBlockerを重ねる」対策を試したが、
+    // BlockInputEventsを別カメラの木に置くと、そのカメラのタッチ判定自体が丸ごと無効化される
+    // らしく、今度はMissionUI自身のボタン(persistent Canvas側、Blockerとは別カメラの
+    // MissionUIの中身)まで反応しなくなってしまった。BlockInputEvents方式はカメラをまたぐと
+    // 信頼できないため、別カメラ側は「ノードを直接非表示(active=false)にする」方式に変更した
+    // (setContentButtonsActive()参照、CustomizeUI/UpgradeUI自身はprefab-Home内蔵Canvasの
+    // 中に住んでいるため該当せず、単一Blockerのままで足りる)。
+    private overlayBlockerNode: Node | null = null;
+    private overlayBlockerOpacity: UIOpacity | null = null;
+    private readonly overlayBlockerFadeDuration = 0.18;
+    private readonly overlayBlockerMaxAlpha = 160;
+
     /**
-     * Convenience helper for opening the mission selection popup from anywhere.
+     * オーバーレイを開く直前に呼ぶ。既に何か(別画面はもちろん、同じ画面の多重生成も含む)
+     * 記録されていれば、まずそのcloseFnを呼んでから新しいものに差し替える。これにより
+     * 「ボタン連打で同じ画面のNodeが積み重なる」問題も「別画面同士が同時に開いて表示が
+     * 崩れる」問題も同じ仕組みで防げる。overlayNodeにはその画面の実際のルートNode
+     * (CustomizeUI/UpgradeUIならthis.panel、MissionUI/PropertyUI/HistoryUIならthis.node)を
+     * 渡すこと — 全画面Blockerをそのすぐ手前に差し込むために使う。
+     * 戻り値の世代番号を呼び出し側で保持し、notifyOverlayClosed()に渡すこと
+     * (同名の遅延closeが新しい登録を誤って消さないようにするため)。
+     */
+    public notifyOverlayOpening(name: string, overlayNode: Node, closeFn: () => void): number {
+        if (this.currentOverlayClose) {
+            console.log(`[UIManager] Closing overlay '${this.currentOverlayName}' before opening '${name}'.`);
+            this.currentOverlayClose();
+        }
+        this.overlayGeneration++;
+        this.currentOverlayName = name;
+        this.currentOverlayClose = closeFn;
+        this.showOverlayBlocker(overlayNode);
+        return this.overlayGeneration;
+    }
+
+    /**
+     * オーバーレイを閉じた際に呼ぶ。notifyOverlayOpening()の戻り値をそのまま渡すこと。
+     * 名前と世代番号の両方が現在の登録と一致する時だけクリアする(名前だけの一致判定だと、
+     * 「開いたまま同名で即座に開き直す」ケースで旧インスタンスの遅延onDestroy()が新しい
+     * 登録を誤って消してしまう)。close()から即座に呼び、かつonDestroy()からも呼ぶ
+     * (dup-guardによる破棄等close()を経由しない破棄経路の保険)想定で、2回呼ばれても
+     * 安全なようにこの条件一致チェックだけで十分にidempotentになっている。
+     */
+    public notifyOverlayClosed(name: string, generation: number) {
+        if (this.currentOverlayName === name && this.overlayGeneration === generation) {
+            this.currentOverlayName = null;
+            this.currentOverlayClose = null;
+            this.hideOverlayBlockerDelayed();
+        }
+    }
+
+    private ensureOverlayBlocker(): Node {
+        if (this.overlayBlockerNode && this.overlayBlockerNode.isValid) return this.overlayBlockerNode;
+        const node = new Node("OverlayInputBlocker");
+        const uiT = node.addComponent(UITransform);
+        uiT.setContentSize(4000, 4000); // Widget未設定でも確実に画面全体を覆う余裕を持たせる
+        const gr = node.addComponent(Graphics);
+        gr.fillColor = new Color(0, 0, 0, 255); // 実際の見た目はUIOpacityのフェードで制御する
+        gr.rect(-2000, -2000, 4000, 4000);
+        gr.fill();
+        node.addComponent(BlockInputEvents);
+        const opacity = node.addComponent(UIOpacity);
+        opacity.opacity = 0;
+        node.active = false;
+        this.overlayBlockerNode = node;
+        this.overlayBlockerOpacity = opacity;
+        return node;
+    }
+
+    // 現在アクティブなコンテンツルート(GameManager.switchContent()が生成するprefab-Home等、
+    // 自前でCanvasコンポーネントを持つプレハブ)のCanvasノードを探す。永続Canvas("Canvas"という
+    // 名前の直接の子)自体は除外する。見つからなければnull。
+    private findContentCanvas(): Node | null {
+        const scene = director.getScene();
+        if (!scene) return null;
+        for (const child of scene.children) {
+            if (child.name === "Canvas") continue;
+            const canvasComp = child.getComponentInChildren(Canvas);
+            if (canvasComp) return canvasComp.node;
+        }
+        return null;
+    }
+
+    private isDescendantOf(node: Node, ancestor: Node): boolean {
+        let cur: Node | null = node;
+        while (cur) {
+            if (cur === ancestor) return true;
+            cur = cur.parent;
+        }
+        return false;
+    }
+
+    // overlayがコンテンツルート(prefab-Home等)の外にいる場合だけ、そちらのHomeUI主要ボタン群
+    // ("Buttons"コンテナ)を非表示にする。CustomizeUI/UpgradeUIのようにoverlay自身がコンテンツ
+    // ルートの中に住んでいる場合は何もしない(自分自身のボタンを消してしまうため)。
+    // hide側で復元する時はoverlayNode=nullを渡し、無条件に元へ戻す。
+    private setContentButtonsActive(overlayNode: Node | null, active: boolean) {
+        const contentCanvas = this.findContentCanvas();
+        if (!contentCanvas || !contentCanvas.isValid) return;
+        if (overlayNode && this.isDescendantOf(overlayNode, contentCanvas)) return;
+        const buttonsNode = contentCanvas.getChildByName('Buttons');
+        if (buttonsNode) buttonsNode.active = active;
+    }
+
+    private showOverlayBlocker(overlayNode: Node) {
+        if (!overlayNode || !overlayNode.isValid || !overlayNode.parent) return;
+        const blocker = this.ensureOverlayBlocker();
+        const parent = overlayNode.parent;
+        blocker.layer = overlayNode.layer;
+        if (blocker.parent !== parent) {
+            parent.addChild(blocker);
+        }
+        blocker.active = true;
+        // 「blockerを末尾へ→overlayNodeをさらに末尾へ」の順で動かす。overlayNode.getSiblingIndex()
+        // を読んでblockerをそこへ移動させる方式だと、2回目以降の呼び出しでインデックスがズレる
+        // ことがあったため、絶対位置(末尾)基準にしてblocker→overlayNodeの順を常に保証する。
+        blocker.setSiblingIndex(parent.children.length - 1);
+        overlayNode.setSiblingIndex(parent.children.length - 1);
+        const opacity = this.overlayBlockerOpacity;
+        Tween.stopAllByTarget(opacity);
+        tween(opacity)
+            .to(this.overlayBlockerFadeDuration, { opacity: this.overlayBlockerMaxAlpha })
+            .start();
+
+        this.setContentButtonsActive(overlayNode, false);
+    }
+
+    private hideOverlayBlockerDelayed() {
+        const blocker = this.overlayBlockerNode;
+        const opacity = this.overlayBlockerOpacity;
+        if (blocker && blocker.isValid && opacity) {
+            Tween.stopAllByTarget(opacity);
+            tween(opacity)
+                .to(this.overlayBlockerFadeDuration, { opacity: 0 })
+                .call(() => {
+                    // フェード完了までBlockInputEvents(=blocker.active)はtrueのままにしておくことで、
+                    // 閉じるアニメ中に下の階層を連打されても素通りしないようにする。
+                    if (blocker.isValid) blocker.active = false;
+                })
+                .start();
+        }
+        // Buttonsコンテナの復元自体は視覚的な演出が無いので即座に行う(フェード完了を待つ必要は無い)。
+        this.setContentButtonsActive(null, true);
+    }
+
+    /**
+     * Convenience helper for opening the mission selection popup from anywhere
+     * (HomeUI.onStartMissionClicked() / SideBarUI.onMissionLabelClicked()共通の入り口)。
      */
     public openMissionUI() {
         console.log("[UIManager] openMissionUI called.");
-        const node = new Node("MissionUI");
         const scene = director.getScene();
         const canvas = scene.getChildByName("Canvas");
-        if (canvas) {
-            canvas.addChild(node);
-        } else {
-            scene.addChild(node);
-        }
+        const parent = canvas || scene;
+
+        // 以前はここで既存の"MissionUI"ノードを先に破棄していたが、node.destroy()はonDestroy()の
+        // 実行をフレーム末尾まで遅延させるため、新ノードのonLoad()(→notifyOverlayOpening())より
+        // 前後関係が不定になり、世代不一致のはずのBlockerフェードアウトが誤発火する不具合が
+        // あった。MissionUIのonLoad()がnotifyOverlayOpening()経由で「今開いている物」を同期的に
+        // 閉じてくれるので、ここでの事前破棄は不要(むしろ二重破棄の原因になる)。
+        const node = new Node("MissionUI");
+        node.layer = Layers.Enum.UI_2D;
+        parent.addChild(node);
         node.addComponent(MissionUI);
         // play click sound if available
         if (SoundManager.instance) {

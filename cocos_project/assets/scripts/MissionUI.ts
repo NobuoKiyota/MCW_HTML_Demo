@@ -7,8 +7,7 @@ import { IMissionData } from './Constants';
 import { getTotalUpgradeStars } from './PlayerUpgradeCalc';
 import { generateMissionFromDifficultyRow } from './MissionGenerator';
 import { instantiatePrefabButton } from './UIButtonPrefab';
-import { UpgradeUI } from './UpgradeUI';
-import { CustomizeUI } from './CustomizeUI';
+import { UIManager } from './UIManager';
 
 const { ccclass, property } = _decorator;
 
@@ -61,6 +60,8 @@ export class MissionUI extends Component {
 
     private contentNode: Node = null;
     private dialogNode: Node = null;
+    // notifyOverlayOpening()の戻り値(世代番号)。CustomizeUI.tsのoverlayGenと同じ役割。
+    private overlayGen: number = 0;
 
     private displayedMissions: IMissionData[] = [];
     // displayedMissionsと同じ順序で、各ミッションがそのLv内で何番目のSubLv(ModCountMin昇順)
@@ -83,12 +84,15 @@ export class MissionUI extends Component {
             this.node.setPosition(0, 0, 0);
         }
 
-        // UpgradeUI/CustomizeUIは常駐node+active切り替えで開閉する作りのため、開いたまま
-        // SideBarUIのDESTINATIONラベル等からMissionUIを開くと、閉じ忘れた方の中身が
-        // MissionUIのモーダル背景を突き抜けて見えてしまう(階層が崩れる問題の原因)。
-        // MissionUIを開く直前に、他の全画面オーバーレイは強制的に閉じておく。
-        if (UpgradeUI.instance) UpgradeUI.instance.close();
-        if (CustomizeUI.instance) CustomizeUI.instance.close();
+        // UIManager.notifyOverlayOpening()経由で、他の全画面オーバーレイ(UpgradeUI/CustomizeUI/
+        // PropertyUI/HistoryUI等)を開く直前に自動で閉じる(以前はUpgradeUI/CustomizeUIだけを
+        // 名指しで閉じる一方通行の実装だったため、CustomizeUI.open()側にMissionUIを閉じる処理が
+        // 無く、開いたままCustomizeを開くと表示が重なって操作不能になる不具合があった)。
+        if (UIManager.instance) {
+            this.overlayGen = UIManager.instance.notifyOverlayOpening('MissionUI', this.node, () => {
+                if (this.node && this.node.isValid) this.node.destroy();
+            });
+        }
 
         // 全画面を覆ってタッチイベントをブロック(モーダル化)
         try {
@@ -409,7 +413,18 @@ export class MissionUI extends Component {
 
     public close() {
         SoundManager.instance.playSE("click");
+        // node.destroy()はonDestroy()の実行をフレーム末尾まで遅延させるため、Blockerのフェード
+        // アウトをここで即座に開始しておく(onDestroy()からも同じ世代番号で呼ぶので、二重に
+        // 呼ばれても安全)。
+        if (UIManager.instance) UIManager.instance.notifyOverlayClosed('MissionUI', this.overlayGen);
         this.node.destroy();
+    }
+
+    // node.destroy()の経路(close()呼び出し・他オーバーレイが開いた際のUIManager経由の破棄の
+    // いずれでも)必ず呼ばれるので、close()を経由しない破棄経路の保険としてここでも呼ぶ
+    // (世代番号が現在の登録と一致する時だけ実際にクリアされるので、close()と重複しても安全)。
+    onDestroy() {
+        if (UIManager.instance) UIManager.instance.notifyOverlayClosed('MissionUI', this.overlayGen);
     }
 
     // --- Confirm Dialog ---

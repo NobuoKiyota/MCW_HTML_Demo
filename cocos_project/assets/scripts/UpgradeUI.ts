@@ -167,7 +167,14 @@ export class UpgradeUI extends Component {
         }
     }
 
+    // notifyOverlayOpening()の戻り値(世代番号)。CustomizeUI.tsのoverlayGenと同じ役割。
+    private overlayGen: number = 0;
+
     public open() {
+        // MissionUI/CustomizeUI/PropertyUI/HistoryUI等、他の全画面オーバーレイと排他にする
+        // (UIManager.notifyOverlayOpening()参照、CustomizeUI.open()と同じ規約)。
+        if (UIManager.instance) this.overlayGen = UIManager.instance.notifyOverlayOpening('UpgradeUI', this.root, () => this.close());
+
         if (this.panel) {
             this.panel.active = true;
         } else {
@@ -184,6 +191,7 @@ export class UpgradeUI extends Component {
         } else {
             this.node.active = false;
         }
+        if (UIManager.instance) UIManager.instance.notifyOverlayClosed('UpgradeUI', this.overlayGen);
     }
 
     private getShipId(): string {

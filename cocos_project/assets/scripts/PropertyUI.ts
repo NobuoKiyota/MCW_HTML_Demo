@@ -1,12 +1,21 @@
-import { _decorator, Component, Node, Label, Color, Graphics, BlockInputEvents, UITransform, Size, Button, director } from 'cc';
+import { _decorator, Component, Node, Label, Color, Graphics, BlockInputEvents, UITransform, Sprite, SpriteFrame, resources } from 'cc';
 import { DataManager } from './DataManager';
 import { GameDatabase } from './GameDatabase';
 import { SoundManager } from './SoundManager';
+import { instantiatePrefabButton } from './UIButtonPrefab';
+import { UIManager } from './UIManager';
 
 const { ccclass, property } = _decorator;
 
+// assets/resources/png/UI1040x800Property.png(元1040x800、13:10)。Canvasのdesign resolution
+// (1280x720)に高さが収まるよう、同じアスペクト比のまま936x720に縮小して使う。
+const BG_PATH = "png/UI1040x800Property/spriteFrame";
+
 @ccclass('PropertyUI')
 export class PropertyUI extends Component {
+
+    private readonly sideWidth = 936;
+    private readonly sideHeight = 720;
 
     private page: number = 0;
     private maxPage: number = 0;
@@ -14,14 +23,31 @@ export class PropertyUI extends Component {
     private windowNode: Node = null;
     private listNode: Node = null;
     private pageLabel: Label = null;
+    // notifyOverlayOpening()の戻り値(世代番号)。CustomizeUI.tsのoverlayGenと同じ役割。
+    private overlayGen: number = 0;
 
     onLoad() {
+        // MissionUI/CustomizeUI/UpgradeUI/HistoryUI等、他の全画面オーバーレイと排他にする
+        // (UIManager.notifyOverlayOpening()参照)。HomeUI.onPropertyClicked()側にも連打防止の
+        // 多重生成ガードがあるが、SideBarUI等の別経路から開かれる場合に備えてここでも
+        // 相互排他を保証しておく。
+        if (UIManager.instance) {
+            this.overlayGen = UIManager.instance.notifyOverlayOpening('PropertyUI', this.node, () => {
+                if (this.node && this.node.isValid) this.node.destroy();
+            });
+        }
         this.setupUI();
     }
 
+    // close()を経由しない破棄経路(多重生成ガードによる破棄、他オーバーレイが開いた際の
+    // UIManager経由の破棄)の保険。close()からも同じ世代番号で呼ぶので、二重に呼ばれても安全。
+    onDestroy() {
+        if (UIManager.instance) UIManager.instance.notifyOverlayClosed('PropertyUI', this.overlayGen);
+    }
+
     private setupUI() {
-        const sideWidth = 1040;
-        const sideHeight = 800;
+        const sideWidth = this.sideWidth;
+        const sideHeight = this.sideHeight;
 
         // Dimmer
         const dimmer = this.node.addComponent(Graphics);
@@ -35,14 +61,7 @@ export class PropertyUI extends Component {
         this.node.addChild(this.windowNode);
         const winTrans = this.windowNode.addComponent(UITransform);
         winTrans.setContentSize(sideWidth, sideHeight);
-
-        const winGr = this.windowNode.addComponent(Graphics);
-        winGr.fillColor = new Color(20, 20, 30, 255);
-        winGr.roundRect(-sideWidth / 2, -sideHeight / 2, sideWidth, sideHeight, 15);
-        winGr.fill();
-        winGr.strokeColor = Color.CYAN;
-        winGr.lineWidth = 4;
-        winGr.stroke();
+        this.loadWindowBackground(sideWidth, sideHeight);
 
         // Title
         const titleNode = new Node("Title");
@@ -58,44 +77,41 @@ export class PropertyUI extends Component {
         this.windowNode.addChild(this.listNode);
         this.listNode.setPosition(0, 0);
 
-        // Pagination Labels
+        // Pagination Label
         const pageNode = new Node("PageLabel");
         this.windowNode.addChild(pageNode);
-        pageNode.setPosition(0, -sideHeight / 2 + 60);
+        pageNode.setPosition(0, -sideHeight / 2 + 100);
         this.pageLabel = pageNode.addComponent(Label);
         this.pageLabel.string = "PAGE: 1 / 1";
         this.pageLabel.fontSize = 24;
 
-        // Buttons
-        this.createButton("Prev", -150, -sideHeight / 2 + 60, 100, 40, "< PREV", () => this.changePage(-1));
-        this.createButton("Next", 150, -sideHeight / 2 + 60, 100, 40, "NEXT >", () => this.changePage(1));
-        this.createButton("Close", sideWidth / 2 - 80, sideHeight / 2 - 50, 120, 50, "CLOSE", () => this.close());
+        // Buttons: 最下段に横並び(Prev / Close / Next)。以前はCloseだけ右上に置いていたのを統一。
+        const btnY = -sideHeight / 2 + 50;
+        instantiatePrefabButton("Prefabs/Canvas/Button-Prev", this.windowNode, -220, btnY, () => this.changePage(-1), this.windowNode, "<<PREV", Color.WHITE);
+        instantiatePrefabButton("Prefabs/Canvas/Button-Close", this.windowNode, 0, btnY, () => this.close(), this.windowNode, "CLOSE", Color.WHITE);
+        instantiatePrefabButton("Prefabs/Canvas/Button-Next2", this.windowNode, 220, btnY, () => this.changePage(1), this.windowNode, "NEXT>>", Color.WHITE);
 
         this.refreshList();
     }
 
-    private createButton(name: string, x: number, y: number, w: number, h: number, text: string, onClick: () => void) {
-        const btnNode = new Node(name);
-        this.windowNode.addChild(btnNode);
-        btnNode.setPosition(x, y);
-
-        const gr = btnNode.addComponent(Graphics);
-        gr.fillColor = new Color(50, 50, 70, 255);
-        gr.roundRect(-w / 2, -h / 2, w, h, 5);
-        gr.fill();
-        gr.strokeColor = Color.WHITE;
-        gr.lineWidth = 2;
-        gr.stroke();
-
-        const lblNode = new Node("Label");
-        btnNode.addChild(lblNode);
-        const lbl = lblNode.addComponent(Label);
-        lbl.string = text;
-        lbl.fontSize = 20;
-
-        const btn = btnNode.addComponent(Button);
-        btn.transition = Button.Transition.SCALE;
-        btnNode.on(Button.EventType.CLICK, onClick, this);
+    // MissionUI.ts等と同じ規約: 背景アートが無い/ロード失敗した場合のみ、以前のGraphics塗り+
+    // 枠線にフォールバックする(CLAUDE.mdの「Prefab/アセット欠如に対して防御的に」の方針)。
+    private loadWindowBackground(sideWidth: number, sideHeight: number) {
+        const sprite = this.windowNode.addComponent(Sprite);
+        resources.load(BG_PATH, SpriteFrame, (err, frame) => {
+            if (err || !frame || !this.windowNode || !this.windowNode.isValid) {
+                console.warn(`[PropertyUI] Failed to load ${BG_PATH}. Falling back to flat panel color.`, err);
+                const winGr = this.windowNode.addComponent(Graphics);
+                winGr.fillColor = new Color(20, 20, 30, 255);
+                winGr.roundRect(-sideWidth / 2, -sideHeight / 2, sideWidth, sideHeight, 15);
+                winGr.fill();
+                winGr.strokeColor = Color.CYAN;
+                winGr.lineWidth = 4;
+                winGr.stroke();
+                return;
+            }
+            sprite.spriteFrame = frame;
+        });
     }
 
     private refreshList() {
@@ -112,10 +128,12 @@ export class PropertyUI extends Component {
 
         this.pageLabel.string = `PAGE: ${this.page + 1} / ${this.maxPage}`;
 
-        const startX = -480;
-        const startY = 280;
-        const colGap = 500;
-        const rowGap = 20;
+        // 元は1040幅設計(startX=-480, colGap=500)だったので、936幅(936/1040=0.9)に合わせて
+        // 同じ比率で縮小する。
+        const startX = -432;
+        const startY = 252;
+        const colGap = 450;
+        const rowGap = 18;
 
         for (let i = startIdx; i < endIdx; i++) {
             const relativeIdx = i - startIdx;
@@ -155,7 +173,11 @@ export class PropertyUI extends Component {
     }
 
     private close() {
-        SoundManager.instance.playSE("cansel", "System");
+        SoundManager.instance.playSE("click");
+        // node.destroy()はonDestroy()の実行をフレーム末尾まで遅延させるため、Blockerのフェード
+        // アウトをここで即座に開始しておく(onDestroy()からも同じ世代番号で呼ぶので、二重に
+        // 呼ばれても安全)。
+        if (UIManager.instance) UIManager.instance.notifyOverlayClosed('PropertyUI', this.overlayGen);
         this.node.destroy();
     }
 }

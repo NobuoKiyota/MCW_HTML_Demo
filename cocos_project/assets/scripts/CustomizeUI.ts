@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Graphics, Color, UITransform, Button, RichText, Label, Vec3, ScrollView, Input, input, EventKeyboard, KeyCode, BlockInputEvents } from 'cc';
+import { _decorator, Component, Node, Graphics, Color, UITransform, Button, RichText, Label, Vec3, ScrollView, Input, input, EventKeyboard, KeyCode, BlockInputEvents, Sprite, SpriteFrame, resources } from 'cc';
 import { DataManager, IGridPart } from './DataManager';
 import { SoundManager } from './SoundManager';
 import { GameManager } from './GameManager';
@@ -21,15 +21,22 @@ interface CellRefs {
     x: number;
     y: number;
     node: Node;
-    graphics: Graphics;
+    sprite: Sprite;
 }
 
+const GRID_CELL_BG_PATH = "png/GridContainerBG/spriteFrame";
+// 解放済み・空きセル専用の背景アート(GridContainerBG.pngのTintではなく専用素材、見た目そのまま
+// 使うのでcolorはColor.WHITEにする)。
+const GRID_CELL_EMPTY_BG_PATH = "png/GridContainer_EmptyBG/spriteFrame";
+
 // セルの状態別の色。UpgradeUI.tsの「不足していれば赤くする」方式と揃え、状態を色だけで判別できるようにする。
+// COLOR_UNLOCKEDは現在GRID_CELL_EMPTY_BG_PATHの専用アートに置き換わっているため未使用(将来
+// 専用アートが無い環境向けのフォールバックとして残す)。
 const COLOR_UNLOCKED = new Color(80, 180, 255, 255);   // 2: 解放済み(空き)
 const COLOR_OCCUPIED = new Color(60, 200, 120, 255);   // 2かつ既に何か装備済み
-const COLOR_LOCKED = new Color(90, 90, 90, 255);        // 1: 未解放
+const COLOR_LOCKED = new Color(140, 140, 140, 255);     // 1: 未解放
 const COLOR_SELECTED = new Color(255, 210, 60, 255);    // 1かつ選択中(2回目タップ待ち)
-const COLOR_GHOST_OK = new Color(80, 220, 120, 160);    // 配置モード中: 配置可能
+const COLOR_GHOST_OK = new Color(255, 210, 60, 160);    // 配置モード中: 配置可能(COLOR_OCCUPIEDの緑と紛らわしいため黄色に)
 const COLOR_GHOST_NG = new Color(220, 80, 80, 160);     // 配置モード中: 配置不可
 
 /**
@@ -71,6 +78,44 @@ const COLOR_GHOST_NG = new Color(220, 80, 80, 160);     // 配置モード中: �
 export class CustomizeUI extends Component {
     private static _instance: CustomizeUI = null;
     public static get instance(): CustomizeUI { return this._instance; }
+
+    // グリッドセルの背景(assets/resources/png/GridContainerBG.png・GridContainer_EmptyBG.png、
+    // いずれも128x128)。MissionUI.tsの"png/MissionBG"と同じ規約: 状態別の色はGraphicsの塗りでは
+    // なくSprite.colorのTintで表現する(GridContainer_EmptyBG.pngは専用アートなのでTint無し=
+    // Color.WHITEで使う)。ロード済みのSpriteFrameはパスごとにクラス全体でキャッシュし、
+    // 複数セルが同時に要求しても1回だけfetchする。
+    private static _spriteFrameCache: Map<string, SpriteFrame> = new Map();
+    private static _spriteFrameLoading: Set<string> = new Set();
+    private static _pendingSpritesByPath: Map<string, Sprite[]> = new Map();
+
+    private static requestSpriteFrame(path: string, sprite: Sprite) {
+        const cached = CustomizeUI._spriteFrameCache.get(path);
+        if (cached) {
+            sprite.spriteFrame = cached;
+            return;
+        }
+        let pending = CustomizeUI._pendingSpritesByPath.get(path);
+        if (!pending) {
+            pending = [];
+            CustomizeUI._pendingSpritesByPath.set(path, pending);
+        }
+        pending.push(sprite);
+        if (CustomizeUI._spriteFrameLoading.has(path)) return;
+        CustomizeUI._spriteFrameLoading.add(path);
+        resources.load(path, SpriteFrame, (err, frame) => {
+            CustomizeUI._spriteFrameLoading.delete(path);
+            if (err || !frame) {
+                console.warn(`[CustomizeUI] Failed to load ${path}. Falling back to flat color cells.`, err);
+                return;
+            }
+            CustomizeUI._spriteFrameCache.set(path, frame);
+            const list = CustomizeUI._pendingSpritesByPath.get(path) || [];
+            for (const s of list) {
+                if (s && s.isValid) s.spriteFrame = frame;
+            }
+            CustomizeUI._pendingSpritesByPath.set(path, []);
+        });
+    }
 
     // OptionsUI/UpgradeUIと同じ構造: CustomizeUIノード自体は常にactiveのままにし、
     // 表示/非表示はこのPanel子ノードだけで切り替える(onLoad()を確実に走らせるため)。
@@ -207,7 +252,9 @@ export class CustomizeUI extends Component {
                 const uiT = cellNode.addComponent(UITransform);
                 uiT.setContentSize(this.cellSize - this.cellGap, this.cellSize - this.cellGap);
 
-                const g = cellNode.addComponent(Graphics);
+                // spriteFrame/colorはrefreshAll() → refreshCell()が状態に応じて設定する
+                // (buildGrid()の末尾で必ず呼ばれるため、ここでは空のSpriteを追加するだけでよい)。
+                const sprite = cellNode.addComponent(Sprite);
 
                 this.gridContainer.addChild(cellNode);
                 // 左上(0,0)基準、Y下向きプラスで配置(UI座標系はYが上向きプラスなので反転する)。
@@ -220,7 +267,7 @@ export class CustomizeUI extends Component {
                 cellNode.on(Button.EventType.CLICK, () => this.onCellClicked(x, y), this);
 
                 const key = `${x},${y}`;
-                this.cells.set(key, { x, y, node: cellNode, graphics: g });
+                this.cells.set(key, { x, y, node: cellNode, sprite });
             }
         }
         this.refreshAll();
@@ -231,7 +278,16 @@ export class CustomizeUI extends Component {
         return (data && data.gridData && data.gridData.layout) ? data.gridData.layout : null;
     }
 
+    // notifyOverlayOpening()の戻り値(世代番号)。notifyOverlayClosed()に渡し、同名の遅延closeで
+    // 別インスタンス(このケースでは同一インスタンスの再open)の登録を誤って消さないようにする。
+    private overlayGen: number = 0;
+
     public open() {
+        // MissionUI/UpgradeUI/PropertyUI/HistoryUI等、他の全画面オーバーレイと排他にする
+        // (UIManager.notifyOverlayOpening()参照。以前はここに何も無く、MissionUIを開いたまま
+        // Customizeを開くと表示が重なって操作不能になる不具合があった)。
+        if (UIManager.instance) this.overlayGen = UIManager.instance.notifyOverlayOpening('CustomizeUI', this.root, () => this.close());
+
         if (this.panel) {
             this.panel.active = true;
         } else {
@@ -253,6 +309,7 @@ export class CustomizeUI extends Component {
         this.cancelPlacement();
         this.clearPendingSingleClick();
         this.closeActiveDialog();
+        if (UIManager.instance) UIManager.instance.notifyOverlayClosed('CustomizeUI', this.overlayGen);
     }
 
     // 開いていたEject/LvUp/Cancel・Lvアップ確認ダイアログを閉じる(次のダイアログを開く前、
@@ -262,6 +319,27 @@ export class CustomizeUI extends Component {
             this.activeDialogNode.destroy();
         }
         this.activeDialogNode = null;
+        this.setBackgroundContentVisible(true);
+    }
+
+    // Eject/LvUp/Cancel・Lvアップ確認ダイアログを開いている間だけ、その裏にある装備リスト
+    // (ScrollView)・GridContainer・Backボタンを非表示にする。DialogWindow.prefabはCanvasに
+    // 動的追加した最後尾ノードとして正しくsibling順が最前面になっているにも関わらず、
+    // ScrollViewのMask(ステンシル)がその順序を無視して手前に描画されてしまう(Cocos Creator
+    // 側の癖と見られる)ため、「そもそも裏に何も無い状態にする」ことで確実に回避する。
+    // ダイアログはBlockInputEventsで全画面の入力を止めるので、これらが一時的に見えなくなっても
+    // 操作上の支障は無い。
+    private setBackgroundContentVisible(visible: boolean) {
+        if (this.equipmentScrollView && this.equipmentScrollView.node) {
+            this.equipmentScrollView.node.active = visible;
+        }
+        if (this.gridContainer) {
+            this.gridContainer.active = visible;
+        }
+        // wireGlobalButtons()と同じ探索対象('BtnBack'が期待名、実際のPrefabでは'CelklBack'に
+        // なっているようなので両方試す)。
+        const backNode = this.root.getChildByName('BtnBack') || this.root.getChildByName('CelklBack');
+        if (backNode) backNode.active = visible;
     }
 
     private onBackClicked() {
@@ -299,19 +377,23 @@ export class CustomizeUI extends Component {
         const key = `${cell.x},${cell.y}`;
         const unlocked = layout[cell.y][cell.x] === 2;
         const selected = this.selectedKey === key;
+
+        let path = GRID_CELL_BG_PATH;
         let color = COLOR_LOCKED;
         if (unlocked) {
-            color = occupied.has(key) ? COLOR_OCCUPIED : COLOR_UNLOCKED;
+            if (occupied.has(key)) {
+                color = COLOR_OCCUPIED;
+            } else {
+                // 解放済み・空きは専用アート(GridContainer_EmptyBG.png)をそのまま見せる(Tint無し)。
+                path = GRID_CELL_EMPTY_BG_PATH;
+                color = Color.WHITE;
+            }
         } else if (selected) {
             color = COLOR_SELECTED;
         }
 
-        const g = cell.graphics;
-        g.clear();
-        g.fillColor = color;
-        const half = (this.cellSize - this.cellGap) / 2;
-        g.rect(-half, -half, this.cellSize - this.cellGap, this.cellSize - this.cellGap);
-        g.fill();
+        cell.sprite.color = color;
+        CustomizeUI.requestSpriteFrame(path, cell.sprite);
     }
 
     // セルタップ処理。
@@ -789,7 +871,7 @@ export class CustomizeUI extends Component {
     private updatePlacementInfo() {
         if (!this.sharedInfoLabel || !this.placementEntry) return;
         const hint = this.placementValid
-            ? '<color=#5ae678>Click again or press Enter to confirm.</color>'
+            ? '<color=#ffd23c>Click again or press Enter to confirm.</color>'
             : '<color=#dc4646>Cannot place here.</color>';
         const verb = this.placementMovingPartId ? 'Moving' : 'Placing';
         this.sharedInfoLabel.string = `${verb} ${this.entryName(this.placementEntry)}...\nArrow keys or click a cell to move, Esc to cancel.\n${hint}`;
@@ -903,7 +985,9 @@ export class CustomizeUI extends Component {
 
         // ボタンPrefabは全て240x60固定なので、3個並べる時は等間隔+縮小(scale)しないと隣同士が
         // 重なる(instantiatePrefabButtonのscale引数、UpgradeUI/HomeUIのYes/No2個並びと同じ仕組み)。
-        const scale = 0.55;
+        // x=±190(3ボタン)/±150(2ボタン)の間隔で隣と重ならない範囲(scale<=0.79/1.25)まで
+        // 大きくした。
+        const scale = 0.7;
         const buttons: DialogButtonSpec[] = [];
         if (weapon) {
             // 3ボタン: Eject / Level Up / Cancel
@@ -934,6 +1018,7 @@ export class CustomizeUI extends Component {
 
         showDialogPrefab(this.root, name, this.formatPartSummary(weapon, equipment, lv), buttons, (node) => {
             this.activeDialogNode = node;
+            this.setBackgroundContentVisible(false);
         }, { width: 560, height: 280 });
     }
 
@@ -994,9 +1079,9 @@ export class CustomizeUI extends Component {
 
         const buttons: DialogButtonSpec[] = [
             {
-                // UpgradeUI.showUpgradeConfirm()と同じx=±90/scale=0.65の組み合わせ
-                // (240px幅のボタンをこの間隔に並べる際は縮小しないと重なる)。
-                prefabPath: "Prefabs/Canvas/Button-Yes", x: -90, y: -150, scale: 0.65, label: "YES",
+                // UpgradeUI.showUpgradeConfirm()のx=±90と同じ間隔だが、240px幅のボタンを
+                // 隣と重ならない範囲(scale<=1.0)でもう少し大きくした(0.65→0.7)。
+                prefabPath: "Prefabs/Canvas/Button-Yes", x: -90, y: -150, scale: 0.7, label: "YES",
                 color: Color.GREEN,
                 onClick: () => {
                     if (!hasEnoughCredits || !hasEnoughMaterial) {
@@ -1008,13 +1093,14 @@ export class CustomizeUI extends Component {
                 },
             },
             {
-                prefabPath: "Prefabs/Canvas/Button-No", x: 90, y: -150, scale: 0.65, label: "NO",
+                prefabPath: "Prefabs/Canvas/Button-No", x: 90, y: -150, scale: 0.7, label: "NO",
                 color: Color.GRAY, onClick: () => this.closeActiveDialog(),
             },
         ];
 
         showDialogPrefab(this.root, "Do you want to level up?", body, buttons, (node) => {
             this.activeDialogNode = node;
+            this.setBackgroundContentVisible(false);
         }, { width: 560, height: 420 });
     }
 

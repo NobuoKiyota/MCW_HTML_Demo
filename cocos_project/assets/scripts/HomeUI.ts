@@ -4,7 +4,6 @@ import { VideoBackground } from './VideoBackground';
 import { DataManager } from './DataManager';
 import { OptionsUI } from './OptionsUI';
 import { SoundManager } from './SoundManager';
-import { MissionUI } from './MissionUI';
 import { UIManager } from './UIManager';
 import { GameState } from './Constants';
 import { PropertyUI } from './PropertyUI';
@@ -107,33 +106,17 @@ export class HomeUI extends Component {
     }
 
     /**
-     * ミッション開始ボタン
+     * ミッション開始ボタン。実体はUIManager.openMissionUI()に一本化した
+     * (SideBarUI.onMissionLabelClicked()経由の入り口と重複実装していたのを統合、
+     * 多重生成ガード・レイヤー設定・SE再生もそちら側だけで完結する)。
      */
     public onStartMissionClicked() {
-        SoundManager.instance.playSE("click");
-
-        // Open Mission UI
         console.log("[HomeUI] Opening MissionUI...");
-
-        // Canvasを探して親にする（最前面表示のため）
-        // Find Canvas to ensure it's on top
-        // director is imported
-        const sceneRoot = director.getScene();
-        const canvasNode = sceneRoot.getChildByName("Canvas");
-        const parent = canvasNode || this.node;
-
-        // Guard against stacking multiple instances if this handler fires more than
-        // once (e.g. repeated clicks before the first panel is visibly up) - each
-        // instance carries a full-screen BlockInputEvents, so leftover copies pile up
-        // and swallow all future input.
-        const existing = parent.getChildByName("MissionUI");
-        if (existing) existing.destroy();
-
-        const node = new Node("MissionUI");
-        node.layer = Layers.Enum.UI_2D;
-        parent.addChild(node);
-
-        node.addComponent(MissionUI); // スクリプト追加で自動初期化(onLoad)
+        if (UIManager.instance) {
+            UIManager.instance.openMissionUI();
+        } else {
+            console.warn("[HomeUI] UIManager instance not found, cannot open MissionUI.");
+        }
     }
 
     /**
@@ -191,10 +174,16 @@ export class HomeUI extends Component {
     }
 
     private showResetConfirmDialog() {
-        const dialogNode = new Node("ResetDialog");
         const sceneRoot = director.getScene();
         const canvasNode = sceneRoot?.getChildByName("Canvas");
-        (canvasNode || this.node).addChild(dialogNode);
+        const parent = canvasNode || this.node;
+
+        // showRepairConfirmDialog()と同じ多重生成ガード(連打で何枚も積み重なるのを防ぐ)。
+        const existing = parent.getChildByName("ResetDialog");
+        if (existing) existing.destroy();
+
+        const dialogNode = new Node("ResetDialog");
+        parent.addChild(dialogNode);
 
         // Background
         const gr = dialogNode.addComponent(Graphics);
@@ -243,7 +232,7 @@ export class HomeUI extends Component {
 
         // NO Button
         instantiatePrefabButton("Prefabs/Canvas/Button-No", winNode, 80, -50, () => {
-            SoundManager.instance.playSE("cansel", "System"); // NOでcancel音
+            SoundManager.instance.playSE("click"); // NOでclick音(Sounds.csvに"cancel"は無い)
             dialogNode.destroy();
         }, dialogNode, "NO", Color.GRAY, 0.5, 0.65);
     }
@@ -254,10 +243,18 @@ export class HomeUI extends Component {
     public onPropertyClicked() {
         SoundManager.instance.playSE("click");
         console.log("[HomeUI] Opening PropertyUI...");
-        const node = new Node("PropertyUI");
         const sceneRoot = director.getScene();
         const canvasNode = sceneRoot?.getChildByName("Canvas");
-        (canvasNode || this.node).addChild(node);
+        const parent = canvasNode || this.node;
+
+        // onStartMissionClicked()と同じ多重生成ガード(連打で何枚も積み重なるのを防ぐ)。
+        // 他画面(MissionUI/CustomizeUI等)との相互排他はPropertyUI.onLoad()が
+        // UIManager.notifyOverlayOpening()経由で行う。
+        const existing = parent.getChildByName("PropertyUI");
+        if (existing) existing.destroy();
+
+        const node = new Node("PropertyUI");
+        parent.addChild(node);
         node.addComponent(PropertyUI);
     }
 
@@ -267,10 +264,15 @@ export class HomeUI extends Component {
     public onHistoryClicked() {
         SoundManager.instance.playSE("click");
         console.log("[HomeUI] Opening HistoryUI...");
-        const node = new Node("HistoryUI");
         const sceneRoot = director.getScene();
         const canvasNode = sceneRoot?.getChildByName("Canvas");
-        (canvasNode || this.node).addChild(node);
+        const parent = canvasNode || this.node;
+
+        const existing = parent.getChildByName("HistoryUI");
+        if (existing) existing.destroy();
+
+        const node = new Node("HistoryUI");
+        parent.addChild(node);
         node.addComponent(HistoryUI);
     }
 
@@ -361,7 +363,7 @@ export class HomeUI extends Component {
 
         // NO Button
         instantiatePrefabButton("Prefabs/Canvas/Button-No", winNode, 80, -60, () => {
-            SoundManager.instance.playSE("cansel", "System");
+            SoundManager.instance.playSE("click"); // Sounds.csvに"cancel"は無い
             dialogNode.destroy();
         }, dialogNode, "NO", Color.RED, 0.5, 0.65);
 

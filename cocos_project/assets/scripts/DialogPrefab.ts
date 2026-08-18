@@ -1,4 +1,4 @@
-import { Node, Label, RichText, Color, Prefab, resources, instantiate, UITransform, director, Layers } from 'cc';
+import { Node, Label, RichText, Color, Prefab, resources, instantiate, UITransform, director, Layers, Canvas } from 'cc';
 import { instantiatePrefabButton } from './UIButtonPrefab';
 
 /**
@@ -51,9 +51,20 @@ export function showDialogPrefab(
 
         const dialogNode = instantiate(prefab);
         // HomeUI.ts(RESET確認ダイアログ等)と同じ方式: 呼び出し元(CustomizeUI等)自身の階層に
-        // ぶら下げると、SideBarUIや他パネルより奥のsibling indexになって背面に隠れることがある。
+        // ぶら下げると、他パネルより奥のsibling indexになって背面に隠れることがある。
         // Canvas直下に付け替えることで、常に最前面(sibling順で末尾=最後に描画)に出るようにする。
-        const canvasNode = director.getScene()?.getChildByName("Canvas");
+        //
+        // 注意: GameManager.switchContent()はhomePrefab等「自前でCanvasを持つ」プレハブを
+        // scene.addChild()でScene直下に独立ツリーとして追加する(hasOwnCanvas判定、Canvas-in-Canvas
+        // 回避のため)。そのためdirector.getScene().getChildByName("Canvas")は「SideBarUI等が
+        // 乗っている永続Canvas」を返すが、これはCustomizeUIのGridContainer/ScrollViewが実際に
+        // 描画されているprefab-Home内蔵のCanvasとは別ツリー(別カメラ)であり、そこへ付け替えても
+        // sibling indexがGridContainer/ScrollView側の描画順に一切影響しない(実際、装備リストの
+        // ScrollViewの裏にダイアログが回り込む不具合として発現した)。
+        // 呼び出し元(parent)から祖先を遡って「実際にそのコンテンツを描画しているCanvas」を
+        // 探すことで、必ず同じ描画ツリー内に入り、sibling indexの制御が効くようにする。
+        const ancestorCanvas = findAncestorCanvas(parent);
+        const canvasNode = ancestorCanvas || director.getScene()?.getChildByName("Canvas");
         const actualParent = canvasNode || parent;
         actualParent.addChild(dialogNode);
         // sibling indexを明示的に末尾へ強制(addChildは通常末尾に入るはずだが、
@@ -64,7 +75,7 @@ export function showDialogPrefab(
         // layerだった場合、parent.layerを継ぐとレンダリングされるカメラのpass自体が
         // ずれてSideBarUI等の裏に消える可能性があるため、既存の動作実績があるほうに合わせる。
         forceLayerRecursive(dialogNode, Layers.Enum.UI_2D);
-        console.log(`[DialogPrefab] attached to ${actualParent.name}, siblingIndex=${dialogNode.getSiblingIndex()}/${actualParent.children.length}, layer=${dialogNode.layer}, parent.layer(unused)=${parent.layer}`);
+        console.log(`[DialogPrefab] attached to ${actualParent.name} (via ${ancestorCanvas ? 'ancestor Canvas' : (canvasNode ? 'persistent scene Canvas fallback' : 'parent fallback')}), siblingIndex=${dialogNode.getSiblingIndex()}/${actualParent.children.length}, layer=${dialogNode.layer}`);
 
         const windowNode = dialogNode.getChildByName('Window');
         if (!windowNode) {
@@ -82,8 +93,18 @@ export function showDialogPrefab(
 
         const bodyNode = windowNode ? windowNode.getChildByName('Body') : null;
         const bodyRichText = bodyNode ? bodyNode.getComponent(RichText) : null;
-        if (bodyRichText) bodyRichText.string = body;
-        else console.warn("[DialogPrefab] DialogWindow.prefab is missing Window/Body (RichText).");
+        if (bodyRichText) {
+            bodyRichText.string = body;
+            // DialogWindow.prefab側のBodyは_horizontalAlign=LEFT/_maxWidth=0(制約無し)の
+            // ままになっている(想定はCENTER+480、作成時のドキュメント参照)。Prefab JSONは
+            // 直接編集しない方針のため、ここでコードから毎回強制する
+            // (MissionUI.ts/UpgradeUI.tsのrichText.horizontalAlign/maxWidthと同じ規約)。
+            bodyRichText.horizontalAlign = RichText.HorizontalAlign.CENTER;
+            const windowUiT = windowNode ? windowNode.getComponent(UITransform) : null;
+            bodyRichText.maxWidth = Math.max(200, (windowUiT ? windowUiT.width : 560) - 80);
+        } else {
+            console.warn("[DialogPrefab] DialogWindow.prefab is missing Window/Body (RichText).");
+        }
 
         const buttonParent = windowNode || dialogNode;
         for (const btn of buttons) {
@@ -103,4 +124,16 @@ function forceLayerRecursive(node: Node, layer: number) {
     for (const child of node.children) {
         forceLayerRecursive(child, layer);
     }
+}
+
+// nodeから親を遡り、Canvasコンポーネントを持つ最初の祖先(=そのnodeを実際に描画している
+// Canvas/カメラ)を返す。見つからなければnull(呼び出し側でdirector.getScene()の永続Canvas
+// にフォールバックする)。
+function findAncestorCanvas(node: Node): Node | null {
+    let cur: Node | null = node;
+    while (cur) {
+        if (cur.getComponent(Canvas)) return cur;
+        cur = cur.parent;
+    }
+    return null;
 }
