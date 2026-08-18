@@ -1,0 +1,5 @@
+venv/
+output/
+ai_archives/
+__pycache__/
+config.json
