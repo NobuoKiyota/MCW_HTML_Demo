@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Graphics, Color, UITransform, Button, RichText, Label, Vec3, ScrollView, Input, input, EventKeyboard, KeyCode, BlockInputEvents, Sprite, SpriteFrame, resources } from 'cc';
+import { _decorator, Component, Node, Graphics, Color, UITransform, Button, RichText, Label, Vec3, ScrollView, Input, input, EventKeyboard, KeyCode, BlockInputEvents, Sprite, SpriteFrame, resources, EventMouse } from 'cc';
 import { DataManager, IGridPart, getCurrentGridData } from './DataManager';
 import { SoundManager } from './SoundManager';
 import { GameManager } from './GameManager';
@@ -14,8 +14,10 @@ const { ccclass, property } = _decorator;
 
 // シングル/ダブルクリックの判定猶予秒数。既定タップ後この時間内に同じパーツへ2回目のタップが
 // 来なければ「シングルクリック」(再配置モード開始)、来れば「ダブルクリック」
-// (Eject/LvUp/Cancelダイアログ)として扱う。
-const DOUBLE_CLICK_WINDOW = 0.3;
+// (Eject/LvUp/Cancelダイアログ)として扱う。PC操作は右クリック(onCellRightClicked)で
+// タイミング判定無しに即座にダイアログを開けるため、こちらはタッチ操作(ダブルタップ)の
+// 猶予として少し広めに取っている(0.3→0.4、シビアすぎるとの指摘を受けて調整)。
+const DOUBLE_CLICK_WINDOW = 0.4;
 
 interface CellRefs {
     x: number;
@@ -265,6 +267,12 @@ export class CustomizeUI extends Component {
                 const button = cellNode.addComponent(Button);
                 button.transition = Button.Transition.NONE; // 色制御は自前(refreshCell)で行うため既定の色遷移は無効化
                 cellNode.on(Button.EventType.CLICK, () => this.onCellClicked(x, y), this);
+                // PC操作向け: 右クリックでシングル/ダブルクリックのタイミング判定を介さず即座に
+                // Eject/LvUp/Cancelダイアログを開く(onCellRightClicked参照)。タッチ操作には
+                // 右クリックの概念が無いため、そちらは引き続きダブルタップ(onOccupiedCellClicked)を使う。
+                cellNode.on(Node.EventType.MOUSE_UP, (event: EventMouse) => {
+                    if (event.getButton() === EventMouse.BUTTON_RIGHT) this.onCellRightClicked(x, y);
+                }, this);
 
                 const key = `${x},${y}`;
                 this.cells.set(key, { x, y, node: cellNode, sprite });
@@ -448,6 +456,20 @@ export class CustomizeUI extends Component {
             SoundManager.instance.playSE('error', 'System');
         }
         this.refreshAll();
+    }
+
+    // 装備済みセルの右クリック(PC操作向け)。シングル/ダブルクリックのタイミング判定を挟まず、
+    // 保留中の再配置タイマー(あれば)をキャンセルしてEject/LvUp/Cancelダイアログを即座に開く。
+    // 未解放/空きセルや配置モード中は何もしない(左クリックの既存ルールと揃える)。
+    private onCellRightClicked(x: number, y: number) {
+        if (this.placementEntry) return;
+        const layout = this.getLayout();
+        if (!layout || layout[y][x] !== 2) return;
+        const part = this.getPartAtCell(x, y);
+        if (!part) return;
+        this.clearPendingSingleClick();
+        SoundManager.instance.playSE('click');
+        this.openPartDetailDialog(part);
     }
 
     // 次に解放する回(GridCells.csvのTier、購入済み回数+1)のコスト/必要アイテムを表示する。

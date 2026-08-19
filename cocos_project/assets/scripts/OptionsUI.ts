@@ -24,11 +24,26 @@ export class OptionsUI extends Component {
     @property(Slider)
     public voiceSlider: Slider = null;
 
-    // Language Buttons
-    @property(Node)
-    public langJPBtn: Node = null;
-    @property(Node)
-    public langENBtn: Node = null;
+    // キーボード(WASD/矢印キー)移動速度スライダー。slider.progress(0-1)を
+    // GameManager.keySpeedMin〜keySpeedMaxのpx/秒へ変換してSettingsManager.settings.
+    // keyboardMoveSpeedに保存する(PlayerController.update()が毎フレームこの値を参照する)。
+    // 上下限自体はGameManagerEditor(GameManagerConfig.json)で調整する開発者向けの値なので、
+    // ここではハードコードせずGameManager.instanceから読む(未ロード時はフォールバック既定値)。
+    @property(Slider)
+    public keySpeedSlider: Slider = null;
+
+    private static readonly KEY_SPEED_MIN_FALLBACK = 200;
+    private static readonly KEY_SPEED_MAX_FALLBACK = 2000;
+
+    private getKeySpeedMin(): number {
+        const gm = GameManager.instance;
+        return (gm && typeof gm.keySpeedMin === 'number') ? gm.keySpeedMin : OptionsUI.KEY_SPEED_MIN_FALLBACK;
+    }
+
+    private getKeySpeedMax(): number {
+        const gm = GameManager.instance;
+        return (gm && typeof gm.keySpeedMax === 'number') ? gm.keySpeedMax : OptionsUI.KEY_SPEED_MAX_FALLBACK;
+    }
 
     @property({ tooltip: "メニューが開く時の時間 (秒)" })
     public openDuration: number = 0.3;
@@ -37,8 +52,18 @@ export class OptionsUI extends Component {
     public closeDuration: number = 0.2;
 
     onLoad() {
-        // OptionsUI is often part of a scene prefab. Use the latest one.
-        OptionsUI._instance = this;
+        // UIManager.ensureOptionsUI()が永続Canvas配下に1個だけ生成する方式になったため、
+        // GameManager/UIManagerと同じ重複ガードパターンにした(以前はTitle/Home/Ingameの各
+        // Prefabがそれぞれ自前でOptionsUIを埋め込んでおり、「最後に読み込まれたものを使う」
+        // 前提だった名残でここは単純代入だった)。旧・各画面埋め込み版がまだ残っている間は、
+        // 画面遷移のたびに生成される重複インスタンスがここで自己破棄する(先勝ち)。
+        if (!OptionsUI._instance || !OptionsUI._instance.isValid) {
+            OptionsUI._instance = this;
+        } else if (OptionsUI._instance !== this) {
+            log("[OptionsUI] Duplicate instance detected (old per-screen copy?). Destroying self.");
+            this.node.destroy();
+            return;
+        }
 
         log(`[OptionsUI] onLoad: parent=${this.node.parent ? this.node.parent.name : "null"}`);
 
@@ -60,6 +85,7 @@ export class OptionsUI extends Component {
 
     onDestroy() {
         input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
+        if (OptionsUI._instance === this) OptionsUI._instance = null;
     }
 
     private onKeyDown(event: any) {
@@ -73,7 +99,19 @@ export class OptionsUI extends Component {
         if (this.bgmSlider) this.bgmSlider.progress = settings.bgmVolume;
         if (this.seSlider) this.seSlider.progress = settings.seVolume;
         if (this.voiceSlider) this.voiceSlider.progress = settings.voiceVolume;
-        this.updateLangVisuals(settings.language);
+        if (this.keySpeedSlider) {
+            const min = this.getKeySpeedMin();
+            const range = this.getKeySpeedMax() - min;
+            const ratio = range > 0 ? (settings.keyboardMoveSpeed - min) / range : 0;
+            this.keySpeedSlider.progress = Math.min(1, Math.max(0, ratio));
+        }
+    }
+
+    // ウィンドウ/タブがフォーカスを失った際(GameManagerのGame.EVENT_HIDE購読から呼ばれる)、
+    // 既に開いていれば何もしない・閉じていれば開く。toggle()を無条件に呼ぶと「たまたま既に
+    // 開いていた時に閉じてしまう」事故になるため専用メソッドにした。
+    public ensureOpen() {
+        if (this.panel && !this.panel.active) this.toggle();
     }
 
     public toggle() {
@@ -154,24 +192,18 @@ export class OptionsUI extends Component {
     public setRes800x600() { SoundManager.instance.playSE("click"); SettingsManager.instance.applyResolution(800, 600); }
     public setRes720x360() { SoundManager.instance.playSE("click"); SettingsManager.instance.applyResolution(720, 360); }
 
-    // --- Language Callbacks ---
-    public setLanguage(lang: string) {
-        SoundManager.instance.playSE("click");
-        SettingsManager.instance.setLanguage(lang);
-        this.updateLangVisuals(lang);
+    // --- Keyboard Move Speed Callback ---
+    public onKeySpeedChanged(slider: Slider) {
+        const min = this.getKeySpeedMin();
+        const speed = min + slider.progress * (this.getKeySpeedMax() - min);
+        SettingsManager.instance.settings.keyboardMoveSpeed = speed;
     }
-    public setLanguageJP() { this.setLanguage('JP'); }
-    public setLanguageEN() { this.setLanguage('EN'); }
 
-    private updateLangVisuals(lang: string) {
-        if (this.langJPBtn) {
-            const op = this.langJPBtn.getComponent(UIOpacity) || this.langJPBtn.addComponent(UIOpacity);
-            op.opacity = (lang === 'JP' ? 255 : 100);
-        }
-        if (this.langENBtn) {
-            const op = this.langENBtn.getComponent(UIOpacity) || this.langENBtn.addComponent(UIOpacity);
-            op.opacity = (lang === 'EN' ? 255 : 100);
-        }
+    // CLOSEボタン用(Editor側でBtn.EventType.CLICKに割り当てる想定)。toggle()は既に
+    // 開閉トグルとして動作するので、閉じる専用ボタンからもそのまま呼べる。
+    public onCloseClicked() {
+        SoundManager.instance.playSE("click");
+        this.toggle();
     }
 
     private refreshPosition() {

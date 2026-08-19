@@ -18,17 +18,6 @@
             "next": 6
         },
         {
-            "id": 2,
-            "type": "Move",
-            "params": {
-                "pattern": "straight",
-                "angle": 270,
-                "speed": 2,
-                "turn": 2
-            },
-            "next": 8
-        },
-        {
             "id": 8,
             "type": "Wait",
             "params": {
@@ -43,6 +32,17 @@
                 "shotPatternId": "SP_ENE001"
             },
             "next": null
+        },
+        {
+            "id": 2,
+            "type": "Move",
+            "params": {
+                "pattern": "straight",
+                "angle": 270,
+                "speed": 1.2,
+                "turn": 2
+            },
+            "next": 8
         }
     ],
     "_editor": {

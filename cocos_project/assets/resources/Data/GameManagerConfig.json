@@ -11,10 +11,10 @@
   "videoBGColorCycleSpeed": 0.06,
   "videoBGBrightnessAmplitude": 0.125,
   "videoBGBrightnessSpeed": 0.15,
-  "initialCredit": 5000,
+  "initialCredit": 500,
   "missionMaxDuplicateSpawnTable": 2,
-  "missionMarginStartKm": 15,
-  "missionMarginEndKm": 15,
+  "missionMarginStartKm": 30,
+  "missionMarginEndKm": 20,
   "missionAssumedMaxSpeedKmPerMin": 600,
   "missionTargetSpeedRatio": 0.8,
   "missionCargoWeightBaseMin": 30,
@@ -33,5 +33,7 @@
   "missionLateBaselineCredits": 50000,
   "upgradeButtonFontSize": 24,
   "upgradeNoticeFontSize": 18,
-  "upgradeSharedInfoFontSize": 24
+  "upgradeSharedInfoFontSize": 24,
+  "keySpeedMin": 200,
+  "keySpeedMax": 2000
 }

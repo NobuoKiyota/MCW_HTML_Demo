@@ -280,9 +280,106 @@ const GC_SCHEMA = [
         key: 'upgradeSharedInfoFontSize', category: 'Upgrade', label: 'Upgrade 共有情報欄文字サイズ', step: 1, min: 8, max: 48, default: 24,
         note: 'UpgradeUI上部の共有情報欄(クレジット/必要素材)のフォントサイズ',
     },
+    {
+        key: 'keySpeedMin', category: 'Player Controls', label: 'WASD速度スライダー 下限(px/秒)', step: 10, min: 0, max: 5000, default: 200,
+        note: 'OptionsUIのKeySpeedSliderが選べる速度の下限。PlayerController.keyboardMoveSpeedに反映される',
+    },
+    {
+        key: 'keySpeedMax', category: 'Player Controls', label: 'WASD速度スライダー 上限(px/秒)', step: 10, min: 0, max: 5000, default: 2000,
+        note: 'OptionsUIのKeySpeedSliderが選べる速度の上限。マウスのtargetPos瞬間移動+lerpに対し、WASDは一定速度でtargetPosを動かすだけなので、体感速度を近づけたい場合はここを上げる',
+    },
 ];
 let gcValues = {};
 let gcDirty = false;
+
+// 雲(CloudManager.ts)専用のランダム生成範囲設定。assets/resources/Data/CloudConfig.json を
+// 読み書きする。GameManager本体とは無関係な値なので、BulletConfig.jsonと同じ理由でGC_SCHEMAとは
+// 分離している(ただしBehavior/Shotグラフとは無関係なドメインなのでbehavior-editorではなく
+// master-manager側で扱う)。CloudManager.ts自身がこのJSONを読む(GameManager経由にしない)。
+const CLOUD_CONFIG_SCHEMA = [
+    {
+        key: 'spawnIntervalMin', category: '生成頻度', label: '生成間隔(秒) 下限', step: 0.05, min: 0.05, max: 10, default: 0.5,
+        note: '雲を生成する間隔(秒)の下限。小さいほど密度が上がる',
+    },
+    {
+        key: 'spawnIntervalMax', category: '生成頻度', label: '生成間隔(秒) 上限', step: 0.05, min: 0.05, max: 10, default: 1.4,
+        note: '雲を生成する間隔(秒)の上限',
+    },
+    {
+        key: 'farLayerChance', category: '生成頻度', label: '奥(Far)になる確率', step: 0.05, min: 0, max: 1, default: 0.45,
+        note: '生成する雲が「奥(Enemyより奥)」になる確率(0〜1)。残りは「手前(Enemyより手前・Playerより奥)」に生成される',
+    },
+    {
+        key: 'spawnXRangeRatio', category: '生成頻度', label: 'X座標ランダム範囲(画面幅比)', step: 0.05, min: 0, max: 1, default: 0.9,
+        note: '画面幅に対する初期X座標のランダム範囲の割合(0〜1、1で画面幅いっぱい)',
+    },
+    {
+        key: 'farAlphaMin', category: '奥(Far)', label: '不透明度 下限', step: 1, min: 0, max: 255, default: 28,
+        note: '奥の層の不透明度(0-255)の下限。値が小さいほど薄い',
+    },
+    {
+        key: 'farAlphaMax', category: '奥(Far)', label: '不透明度 上限', step: 1, min: 0, max: 255, default: 70,
+        note: '奥の層の不透明度(0-255)の上限',
+    },
+    {
+        key: 'farSizeMin', category: '奥(Far)', label: '幅(px) 下限', step: 10, min: 50, max: 2000, default: 260,
+        note: '奥の層の幅(px)の下限。高さは元画像(512x256)の比率を保って自動計算される',
+    },
+    {
+        key: 'farSizeMax', category: '奥(Far)', label: '幅(px) 上限', step: 10, min: 50, max: 2000, default: 560,
+        note: '奥の層の幅(px)の上限',
+    },
+    {
+        key: 'farSpeedScaleMin', category: '奥(Far)', label: 'スクロール速度倍率 下限', step: 0.01, min: 0, max: 5, default: 0.22,
+        note: 'ゲーム基準速度に対する倍率の下限(1.0でゲーム基準速度と同じ)',
+    },
+    {
+        key: 'farSpeedScaleMax', category: '奥(Far)', label: 'スクロール速度倍率 上限', step: 0.01, min: 0, max: 5, default: 0.55,
+        note: 'ゲーム基準速度に対する倍率の上限',
+    },
+    {
+        key: 'farRotationMin', category: '奥(Far)', label: '回転角度(度) 下限', step: 1, min: -180, max: 180, default: -15,
+        note: '奥の層の回転角度(度)の下限。左右反転と合わせて見た目のバリエーションを増やす',
+    },
+    {
+        key: 'farRotationMax', category: '奥(Far)', label: '回転角度(度) 上限', step: 1, min: -180, max: 180, default: 15,
+        note: '奥の層の回転角度(度)の上限',
+    },
+    {
+        key: 'nearAlphaMin', category: '手前(Near)', label: '不透明度 下限', step: 1, min: 0, max: 255, default: 70,
+        note: '手前の層の不透明度(0-255)の下限',
+    },
+    {
+        key: 'nearAlphaMax', category: '手前(Near)', label: '不透明度 上限', step: 1, min: 0, max: 255, default: 175,
+        note: '手前の層の不透明度(0-255)の上限',
+    },
+    {
+        key: 'nearSizeMin', category: '手前(Near)', label: '幅(px) 下限', step: 10, min: 50, max: 2000, default: 320,
+        note: '手前の層の幅(px)の下限',
+    },
+    {
+        key: 'nearSizeMax', category: '手前(Near)', label: '幅(px) 上限', step: 10, min: 50, max: 2000, default: 720,
+        note: '手前の層の幅(px)の上限',
+    },
+    {
+        key: 'nearSpeedScaleMin', category: '手前(Near)', label: 'スクロール速度倍率 下限', step: 0.01, min: 0, max: 5, default: 0.6,
+        note: 'ゲーム基準速度に対する倍率の下限',
+    },
+    {
+        key: 'nearSpeedScaleMax', category: '手前(Near)', label: 'スクロール速度倍率 上限', step: 0.01, min: 0, max: 5, default: 1.5,
+        note: 'ゲーム基準速度に対する倍率の上限',
+    },
+    {
+        key: 'nearRotationMin', category: '手前(Near)', label: '回転角度(度) 下限', step: 1, min: -180, max: 180, default: -15,
+        note: '手前の層の回転角度(度)の下限',
+    },
+    {
+        key: 'nearRotationMax', category: '手前(Near)', label: '回転角度(度) 上限', step: 1, min: -180, max: 180, default: 15,
+        note: '手前の層の回転角度(度)の上限',
+    },
+];
+let cloudConfigValues = {};
+let cloudConfigDirty = false;
 
 // 弾(Bullet)専用の発光パルス設定。assets/resources/Data/BulletConfig.json を読み書きする。
 // GameManagerConfig.jsonに置いていたが、GameManager本体とは無関係な弾専用の値だったため、
@@ -2501,6 +2598,9 @@ function confirmDiscardIfDirty() {
     if (viewMode === 'game-config' && gcDirty) {
         return confirm(`GameManagerEditor has unsaved changes. Discard them?`);
     }
+    if (viewMode === 'cloud-config' && cloudConfigDirty) {
+        return confirm(`CloudManager has unsaved changes. Discard them?`);
+    }
     return true;
 }
 
@@ -2538,16 +2638,24 @@ function renderTabBar(panel) {
     gcBtn.textContent = '⚙️ GameManagerEditor';
     gcBtn.addEventListener('click', () => switchToGameConfig(panel));
     tabBar.appendChild(gcBtn);
+
+    const ccBtn = document.createElement('button');
+    ccBtn.className = 'tab-btn tab-btn-graph' + (viewMode === 'cloud-config' ? ' active' : '');
+    ccBtn.textContent = '☁️ CloudManager';
+    ccBtn.addEventListener('click', () => switchToCloudConfig(panel));
+    tabBar.appendChild(ccBtn);
 }
 
 function updateViewVisibility(panel) {
     const isGraph = viewMode === 'graph';
     const isSm = viewMode === 'shot-manager';
     const isGc = viewMode === 'game-config';
+    const isCc = viewMode === 'cloud-config';
     panel.$.mmView.style.display = viewMode === 'csv' ? 'flex' : 'none';
     panel.$.beView.style.display = isGraph ? 'flex' : 'none';
     if (panel.$.smView) panel.$.smView.style.display = isSm ? 'flex' : 'none';
     if (panel.$.gcView) panel.$.gcView.style.display = isGc ? 'flex' : 'none';
+    if (panel.$.ccView) panel.$.ccView.style.display = isCc ? 'flex' : 'none';
     if (isGraph) {
         requestAnimationFrame(() => {
             if (litegraphCanvas && litegraphCanvas.resize) litegraphCanvas.resize();
@@ -2790,6 +2898,37 @@ async function saveGameManagerConfigForm(panel) {
         setStatus(panel, 'Saved GameManagerConfig.', false);
     } else {
         setStatus(panel, `GameManagerConfig save failed: ${result ? result.error : 'unknown error'}`, true);
+    }
+}
+
+// --- CloudManager (assets/resources/Data/CloudConfig.json) ------------------------
+
+async function switchToCloudConfig(panel) {
+    if (!confirmDiscardIfDirty()) return;
+    viewMode = 'cloud-config';
+    renderTabBar(panel);
+    updateViewVisibility(panel);
+    await loadCloudConfig(panel);
+}
+
+async function loadCloudConfig(panel) {
+    setStatus(panel, 'Loading CloudConfig...', false);
+    const ok = await loadSettingsForm('master-manager', 'load-cloud-config', CLOUD_CONFIG_SCHEMA, cloudConfigValues, panel.$.ccForm, 'CloudConfig', () => {
+        cloudConfigDirty = true;
+        setStatus(panel, 'CloudConfig has unsaved changes.', false);
+    });
+    cloudConfigDirty = false;
+    setStatus(panel, ok ? 'Loaded CloudConfig.' : 'CloudConfig load failed.', !ok);
+}
+
+async function saveCloudConfigForm(panel) {
+    setStatus(panel, 'Saving CloudConfig...', false);
+    const result = await saveSettingsForm('master-manager', 'save-cloud-config', cloudConfigValues);
+    if (result && result.ok) {
+        cloudConfigDirty = false;
+        setStatus(panel, 'Saved CloudConfig.', false);
+    } else {
+        setStatus(panel, `CloudConfig save failed: ${result ? result.error : 'unknown error'}`, true);
     }
 }
 
@@ -3259,6 +3398,14 @@ module.exports = Editor.Panel.define({
                 <div class="gc-form"></div>
             </div>
 
+            <div class="cc-view" style="display: none;">
+                <div class="cc-toolbar">
+                    <button class="cc-btn-refresh">🔄 Reload</button>
+                    <button class="cc-btn-save">💾 Save</button>
+                </div>
+                <div class="cc-form gc-form"></div>
+            </div>
+
             <div class="be-view" style="display: none;">
                 <div class="node-desc-bar">ノードにカーソルを合わせると、ここに説明が表示されます。</div>
                 <div class="be-body">
@@ -3540,6 +3687,14 @@ module.exports = Editor.Panel.define({
         .gc-input { background: #2a2a2a; border: 1px solid #444; color: #fff; padding: 5px 8px; border-radius: 3px; font-size: 12px; }
         .gc-input:focus { border-color: #4da6ff; outline: none; }
         .gc-note { color: #888; font-size: 11px; }
+
+        /* --- CloudManager 側 (assets/resources/Data/CloudConfig.json) --- */
+        .cc-view { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 8px; }
+        .cc-toolbar { flex-shrink: 0; display: flex; gap: 8px; align-items: center; }
+        .cc-btn-refresh { padding: 6px 14px; background: #2d5f8a; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+        .cc-btn-refresh:hover { background: #3a75aa; }
+        .cc-btn-save { padding: 6px 14px; background: #28a745; color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+        .cc-btn-save:hover { background: #218838; }
         .sm-btn-jump:hover { background: #005999; }
 
         /* --- ShotManager内の弾共通発光設定(BulletConfig.json、折りたたみ) --- */
@@ -3703,6 +3858,11 @@ module.exports = Editor.Panel.define({
         gcRefreshBtn: '.gc-btn-refresh',
         gcSaveBtn: '.gc-btn-save',
 
+        ccView: '.cc-view',
+        ccForm: '.cc-view .cc-form',
+        ccRefreshBtn: '.cc-btn-refresh',
+        ccSaveBtn: '.cc-btn-save',
+
         beView: '.be-view',
         nodeDescBar: '.node-desc-bar',
         behaviorList: '.behavior-list',
@@ -3824,6 +3984,17 @@ module.exports = Editor.Panel.define({
         }
         if (this.$.gcSaveBtn) {
             this.$.gcSaveBtn.addEventListener('click', () => saveGameManagerConfigForm(this));
+        }
+
+        // --- CloudManager ボタン ---
+        if (this.$.ccRefreshBtn) {
+            this.$.ccRefreshBtn.addEventListener('click', () => {
+                if (cloudConfigDirty && !confirm('CloudManager has unsaved changes. Reload from disk?')) return;
+                loadCloudConfig(this);
+            });
+        }
+        if (this.$.ccSaveBtn) {
+            this.$.ccSaveBtn.addEventListener('click', () => saveCloudConfigForm(this));
         }
 
         // --- Graph(Behavior/Shot共通) ボタン ---

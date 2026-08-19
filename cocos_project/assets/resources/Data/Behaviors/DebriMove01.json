@@ -40,18 +40,6 @@
             "next": 8
         },
         {
-            "id": 2,
-            "type": "Move",
-            "params": {
-                "pattern": "straight",
-                "angle": 270,
-                "speed": 2,
-                "turn": 2,
-                "angleRef": 9
-            },
-            "next": null
-        },
-        {
             "id": 8,
             "type": "Spin",
             "params": {
@@ -78,6 +66,18 @@
             "params": {
                 "count": -1,
                 "target": 5
+            },
+            "next": null
+        },
+        {
+            "id": 2,
+            "type": "Move",
+            "params": {
+                "pattern": "straight",
+                "angle": 270,
+                "speed": 1,
+                "turn": 2,
+                "angleRef": 9
             },
             "next": null
         }
@@ -122,6 +122,40 @@
                 "color": "#2a3a4a",
                 "bgcolor": "#1c2833"
             }
+        },
+        "nodeSizes": {
+            "1": [
+                140,
+                26
+            ],
+            "2": [
+                210,
+                190
+            ],
+            "4": [
+                210,
+                78
+            ],
+            "5": [
+                210,
+                190
+            ],
+            "6": [
+                210,
+                170
+            ],
+            "7": [
+                210,
+                170
+            ],
+            "8": [
+                210,
+                170
+            ],
+            "9": [
+                210,
+                130
+            ]
         },
         "groups": []
     }

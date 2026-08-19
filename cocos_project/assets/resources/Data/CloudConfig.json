@@ -1,0 +1,22 @@
+{
+  "spawnIntervalMin": 0.5,
+  "spawnIntervalMax": 1.4,
+  "farLayerChance": 0.45,
+  "spawnXRangeRatio": 0.8,
+  "farAlphaMin": 30,
+  "farAlphaMax": 60,
+  "farSizeMin": 260,
+  "farSizeMax": 560,
+  "farSpeedScaleMin": 0.22,
+  "farSpeedScaleMax": 1.4,
+  "farRotationMin": -45,
+  "farRotationMax": 45,
+  "nearAlphaMin": 60,
+  "nearAlphaMax": 150,
+  "nearSizeMin": 320,
+  "nearSizeMax": 720,
+  "nearSpeedScaleMin": 1.2,
+  "nearSpeedScaleMax": 3,
+  "nearRotationMin": -60,
+  "nearRotationMax": 60
+}

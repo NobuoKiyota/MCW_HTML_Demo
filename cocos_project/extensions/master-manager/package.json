@@ -48,6 +48,12 @@
       },
       "save-game-manager-config": {
         "methods": ["saveGameManagerConfig"]
+      },
+      "load-cloud-config": {
+        "methods": ["loadCloudConfig"]
+      },
+      "save-cloud-config": {
+        "methods": ["saveCloudConfig"]
       }
     }
   }

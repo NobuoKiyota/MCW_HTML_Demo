@@ -46,6 +46,15 @@ function getGameManagerConfigPath() {
     return path.join(Editor.Project.path, 'assets', 'resources', 'Data', 'GameManagerConfig.json');
 }
 
+// CloudManager tab (assets/resources/Data/CloudConfig.json). CloudManager.tsとは無関係な
+// GameManager本体の値と混ぜたくないため、BulletConfig.json(behavior-editor拡張側)と同じ理由で
+// GameManagerConfig.jsonとは別ファイルに分離している。ただしCloud設定はBehavior/Shotグラフとは
+// 無関係なドメインなので、behavior-editorではなくこちら(master-manager)で扱う。
+// CloudManager.ts自身がresources.load("Data/CloudConfig", JsonAsset, ...)でこのファイルを読む。
+function getCloudConfigPath() {
+    return path.join(Editor.Project.path, 'assets', 'resources', 'Data', 'CloudConfig.json');
+}
+
 // Enemies.csvのPrefabName列が参照する実プレハブ一覧。GameDatabase.ts/loadAllCSV()が
 // resources.loadDir("Prefabs/Enemy", Prefab, ...)で読み込んだ全Prefabをrow.PrefabName(無ければ
 // row.ID)と`p.data.name`で突き合わせているのが実際のマッチング処理 - 手打ちのPrefabNameが
@@ -158,6 +167,35 @@ module.exports = {
                 return { ok: true, list };
             } catch (err) {
                 console.error('[MasterManager Extension] listEnemyPrefabNames failed:', err);
+                return { ok: false, error: err.message };
+            }
+        },
+
+        // Called by the panel via Editor.Message.request('master-manager', 'load-cloud-config').
+        loadCloudConfig() {
+            try {
+                const text = fs.readFileSync(getCloudConfigPath(), 'utf-8');
+                return { ok: true, data: JSON.parse(text) };
+            } catch (err) {
+                console.error('[MasterManager Extension] loadCloudConfig failed:', err);
+                return { ok: false, error: err.message };
+            }
+        },
+
+        // Called by the panel via Editor.Message.request('master-manager', 'save-cloud-config', data).
+        saveCloudConfig(data) {
+            try {
+                const text = JSON.stringify(data, null, 2) + '\n';
+                fs.writeFileSync(getCloudConfigPath(), text, 'utf-8');
+
+                const url = 'db://assets/resources/Data/CloudConfig.json';
+                Editor.Message.request('asset-db', 'refresh-asset', url).catch((err) => {
+                    console.warn('[MasterManager Extension] asset-db refresh-asset (CloudConfig) failed:', err);
+                });
+
+                return { ok: true };
+            } catch (err) {
+                console.error('[MasterManager Extension] saveCloudConfig failed:', err);
                 return { ok: false, error: err.message };
             }
         },

@@ -8,6 +8,10 @@ export interface GameSettings {
     voiceVolume: number;
     language: string;
     resolution: { width: number, height: number };
+    // PlayerController.keyboardMoveSpeedの既定値を上書きするユーザー設定(px/秒)。
+    // OptionsUIのKeySpeedSliderがOptionsUI.KEY_SPEED_MIN/MAXの範囲でこの値へ変換して書き込む
+    // (変換ロジックはOptionsUI側に置き、ここには実際に使う実値だけを持たせる)。
+    keyboardMoveSpeed: number;
 }
 
 @ccclass('SettingsManager')
@@ -25,7 +29,8 @@ export class SettingsManager {
         seVolume: 0.8,
         voiceVolume: 1.0,
         language: 'JP',
-        resolution: { width: 1280, height: 720 }
+        resolution: { width: 1280, height: 720 },
+        keyboardMoveSpeed: 500,
     };
 
     constructor() {
@@ -50,7 +55,10 @@ export class SettingsManager {
         const stored = localStorage.getItem(SettingsManager.STORAGE_KEY);
         if (stored) {
             try {
-                this.settings = JSON.parse(stored);
+                // 上書き(this.settings = JSON.parse(stored))ではなくマージにする。旧セーブに
+                // 無いフィールド(例: 今回追加したkeyboardMoveSpeed)が、置き換えだとundefinedに
+                // なってしまう(DataManager.load()のgetInitialData()へのdeep-mergeと同じ考え方)。
+                Object.assign(this.settings, JSON.parse(stored));
                 log("[SettingsManager] Settings Loaded.");
                 this.applySettings();
             } catch (e) {

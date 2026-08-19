@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Input, input, EventTouch, Vec3, view, math, find, Enum, Prefab, instantiate, Color, MeshRenderer, Material } from 'cc';
+import { _decorator, Component, Node, Input, input, EventTouch, EventKeyboard, KeyCode, Vec3, view, math, find, Enum, Prefab, instantiate, Color, MeshRenderer, Material } from 'cc';
 import { DataManager } from './DataManager';
 import { GAME_SETTINGS, IGameManager, GameState } from './Constants';
 import { UIManager } from './UIManager';
@@ -7,6 +7,7 @@ import { SoundManager } from './SoundManager';
 import { GameDatabase } from './GameDatabase';
 import { ShotRuntime } from './ShotRuntime';
 import { getUpgradedParamValue } from './PlayerUpgradeCalc';
+import { SettingsManager } from './SettingsManager';
 
 const { ccclass, property } = _decorator;
 
@@ -34,6 +35,20 @@ export class PlayerController extends Component {
 
     @property({ tooltip: "Movement Smoothness (0.01 - 1.0)" })
     public lerpFactor: number = 0.1;
+
+    // OptionsUIのKeySpeedSliderで調整可能(SettingsManager.settings.keyboardMoveSpeed、
+    // update()で毎フレーム読む)。SettingsManagerが無い/未設定の場合のフォールバックとして
+    // このInspector既定値を使う。
+    @property({ tooltip: "WASD/矢印キー操作時の移動速度(px/秒)。OptionsUIのKeySpeedSliderで上書きされる際のフォールバック既定値" })
+    public keyboardMoveSpeed: number = 500;
+
+    // WASD/矢印キーの押下状態。mouse/touch-followと同じtargetPosを直接動かす方式にすることで、
+    // バンキング計算(update()のnextX-currentPos.x)やclampTarget()等の既存ロジックをそのまま
+    // 再利用する(移動専用の別経路を作らない)。
+    private _keyUp: boolean = false;
+    private _keyDown: boolean = false;
+    private _keyLeft: boolean = false;
+    private _keyRight: boolean = false;
 
     // Shot Pattern (発射グラフ)
     @property({ tooltip: "使用する発射パターンID (ShotPatterns.csv/Master ManagerのShot Patternタブで編集)" })
@@ -203,6 +218,8 @@ export class PlayerController extends Component {
         // Initialize Input
         input.on(Input.EventType.MOUSE_MOVE, this.onMouseMove, this);
         input.on(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
+        input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
+        input.on(Input.EventType.KEY_UP, this.onKeyUp, this);
 
         // Initial Pos
         this.node.getPosition(this.currentPos);
@@ -287,6 +304,8 @@ export class PlayerController extends Component {
     onDestroy() {
         input.off(Input.EventType.MOUSE_MOVE, this.onMouseMove, this);
         input.off(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
+        input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
+        input.off(Input.EventType.KEY_UP, this.onKeyUp, this);
     }
 
     private loadStats() {
@@ -303,6 +322,27 @@ export class PlayerController extends Component {
         if (!this.canControl()) return;
         const uiLoc = event.getUILocation();
         this.updateTargetPos(uiLoc);
+    }
+
+    // WASD/矢印キーはcanControl()に関わらず押下状態だけ記録する(update()側でcanControl()を
+    // 見て実際の移動に反映する)。キーが押されっぱなしのままIngame外へ遷移しても、次にIngameへ
+    // 戻った時に古い状態が残らないようKEY_UPは常に受理する。
+    private onKeyDown(event: EventKeyboard) {
+        switch (event.keyCode) {
+            case KeyCode.KEY_W: case KeyCode.ARROW_UP: this._keyUp = true; break;
+            case KeyCode.KEY_S: case KeyCode.ARROW_DOWN: this._keyDown = true; break;
+            case KeyCode.KEY_A: case KeyCode.ARROW_LEFT: this._keyLeft = true; break;
+            case KeyCode.KEY_D: case KeyCode.ARROW_RIGHT: this._keyRight = true; break;
+        }
+    }
+
+    private onKeyUp(event: EventKeyboard) {
+        switch (event.keyCode) {
+            case KeyCode.KEY_W: case KeyCode.ARROW_UP: this._keyUp = false; break;
+            case KeyCode.KEY_S: case KeyCode.ARROW_DOWN: this._keyDown = false; break;
+            case KeyCode.KEY_A: case KeyCode.ARROW_LEFT: this._keyLeft = false; break;
+            case KeyCode.KEY_D: case KeyCode.ARROW_RIGHT: this._keyRight = false; break;
+        }
     }
 
     private updateTargetPos(uiLoc: any) {
@@ -393,6 +433,20 @@ export class PlayerController extends Component {
         }
 
         // 1. Movement
+        // WASD/矢印キー操作: 押している間targetPosを直接動かす。mouse/touch-followと同じ
+        // targetPosを共有するので、直後のlerp・バンキング計算・clampTarget()がそのまま効く
+        // (移動専用の別経路を作らない)。
+        const kdx = (this._keyRight ? 1 : 0) - (this._keyLeft ? 1 : 0);
+        const kdy = (this._keyUp ? 1 : 0) - (this._keyDown ? 1 : 0);
+        if (kdx !== 0 || kdy !== 0) {
+            const settings = SettingsManager.instance ? SettingsManager.instance.settings : null;
+            const kbSpeed = (settings && typeof settings.keyboardMoveSpeed === 'number') ? settings.keyboardMoveSpeed : this.keyboardMoveSpeed;
+            const len = Math.sqrt(kdx * kdx + kdy * kdy); // 斜め移動が直線移動より速くならないよう正規化
+            this.targetPos.x += (kdx / len) * kbSpeed * deltaTime;
+            this.targetPos.y += (kdy / len) * kbSpeed * deltaTime;
+            this.clampTarget();
+        }
+
         this.node.getPosition(this.currentPos);
         const nextX = math.lerp(this.currentPos.x, this.targetPos.x, this.lerpFactor);
         const nextY = math.lerp(this.currentPos.y, this.targetPos.y, this.lerpFactor);

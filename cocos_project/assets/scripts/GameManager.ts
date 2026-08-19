@@ -1,6 +1,7 @@
-import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3, Vec4, Color, game, resources, UITransform, Sprite, BoxCollider2D, LabelOutline, tween, v3, UIOpacity, BlockInputEvents, Graphics, Size, CCInteger, CCFloat, Camera, DirectionalLight, Light, Vec3 as Vec3Type, Layers, Canvas, JsonAsset, Animation, AnimationClip } from 'cc';
+import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3, Vec4, Color, game, Game, resources, UITransform, Sprite, BoxCollider2D, LabelOutline, tween, v3, UIOpacity, BlockInputEvents, Graphics, Size, CCInteger, CCFloat, Camera, DirectionalLight, Light, Vec3 as Vec3Type, Layers, Canvas, JsonAsset, Animation, AnimationClip } from 'cc';
 import './enginePatches';
 import { UIManager } from './UIManager';
+import { OptionsUI } from './OptionsUI';
 import { GameState, GAME_SETTINGS, IGameManager, SpawnLaserBeamOptions, ENEMY_ONLY_LAYER, FG_CLOUD_LAYER } from './Constants'; // Removed Constants
 import { SoundManager } from './SoundManager';
 import { GameSpeedManager } from './GameSpeedManager';
@@ -16,7 +17,7 @@ import { GoalWarningEffect } from './GoalWarningEffect';
 import { RemainDistanceHUD } from './RemainDistanceHUD';
 import { resolveEquippedLoadout } from './WeaponCalc';
 import { BackgroundThemeManager } from './BackgroundThemeManager';
-import { CloudLayerManager } from './CloudLayerManager';
+import { CloudManager } from './CloudManager';
 
 
 const { ccclass, property } = _decorator;
@@ -207,6 +208,13 @@ export class GameManager extends Component implements IGameManager {
     public playerShipBaseRotationX: number = 0;
     public playerShipBaseRotationY: number = 90;
 
+    // WASD/矢印キー移動速度(OptionsUIのKeySpeedSlider)がユーザーに許容する範囲(px/秒)。
+    // OptionsUI.ts側にハードコードしていた定数をここへ移し、GameManagerEditorから調整できる
+    // ようにした(マウスのtargetPos瞬間移動+lerpに対し、WASDは一定速度でtargetPosを動かす
+    // だけなので、上限を上げないとマウス操作より体感が遅くなる問題への対応)。
+    public keySpeedMin: number = 200;
+    public keySpeedMax: number = 2000;
+
     // 弾(自機/敵とも共通、Bullet.ts)の発光パルス基礎値。既定値はBullet.ts実装時の固定値と同じ。
     // IGameManager経由でBullet.update()が毎フレーム参照する(Constants.ts参照)。
     public bulletPulseSpeed: number = 6;
@@ -289,9 +297,10 @@ export class GameManager extends Component implements IGameManager {
     // Playerより奥に描画する。
     private cloudFrontCamera: Camera = null;
 
-    // Ingame背景の3層クラウド(極薄い/薄い/程よく薄い)。resolveInGameReferences()でミッションごとに
-    // 生成し直す(Editor側のPrefab編集は不要、完全にコード側で動的生成する)。
-    private cloudLayerManager: CloudLayerManager = null;
+    // Ingame背景の雲(奥/手前2層、それぞれ透明度/サイズ/速度をランダム生成)。
+    // resolveInGameReferences()でミッションごとに生成し直す(Editor側のPrefab編集は不要、
+    // 完全にコード側で動的生成する)。
+    private cloudManager: CloudManager = null;
 
     onLoad() {
         console.log("[GameManager] onLoad triggered.");
@@ -320,6 +329,14 @@ export class GameManager extends Component implements IGameManager {
         if (!this.node.getComponent(CocosDiagnostic)) {
             this.node.addComponent(CocosDiagnostic);
         }
+
+        // マウスのtargetPos追従はcanvas範囲内でしかMOUSE_MOVEが発火しないため、カーソルが
+        // ウィンドウ外に出るとPlayerControllerが無反応になる(弾幕を避けている最中だと致命的)。
+        // ウィンドウ/タブがフォーカスを失った瞬間(Game.EVENT_HIDE、Web/Electron/ネイティブ
+        // 共通でCocosが検知してくれる)にIngame中ならOptionsUIを強制的に開いて一時停止する
+        // ことで、「操作不能なまま被弾し続ける」事故を防ぐ(toggle()ではなくensureOpen()を使い、
+        // 既に開いている場合に誤って閉じないようにする)。
+        game.on(Game.EVENT_HIDE, this.onGameHide, this);
 
         console.log("[GameManager] onLoad completed. Ready for start.");
 
@@ -411,7 +428,7 @@ export class GameManager extends Component implements IGameManager {
         // to share ForegroundCamera/DEFAULT with the Player, which meant nothing could ever
         // render between "always behind everything" and "always in front of everything". Splitting
         // them out lets the cloud foreground layer sit between Enemy and Player (雲で敵は隠れるが
-        // Playerは常に見える、see CloudLayerManager).
+        // Playerは常に見える、see CloudManager).
         let enemyCamNode = scene.getChildByName("EnemyCamera");
         if (!enemyCamNode) {
             console.log("[GameManager] Creating missing EnemyCamera.");
@@ -521,7 +538,7 @@ export class GameManager extends Component implements IGameManager {
             this.enemyCamera.enabled = true;
         }
 
-        // CloudFrontCamera: FG_CLOUD_LAYERのみを描画(CloudLayerManagerの"薄い"/"程よく薄い"層)。
+        // CloudFrontCamera: FG_CLOUD_LAYERのみを描画(CloudManagerの手前(near)層)。
         // Enemy/Bullet/UIより手前、Playerより奥に来るよう、enemyCameraとforegroundCameraの間の
         // priorityに置く。
         if (this.cloudFrontCamera) {
@@ -688,6 +705,7 @@ export class GameManager extends Component implements IGameManager {
                 upgradeCostUnitScale?: number; missionEarlyBaselineCredits?: number; missionLateBaselineCredits?: number;
                 upgradeButtonFontSize?: number; upgradeNoticeFontSize?: number; upgradeSharedInfoFontSize?: number;
                 initialCredit?: number;
+                keySpeedMin?: number; keySpeedMax?: number;
             };
 
             if (typeof config.playerShipScaleMultiplier === 'number') {
@@ -732,6 +750,8 @@ export class GameManager extends Component implements IGameManager {
                 this.initialCredit = config.initialCredit;
                 this.applyInitialCreditIfNewSave();
             }
+            if (typeof config.keySpeedMin === 'number') this.keySpeedMin = config.keySpeedMin;
+            if (typeof config.keySpeedMax === 'number') this.keySpeedMax = config.keySpeedMax;
 
             const scene = director.getScene();
             const ambient = scene && (scene as any).globals ? (scene as any).globals.ambient : null;
@@ -818,8 +838,15 @@ export class GameManager extends Component implements IGameManager {
 
     onDestroy() {
         this.videoBG.destroy();
+        game.off(Game.EVENT_HIDE, this.onGameHide, this);
         if (GameManager.instance === this) {
             GameManager.instance = null;
+        }
+    }
+
+    private onGameHide() {
+        if (this.state === GameState.INGAME && OptionsUI.instance) {
+            OptionsUI.instance.ensureOpen();
         }
     }
 
@@ -1266,15 +1293,15 @@ export class GameManager extends Component implements IGameManager {
         this._videoBGThemeColor = btm ? btm.getColorForLv(this.currentMission ? this.currentMission.stars : 1) : null;
         this.videoBG.setup(wrapper2 || rootNode, "VideoBGSpriteNode", videoPath, bgLayer, BG_ONLY_LAYER);
 
-        // 3層クラウド(極薄い=BG_ONLY_LAYER、薄い/程よく薄い=FG_CLOUD_LAYER)。ミッションごとに
-        // 前回ぶんを破棄して作り直す(VideoBGと同じ、Editor側のPrefab編集は不要)。
-        if (this.cloudLayerManager && this.cloudLayerManager.isValid) {
-            this.cloudLayerManager.node.destroy();
+        // 雲(奥=BG_ONLY_LAYER、手前=FG_CLOUD_LAYER)。ミッションごとに前回ぶんを破棄して
+        // 作り直す(VideoBGと同じ、Editor側のPrefab編集は不要)。
+        if (this.cloudManager && this.cloudManager.isValid) {
+            this.cloudManager.node.destroy();
         }
-        const cloudNode = new Node("CloudLayerManager");
+        const cloudNode = new Node("CloudManager");
         (wrapper2 || rootNode).addChild(cloudNode);
-        this.cloudLayerManager = cloudNode.addComponent(CloudLayerManager);
-        this.cloudLayerManager.setup(wrapper2 || rootNode, BG_ONLY_LAYER, FG_CLOUD_LAYER);
+        this.cloudManager = cloudNode.addComponent(CloudManager);
+        this.cloudManager.setup(wrapper2 || rootNode, BG_ONLY_LAYER, FG_CLOUD_LAYER);
 
         // ズーム/色合い/明滅は毎フレームsin波で計算する(updateVideoBGColorEffect())- Ken Burns風
         // ズームを開始時に一度きりのtweenで組んでいた旧実装だと、GameManagerEditorの数値が

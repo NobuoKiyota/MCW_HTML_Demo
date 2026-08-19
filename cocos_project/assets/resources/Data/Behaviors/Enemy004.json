@@ -36,24 +36,24 @@
             }
         },
         {
-            "id": 2,
-            "type": "Move",
-            "params": {
-                "pattern": "curve",
-                "angle": 270,
-                "speed": 2,
-                "turn": 2,
-                "angleRef": 9
-            },
-            "next": 8
-        },
-        {
             "id": 7,
             "type": "Attack",
             "params": {
                 "shotPatternId": "SP_ENE004"
             },
             "next": null
+        },
+        {
+            "id": 2,
+            "type": "Move",
+            "params": {
+                "pattern": "curve",
+                "angle": 270,
+                "speed": 1.2,
+                "turn": 2,
+                "angleRef": 9
+            },
+            "next": 8
         }
     ],
     "_editor": {

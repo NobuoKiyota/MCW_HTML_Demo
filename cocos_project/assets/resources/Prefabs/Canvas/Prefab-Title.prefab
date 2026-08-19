@@ -25,7 +25,7 @@
     "_active": true,
     "_components": [],
     "_prefab": {
-      "__id__": 124
+      "__id__": 115
     },
     "_lpos": {
       "__type__": "cc.Vec3",
@@ -72,17 +72,17 @@
     "_active": true,
     "_components": [
       {
-        "__id__": 117
+        "__id__": 108
       },
       {
-        "__id__": 119
+        "__id__": 110
       },
       {
-        "__id__": 121
+        "__id__": 112
       }
     ],
     "_prefab": {
-      "__id__": 123
+      "__id__": 114
     },
     "_lpos": {
       "__type__": "cc.Vec3",
@@ -133,19 +133,16 @@
       },
       {
         "__id__": 99
-      },
-      {
-        "__id__": 105
       }
     ],
     "_active": true,
     "_components": [
       {
-        "__id__": 114
+        "__id__": 105
       }
     ],
     "_prefab": {
-      "__id__": 116
+      "__id__": 107
     },
     "_lpos": {
       "__type__": "cc.Vec3",
@@ -2580,131 +2577,6 @@
     "nestedPrefabInstanceRoots": null
   },
   {
-    "__type__": "cc.Node",
-    "_objFlags": 0,
-    "_parent": {
-      "__id__": 3
-    },
-    "_prefab": {
-      "__id__": 106
-    },
-    "__editorExtras__": {}
-  },
-  {
-    "__type__": "cc.PrefabInfo",
-    "root": {
-      "__id__": 105
-    },
-    "asset": {
-      "__uuid__": "a9fc70d8-d672-456f-8f5e-952be12dfbc2",
-      "__expectedType__": "cc.Prefab"
-    },
-    "fileId": "f7xySDK8lDI4iGYK8KcX7O",
-    "instance": {
-      "__id__": 107
-    },
-    "targetOverrides": null
-  },
-  {
-    "__type__": "cc.PrefabInstance",
-    "fileId": "5fe2pmuJhHlqUAYKjwex2r",
-    "prefabRootNode": {
-      "__id__": 1
-    },
-    "mountedChildren": [],
-    "mountedComponents": [],
-    "propertyOverrides": [
-      {
-        "__id__": 108
-      },
-      {
-        "__id__": 110
-      },
-      {
-        "__id__": 111
-      },
-      {
-        "__id__": 112
-      },
-      {
-        "__id__": 113
-      }
-    ],
-    "removedComponents": []
-  },
-  {
-    "__type__": "CCPropertyOverrideInfo",
-    "targetInfo": {
-      "__id__": 109
-    },
-    "propertyPath": [
-      "_name"
-    ],
-    "value": "OptionsUI"
-  },
-  {
-    "__type__": "cc.TargetInfo",
-    "localID": [
-      "f7xySDK8lDI4iGYK8KcX7O"
-    ]
-  },
-  {
-    "__type__": "CCPropertyOverrideInfo",
-    "targetInfo": {
-      "__id__": 109
-    },
-    "propertyPath": [
-      "_lpos"
-    ],
-    "value": {
-      "__type__": "cc.Vec3",
-      "x": 0,
-      "y": 0,
-      "z": 0
-    }
-  },
-  {
-    "__type__": "CCPropertyOverrideInfo",
-    "targetInfo": {
-      "__id__": 109
-    },
-    "propertyPath": [
-      "_lrot"
-    ],
-    "value": {
-      "__type__": "cc.Quat",
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "w": 1
-    }
-  },
-  {
-    "__type__": "CCPropertyOverrideInfo",
-    "targetInfo": {
-      "__id__": 109
-    },
-    "propertyPath": [
-      "_euler"
-    ],
-    "value": {
-      "__type__": "cc.Vec3",
-      "x": 0,
-      "y": 0,
-      "z": 0
-    }
-  },
-  {
-    "__type__": "CCPropertyOverrideInfo",
-    "targetInfo": {
-      "__id__": 109
-    },
-    "propertyPath": [
-      "_active"
-    ],
-    "value": true
-  },
-  {
     "__type__": "cc.UITransform",
     "_name": "",
     "_objFlags": 0,
@@ -2714,7 +2586,7 @@
     },
     "_enabled": true,
     "__prefab": {
-      "__id__": 115
+      "__id__": 106
     },
     "_contentSize": {
       "__type__": "cc.Size",
@@ -2755,7 +2627,7 @@
     },
     "_enabled": true,
     "__prefab": {
-      "__id__": 118
+      "__id__": 109
     },
     "_contentSize": {
       "__type__": "cc.Size",
@@ -2783,7 +2655,7 @@
     },
     "_enabled": true,
     "__prefab": {
-      "__id__": 120
+      "__id__": 111
     },
     "_cameraComponent": null,
     "_alignCanvasWithScreen": true,
@@ -2803,7 +2675,7 @@
     },
     "_enabled": true,
     "__prefab": {
-      "__id__": 122
+      "__id__": 113
     },
     "_alignFlags": 45,
     "_target": null,
@@ -2852,11 +2724,6 @@
     },
     "fileId": "3cgJHV4VpNP6QTcVVOZwmB",
     "instance": null,
-    "targetOverrides": null,
-    "nestedPrefabInstanceRoots": [
-      {
-        "__id__": 105
-      }
-    ]
+    "targetOverrides": null
   }
 ]

@@ -1,10 +1,11 @@
-import { _decorator, Component, Node, Label, Tween, tween, v3, UIOpacity, director, LabelOutline, Color, UITransform, Vec3, Widget, Button, BlockInputEvents, Layers, Graphics, Canvas } from 'cc';
+import { _decorator, Component, Node, Label, Tween, tween, v3, UIOpacity, director, LabelOutline, Color, UITransform, Vec3, Widget, Button, BlockInputEvents, Layers, Graphics, Canvas, Prefab, resources, instantiate } from 'cc';
 import { SideBarUI } from './SideBarUI';
 import { SettingsManager } from './SettingsManager';
 import { GameManager } from './GameManager';
 import { GameState } from './Constants';
 import { MissionUI } from './MissionUI';
 import { SoundManager } from './SoundManager';
+import { OptionsUI } from './OptionsUI';
 
 const { ccclass, property } = _decorator;
 
@@ -242,6 +243,35 @@ export class UIManager extends Component {
         } else {
             console.warn(`[UIManager] SideBarUI NOT READY. instance=${!!this.sideBarUI}, valid=${this.sideBarUI?.isValid}, canvas=${!!canvas}`);
         }
+
+        // OptionsUIも永続Canvas配下に1個だけ生成する(SideBarUIと同じ考え方)。以前はTitle/Home/
+        // Ingameの各Prefabがそれぞれ自前のOptionsUIを埋め込んでおり(OptionsUI.onLoad()の
+        // 「use the latest one」というコメントがその名残)、画面遷移のたびに古いインスタンスが
+        // 破棄され新しいインスタンスに差し替わっていた。永続Canvas配下に1個だけ置けば、
+        // 画面をまたいでも同じインスタンスがそのまま使い回される(SideBarUIと同様、
+        // switchContent()でcurrentContentNodeごと破棄されることが無いため)。
+        this.ensureOptionsUI(canvas);
+    }
+
+    private _optionsUILoading: boolean = false;
+
+    private ensureOptionsUI(canvas: Node) {
+        if ((OptionsUI.instance && OptionsUI.instance.isValid) || this._optionsUILoading) return;
+        this._optionsUILoading = true;
+        resources.load("Prefabs/Canvas/OptionsUI", Prefab, (err, prefab) => {
+            this._optionsUILoading = false;
+            if (err || !prefab) {
+                console.warn("[UIManager] Failed to load Prefabs/Canvas/OptionsUI.", err);
+                return;
+            }
+            // 非同期ロード中に別経路(旧・各画面埋め込み版のonLoad()等)で既に生成されていた場合の保険。
+            if (OptionsUI.instance && OptionsUI.instance.isValid) return;
+            const node = instantiate(prefab);
+            node.name = "OptionsUI";
+            canvas.addChild(node);
+            node.setSiblingIndex(canvas.children.length - 1); // 開いた時に最前面に来るように
+            console.log("[UIManager] OptionsUI persistent instance created under Canvas.");
+        });
     }
 
     private dumpCanvasChildren(canvas: Node) {

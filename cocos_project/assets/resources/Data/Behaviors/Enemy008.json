@@ -87,12 +87,20 @@
             "next": 12
         },
         {
+            "id": 13,
+            "type": "Attack",
+            "params": {
+                "shotPatternId": "SP_ENE008_Multi"
+            },
+            "next": 14
+        },
+        {
             "id": 2,
             "type": "Move",
             "params": {
                 "pattern": "zigzag",
                 "angle": 270,
-                "speed": 2,
+                "speed": 1.3,
                 "turn": 5
             },
             "next": null
@@ -103,18 +111,10 @@
             "params": {
                 "pattern": "zigzag",
                 "angle": 270,
-                "speed": 2,
+                "speed": 1.3,
                 "turn": 5
             },
             "next": null
-        },
-        {
-            "id": 13,
-            "type": "Attack",
-            "params": {
-                "shotPatternId": "SP_ENE008_Multi"
-            },
-            "next": 14
         }
     ],
     "_editor": {

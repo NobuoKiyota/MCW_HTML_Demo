@@ -2,17 +2,6 @@
     "id": "Enemy006",
     "nodes": [
         {
-            "id": 2,
-            "type": "Move",
-            "params": {
-                "pattern": "homing",
-                "angle": 270,
-                "speed": 2,
-                "turn": 5
-            },
-            "next": 8
-        },
-        {
             "id": 6,
             "type": "Spin",
             "params": {
@@ -35,6 +24,17 @@
                 "shotPatternId": "SP_ENE006"
             },
             "next": null
+        },
+        {
+            "id": 2,
+            "type": "Move",
+            "params": {
+                "pattern": "homing",
+                "angle": 270,
+                "speed": 1.2,
+                "turn": 5
+            },
+            "next": 8
         }
     ],
     "_editor": {

@@ -31,28 +31,6 @@
             "next": 2
         },
         {
-            "id": 2,
-            "type": "Move",
-            "params": {
-                "pattern": "zigzag",
-                "angle": 270,
-                "speed": 3,
-                "turn": 5
-            },
-            "next": null
-        },
-        {
-            "id": 10,
-            "type": "Move",
-            "params": {
-                "pattern": "homing",
-                "angle": 270,
-                "speed": 3,
-                "turn": 5
-            },
-            "next": null
-        },
-        {
             "id": 6,
             "type": "Spin",
             "params": {
@@ -137,6 +115,28 @@
                 "shotPatternId": "SP_ENE007"
             },
             "next": 11
+        },
+        {
+            "id": 2,
+            "type": "Move",
+            "params": {
+                "pattern": "zigzag",
+                "angle": 270,
+                "speed": 1.5,
+                "turn": 5
+            },
+            "next": null
+        },
+        {
+            "id": 10,
+            "type": "Move",
+            "params": {
+                "pattern": "homing",
+                "angle": 270,
+                "speed": 1.5,
+                "turn": 5
+            },
+            "next": null
         }
     ],
     "_editor": {
