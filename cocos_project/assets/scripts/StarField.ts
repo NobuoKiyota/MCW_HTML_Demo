@@ -25,6 +25,14 @@ export class StarField extends Component {
 
     private _speedManager: GameSpeedManager = null;
 
+    // 一時的な演出バースト(集中線風)の状態。triggerBurst()で開始し、durationSec経過で
+    // 自動的に通常の速度連動計算へ戻る。GOAL到達時などから汎用的に呼べるよう、Goal専用の
+    // ロジックはここに持たず単純な倍率オーバーレイとして実装する。
+    private _burstDuration: number = 0;
+    private _burstTimeRemaining: number = 0;
+    private _burstSpeedMult: number = 1;
+    private _burstEmissionMult: number = 1;
+
     onLoad() {
         if (!this.particleSystem) {
             this.particleSystem = this.getComponent(ParticleSystem2D);
@@ -70,17 +78,41 @@ export class StarField extends Component {
 
         const currentSpeed = this._speedManager.getCurrentSpeed();
 
+        // バースト倍率の計算。終盤30%の区間でイーズアウトし、通常値へ滑らかに戻す
+        // (急に元へ戻すと明滅して見えるため)。
+        let speedMult = 1;
+        let emissionMult = 1;
+        if (this._burstTimeRemaining > 0) {
+            const t = this._burstDuration > 0 ? this._burstTimeRemaining / this._burstDuration : 0;
+            const ease = t > 0.3 ? 1 : (t / 0.3);
+            speedMult = 1 + (this._burstSpeedMult - 1) * ease;
+            emissionMult = 1 + (this._burstEmissionMult - 1) * ease;
+            this._burstTimeRemaining -= dt;
+        }
+
         // 1. スピード連動
         // パーティクルの初速をゲーム速度に合わせる
-        this.particleSystem.speed = currentSpeed * this.speedScale;
+        this.particleSystem.speed = currentSpeed * this.speedScale * speedMult;
         this.particleSystem.speedVar = this.particleSystem.speed * 0.2;
 
         // 2. 発生量連動
         // 速いほどたくさん星が出るようにする
-        this.particleSystem.emissionRate = this.baseEmission + (currentSpeed * this.emissionScale);
+        this.particleSystem.emissionRate = (this.baseEmission + (currentSpeed * this.emissionScale)) * emissionMult;
 
         // 3. 長さを出す演出 (オプション: 速度が速いほどパーティクルを細長く見せる)
         // ParticleSystem2D では直接的な「伸び」は難しいが、
         // 移動速度が速いことで視覚的に線に見える効果がある。
+    }
+
+    /**
+     * 一時的にスピード/発生量を底上げして「集中線」風の演出を作る。
+     * durationSec経過後は自動的に通常の速度連動計算へ戻る。GOAL到達時などから呼ぶ想定だが、
+     * Start演出等でも同じAPIを流用できるよう汎用の倍率パラメータにしてある。
+     */
+    public triggerBurst(durationSec: number, speedMultiplier: number, emissionMultiplier: number) {
+        this._burstDuration = durationSec;
+        this._burstTimeRemaining = durationSec;
+        this._burstSpeedMult = speedMultiplier;
+        this._burstEmissionMult = emissionMultiplier;
     }
 }

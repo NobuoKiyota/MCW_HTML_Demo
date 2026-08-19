@@ -21,9 +21,6 @@ export class CSVHelper {
             let line = lines[i].trim();
             if (line === "" || line.startsWith("#") || line.startsWith("//")) continue;
 
-            // Clean up trailing slashes or delimiters (user's "//////")
-            line = line.replace(/([\/\,]{2,})$/, "");
-
             // Detect delimiter
             if (line.includes("/")) delimiter = "/";
             else if (line.includes(";")) delimiter = ";";
@@ -40,9 +37,6 @@ export class CSVHelper {
         for (let i = headerLineIndex + 1; i < lines.length; i++) {
             let line = lines[i].trim();
             if (line === "" || line.startsWith("#") || line.startsWith("//")) continue;
-
-            // Strip trailing junk
-            line = line.replace(/([\/\,]{2,})$/, "");
 
             const values = this.splitLine(line, delimiter);
             if (values.length < headers.length) {

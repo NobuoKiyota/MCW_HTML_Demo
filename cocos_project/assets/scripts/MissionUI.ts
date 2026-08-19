@@ -179,8 +179,15 @@ export class MissionUI extends Component {
                 distance: Math.round(gen.distD),
                 enemyPattern,
                 reward: Math.round(gen.rewardG + gen.rewardH),
+                rewardG: Math.round(gen.rewardG),
+                rewardH: Math.round(gen.rewardH),
                 cargoWeight: gen.cargoWeight,
                 targetTime: Math.round(gen.targetTimeSec),
+                // GameManager.startInGame()が距離トリガー式の湧きキューを組み立てるための情報
+                // (BehaviorTestController.tsと同じアルゴリズム、Constants.ts:IMissionData参照)。
+                spawnTableIds: gen.tableIds,
+                spawnTableDists: gen.tableDists,
+                marginEndKm: gen.distC,
             });
             subLvIndices.push(allRowsForLv.indexOf(diff) + 1);
         }

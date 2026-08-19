@@ -1,7 +1,7 @@
 import { GameDatabase } from './GameDatabase';
 import { WeaponData } from './GameDataTypes';
 import { GROWTH_EXPONENTS, computeUpgradeCurve, creditsPerCostUnitAt } from './PlayerUpgradeCalc';
-import { ISaveData } from './DataManager';
+import { ISaveData, IGridPart } from './DataManager';
 import { IGameManager } from './Constants';
 import { isEquipmentUnlocked, canAffordEquipmentUnlock, unlockEquipment } from './EquipmentUnlock';
 
@@ -160,4 +160,55 @@ export function checkLoadoutEquip(weaponIds: string[], saveData: ISaveData): Loa
     const capacity = (saveData && typeof saveData.capacity === 'number') ? saveData.capacity : 0;
     const ok = lockedWeaponIds.length === 0 && totalWeight <= capacity;
     return { ok, totalWeight, capacity, lockedWeaponIds };
+}
+
+export interface ResolvedLoadout {
+    shotPatternIds: string[];
+    scaleMultByPatternId: { [shotPatternId: string]: number };
+    intervalMultByPatternId: { [shotPatternId: string]: number };
+    damageMultByPatternId: { [shotPatternId: string]: number };
+}
+
+/**
+ * 本番プレイ用: DataManager.data.gridData.equippedParts(Customizeで実際にグリッドへ配置した
+ * パーツ、最大12まで)から、weaponIdを持つ武器パーツだけを集めてShotPatternID単位の
+ * Scale/WT(発射間隔)/Damage倍率マップに変換する。PlayerController.setOverrideShotPatternIds()/
+ * setScaleMultipliers()/setIntervalMultipliers()/setDamageMultipliers()にそのまま渡す想定。
+ *
+ * PlayerWeaponManager.resolveLoadout()(scene-BehaviorTest専用、6グループのInspector
+ * ドロップダウンから選ぶデバッグハーネス)とは別物 - あちらはテスト用の手動選択を情報源にするが、
+ * こちらは実際の装備データ(part.weaponId/part.lv)を情報源にする。装備画面側で解放/重量
+ * チェック済みの前提のため、ここではisWeaponUnlocked/checkLoadoutEquip相当の再チェックは行わない。
+ */
+export function resolveEquippedLoadout(equippedParts: IGridPart[] | null | undefined): ResolvedLoadout {
+    const shotPatternIds: string[] = [];
+    const scaleMultByPatternId: { [shotPatternId: string]: number } = {};
+    const intervalMultByPatternId: { [shotPatternId: string]: number } = {};
+    const damageMultByPatternId: { [shotPatternId: string]: number } = {};
+
+    const db = GameDatabase.instance;
+    if (!db || !equippedParts) {
+        return { shotPatternIds, scaleMultByPatternId, intervalMultByPatternId, damageMultByPatternId };
+    }
+
+    for (const part of equippedParts) {
+        if (!part.weaponId) continue; // 非武器パーツ(Cockpit等)は対象外
+
+        const weapon = db.getWeaponData(part.weaponId);
+        if (!weapon || !weapon.shotPatternId) {
+            console.warn(`[WeaponCalc] resolveEquippedLoadout: Weapon '${part.weaponId}' がWeapons.csvに見つからない、またはShotPatternID未設定です。この武器はスキップされます。`);
+            continue;
+        }
+
+        const lv = part.lv || 0;
+        const stats = computeWeaponLevelStats(weapon, lv);
+        const id = weapon.shotPatternId;
+
+        if (!shotPatternIds.includes(id)) shotPatternIds.push(id);
+        scaleMultByPatternId[id] = stats.scale;
+        intervalMultByPatternId[id] = weapon.wtMin > 0 ? stats.wt / weapon.wtMin : 1.0;
+        damageMultByPatternId[id] = weapon.dmgMin > 0 ? stats.dmg / weapon.dmgMin : 1.0;
+    }
+
+    return { shotPatternIds, scaleMultByPatternId, intervalMultByPatternId, damageMultByPatternId };
 }

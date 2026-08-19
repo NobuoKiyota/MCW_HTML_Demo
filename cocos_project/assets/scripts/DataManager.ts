@@ -26,9 +26,14 @@ export interface ISaveData {
     hp: number;
     maxHp: number;
     parts: IGridPart[];
+    // 機体(currentShipId)ごとのグリッド装備/レイアウト。GridCellの解放Tier(CustomizeCalc.
+    // countPurchasedCells())もこの機体別layoutから算出されるため、機体を切り替えれば解放進捗も
+    // 独立する。playerParamLevelsと同じ{shipId: ...}のマップ構造。取得はgetCurrentGridData()経由。
     gridData: {
-        equippedParts: IGridPart[];
-        layout: number[][]; // 0,1,2 state
+        [shipId: string]: {
+            equippedParts: IGridPart[];
+            layout: number[][]; // 0,1,2 state
+        };
     };
     upgradeLevels: { [key: string]: number };
     careerStats: {
@@ -58,6 +63,21 @@ export interface ISaveData {
     playerParamLevels: { [shipId: string]: { [paramId: string]: number } };
 }
 
+// 現在選択中の機体(data.currentShipId)のgridData(装備/レイアウト)を返す。未初期化の機体なら
+// 空の装備+テンプレートlayoutでその場に新規作成して返す(以後dataに保持され続ける)。
+// GridCellの解放Tier(CustomizeCalc.countPurchasedCells())もこの機体別layoutから算出されるため、
+// 機体を切り替えれば解放進捗も独立する。data.gridDataへ直接アクセスせず、必ずこの関数を経由すること。
+export function getCurrentGridData(data: ISaveData): { equippedParts: IGridPart[]; layout: number[][] } {
+    const shipId = data.currentShipId || 'Default';
+    if (!data.gridData[shipId]) {
+        data.gridData[shipId] = {
+            equippedParts: [],
+            layout: JSON.parse(JSON.stringify(GAME_SETTINGS.SHIP_LAYOUT)),
+        };
+    }
+    return data.gridData[shipId];
+}
+
 @ccclass('DataManager')
 export class DataManager {
     private static _instance: DataManager;
@@ -85,22 +105,24 @@ export class DataManager {
             maxHp: 100,
             parts: [], // Inventory Parts (Not equipped)
             gridData: {
-                // 初期装備武器WPN_BeamGun/EQ01_BeamGun(横1x2、x=2,y=2)を6x6ダイヤ型レイアウトの
-                // 中央上段に配置する(SHIP_LAYOUT参照、中央2x2ブロックの上段がBeamGunの土台)。
-                // EQ01_BeamGunはEquipment.csv上でUnlockCost=0・UnlockItems無しの「最初から解放済み」
-                // 武器なので、unlockedEquipmentIdsに追加しなくてもisEquipmentUnlocked()側で常に
-                // 解放済み扱いになる(EquipmentUnlock.ts参照)。lv:0=未強化から開始。
-                equippedParts: [
-                    {
-                        x: 2, y: 2, w: 2, h: 1, type: "Fire",
-                        id: "part_initial_weapon",
-                        weaponId: "WPN_BeamGun",
-                        equipmentId: "EQ01_BeamGun",
-                        cells: [{ x: 0, y: 0 }, { x: 1, y: 0 }],
-                        lv: 0,
-                    },
-                ],
-                layout: JSON.parse(JSON.stringify(GAME_SETTINGS.SHIP_LAYOUT))
+                'Default': {
+                    // 初期装備武器WPN_BeamGun/EQ01_BeamGun(横1x2、x=2,y=2)を6x6ダイヤ型レイアウトの
+                    // 中央上段に配置する(SHIP_LAYOUT参照、中央2x2ブロックの上段がBeamGunの土台)。
+                    // EQ01_BeamGunはEquipment.csv上でUnlockCost=0・UnlockItems無しの「最初から解放済み」
+                    // 武器なので、unlockedEquipmentIdsに追加しなくてもisEquipmentUnlocked()側で常に
+                    // 解放済み扱いになる(EquipmentUnlock.ts参照)。lv:0=未強化から開始。
+                    equippedParts: [
+                        {
+                            x: 2, y: 2, w: 2, h: 1, type: "Fire",
+                            id: "part_initial_weapon",
+                            weaponId: "WPN_BeamGun",
+                            equipmentId: "EQ01_BeamGun",
+                            cells: [{ x: 0, y: 0 }, { x: 1, y: 0 }],
+                            lv: 0,
+                        },
+                    ],
+                    layout: JSON.parse(JSON.stringify(GAME_SETTINGS.SHIP_LAYOUT))
+                }
             },
             upgradeLevels: {},
             careerStats: {
@@ -135,19 +157,31 @@ export class DataManager {
                 if (loaded.careerStats) {
                     loaded.careerStats = Object.assign({}, defaults.careerStats, loaded.careerStats);
                 }
+                // gridDataは機体(shipId)ごとのマップ構造({shipId: {layout, equippedParts}})。
+                // 機体という概念が無かった頃の旧セーブ(フラットな{layout, equippedParts}構造)を
+                // 読み込んだ場合は、currentShipId配下へラップして進行状況を引き継ぐ。
+                if (loaded.gridData && loaded.gridData.layout) {
+                    const shipId = loaded.currentShipId || 'Default';
+                    loaded.gridData = { [shipId]: { layout: loaded.gridData.layout, equippedParts: loaded.gridData.equippedParts || [] } };
+                    console.log(`[DataManager] Migrated legacy flat gridData into per-ship structure (shipId='${shipId}').`);
+                }
                 // gridData.layoutはGAME_SETTINGS.SHIP_LAYOUT(開発中に何度もサイズ変更される想定)の
                 // コピーなので、保存済みのlayoutが現在のSHIP_LAYOUTと寸法(行数/列数)が違う場合は
                 // そのまま使わず破棄する(古いセーブの10x10レイアウトを、8x8に変更した後も
                 // 引きずってCustomize画面がGridContainerの外まで移動可能になってしまう不具合の対策)。
-                // 解放済みセルの引き継ぎより、寸法不一致による座標破綻を避ける方を優先する。
-                if (loaded.gridData && loaded.gridData.layout) {
-                    const loadedLayout = loaded.gridData.layout;
-                    const defaultLayout = defaults.gridData.layout;
-                    const sameRows = loadedLayout.length === defaultLayout.length;
-                    const sameCols = sameRows && loadedLayout.every((row: number[], i: number) => row.length === defaultLayout[i].length);
-                    if (!sameRows || !sameCols) {
-                        console.warn(`[DataManager] Saved gridData.layout size (${loadedLayout.length} rows) doesn't match current SHIP_LAYOUT (${defaultLayout.length} rows). Resetting gridData to defaults.`);
-                        delete loaded.gridData;
+                // 解放済みセルの引き継ぎより、寸法不一致による座標破綻を避ける方を優先する。機体ごとに
+                // 判定するので、他機体のlayoutが正常ならそちらは影響を受けない。
+                if (loaded.gridData) {
+                    const defaultLayout = defaults.gridData['Default'].layout;
+                    for (const shipId of Object.keys(loaded.gridData)) {
+                        const shipGrid = loaded.gridData[shipId];
+                        if (!shipGrid || !shipGrid.layout) continue;
+                        const sameRows = shipGrid.layout.length === defaultLayout.length;
+                        const sameCols = sameRows && shipGrid.layout.every((row: number[], i: number) => row.length === defaultLayout[i].length);
+                        if (!sameRows || !sameCols) {
+                            console.warn(`[DataManager] Saved gridData['${shipId}'].layout size (${shipGrid.layout.length} rows) doesn't match current SHIP_LAYOUT (${defaultLayout.length} rows). Resetting this ship's gridData.`);
+                            delete loaded.gridData[shipId];
+                        }
                     }
                 }
                 // Merge with default to ensure top-level new fields existence

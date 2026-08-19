@@ -1,5 +1,5 @@
 import { GAME_SETTINGS } from './Constants';
-import { ISaveData, IGridPart } from './DataManager';
+import { ISaveData, IGridPart, getCurrentGridData } from './DataManager';
 import { EquipmentData, WeaponData, IUnlockItemRequirement } from './GameDataTypes';
 import { GameDatabase } from './GameDatabase';
 import { isEquipmentUnlocked } from './EquipmentUnlock';
@@ -46,8 +46,10 @@ export interface GridCellUnlockInfo {
 // getGridCellDataForTier())。DBが未準備/1行も定義が無ければ、旧来の全セル一律値・アイテム無しに
 // フォールバックする。
 export function getNextCellUnlockInfo(saveData: ISaveData): GridCellUnlockInfo {
-    const layout = saveData && saveData.gridData ? saveData.gridData.layout : null;
-    const tier = countPurchasedCells(layout) + 1;
+    const layout = saveData ? getCurrentGridData(saveData).layout : null;
+    const purchased = countPurchasedCells(layout);
+    const tier = purchased + 1;
+    console.log(`[CustomizeCalc] getNextCellUnlockInfo: purchased=${purchased}, tier=${tier}`);
     const db = GameDatabase.instance;
     const row = db ? db.getGridCellDataForTier(tier) : null;
     if (row) return { tier, cost: row.unlockCost, items: row.unlockItems };
@@ -89,7 +91,7 @@ export function canAffordCellUnlock(saveData: ISaveData): boolean {
  */
 export function unlockCell(x: number, y: number, dataManager: { data: ISaveData; save: () => void; addResource: (type: string, amount: number) => void }): boolean {
     if (!dataManager) return false;
-    const layout = dataManager.data && dataManager.data.gridData ? dataManager.data.gridData.layout : null;
+    const layout = dataManager.data ? getCurrentGridData(dataManager.data).layout : null;
     if (!layout || !layout[y] || layout[y][x] === undefined) return false;
 
     if (layout[y][x] === 2) return true; // 既に解放済み
@@ -174,11 +176,11 @@ export interface EquipmentListEntry {
  * Category(Armor/Utility等)をtypeとして記録するだけの非武器パーツになる。
  */
 export function placeEquipment(entry: EquipmentListEntry, ox: number, oy: number, dataManager: { data: ISaveData; save: () => void }): boolean {
-    if (!dataManager || !dataManager.data || !dataManager.data.gridData) return false;
+    if (!dataManager || !dataManager.data) return false;
     const { equipment, weapon } = entry;
     if (!equipment || !equipment.shapeCells || equipment.shapeCells.length === 0) return false;
 
-    const { layout, equippedParts } = dataManager.data.gridData;
+    const { layout, equippedParts } = getCurrentGridData(dataManager.data);
     const cells = shapeCellsAt(equipment.shapeCells, ox, oy);
     if (!canPlaceShape(cells, layout, equippedParts)) return false;
 
@@ -214,7 +216,7 @@ export function placeEquipment(entry: EquipmentListEntry, ox: number, oy: number
 export function getEquipmentListEntries(saveData: ISaveData): EquipmentListEntry[] {
     const db = GameDatabase.instance;
     if (!db || !saveData) return [];
-    const equippedParts = saveData.gridData.equippedParts || [];
+    const equippedParts = getCurrentGridData(saveData).equippedParts || [];
     const placedWeaponPart = new Map(equippedParts.filter(p => !!p.weaponId).map(p => [p.weaponId as string, p]));
     const placedEquipmentPart = new Map(equippedParts.filter(p => !!p.equipmentId).map(p => [p.equipmentId as string, p]));
 

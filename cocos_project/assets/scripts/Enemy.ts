@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Vec3, math, Sprite, Color, director, find, Layers, Prefab, resources, instantiate, tween, Collider2D, IPhysics2DContact, Contact2DType } from 'cc';
 // import { GameManager } from './GameManager'; // Circular Dependency
-import { GAME_SETTINGS, IGameManager, GameState } from './Constants';
+import { GAME_SETTINGS, IGameManager, GameState, ENEMY_ONLY_LAYER } from './Constants';
 import { SoundManager } from './SoundManager';
 import { DataManager } from './DataManager';
 import { BehaviorRuntime, BehaviorVisualHooks } from './BehaviorRuntime';
@@ -148,7 +148,7 @@ export class Enemy extends Component {
     private attachModel3D(data: any) {
         const existing = this.node.getChildByName("Model3D");
         if (existing) {
-            existing.layer = Layers.BitMask.DEFAULT;
+            existing.layer = ENEMY_ONLY_LAYER;
             this.model3D = existing;
             this.finalizeModel3D();
             console.log(`[Enemy] Reused embedded Model3D child node for ${data.id}.`);
@@ -175,7 +175,7 @@ export class Enemy extends Component {
     private instantiateModel3D(prefab: Prefab, yRot: number) {
         const modelNode = instantiate(prefab);
         modelNode.name = "Model3D";
-        modelNode.layer = Layers.BitMask.DEFAULT;
+        modelNode.layer = ENEMY_ONLY_LAYER;
         this.node.addChild(modelNode);
         modelNode.setPosition(0, 0, 0);
         modelNode.setRotationFromEuler(0, yRot, 0);

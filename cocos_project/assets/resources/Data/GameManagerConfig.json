@@ -16,7 +16,7 @@
   "missionMarginStartKm": 15,
   "missionMarginEndKm": 15,
   "missionAssumedMaxSpeedKmPerMin": 600,
-  "missionTargetSpeedRatio": 0.5,
+  "missionTargetSpeedRatio": 0.8,
   "missionCargoWeightBaseMin": 30,
   "missionCargoWeightBaseMax": 50,
   "missionCargoWeightPerLv": 10,

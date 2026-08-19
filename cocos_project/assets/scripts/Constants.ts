@@ -150,14 +150,34 @@ export enum GameState {
 
 export const SAVE_KEY = 'SHOOTER_COCOS_V1';
 
+// Ingame専用の描画レイヤー(カメラのvisibilityマスク用ビットフラグ)。
+// GameManager.ts の BG_ONLY_LAYER (1<<19、背景動画/StarField用) と同じ考え方で、
+// Enemyの3Dモデル・雲の前景レイヤーをPlayerの3Dモデル(Layers.BitMask.DEFAULT)から
+// 分離するための追加ビット。Enemy.ts/GameManager.ts両方から参照するためここに置く。
+export const ENEMY_ONLY_LAYER = 1 << 18;
+export const FG_CLOUD_LAYER = 1 << 17;
+
 export interface IMissionData {
     id: number;
     stars: number;
     distance: number;
     enemyPattern: string[];
     reward: number;
+    // reward = rewardG + rewardH の内訳(GameManager.onMissionComplete()のボーナス計算が、
+    // 荷物報酬(rewardH)を対象外にして基礎報酬(rewardG)だけにボーナス%を掛けるために必要)。
+    // 未設定(旧来の固定ミッション等)ならrewardG=reward, rewardH=0として扱うフォールバックあり。
+    rewardG?: number;
+    rewardH?: number;
     cargoWeight: number; // New: 30/50/70
     targetTime: number;  // New: in seconds
+    // 距離トリガー式の敵湧きキュー構築用(MissionGenerator.generateMissionFromDifficultyRowの
+    // tableIds/tableDists/distCをそのまま保持)。GameManager.startInGame()がこれを使って
+    // BehaviorTestController.tsと同じアルゴリズムでSpawnTableを残り距離ごとに発火させる。
+    // 未設定(旧来の固定ミッション等)の場合は、GameManagerは従来通りの継続タイマー湧きに
+    // フォールバックする(GameManager.spawnEnemy()参照)。
+    spawnTableIds?: string[];
+    spawnTableDists?: number[];
+    marginEndKm?: number;
 }
 
 // GameManager.spawnLaserBeam()/IGameManager.spawnLaserBeam()の引数まとめ。ShockWave/SweapBlade等の

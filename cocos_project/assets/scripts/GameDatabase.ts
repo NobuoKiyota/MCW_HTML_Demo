@@ -638,7 +638,19 @@ export class GameDatabase extends Component {
         if (this.gridCells.length === 0) return null;
         const exact = this.gridCells.find(c => c.tier === tier);
         if (exact) return exact;
-        return this.gridCells[this.gridCells.length - 1]; // Tier昇順ソート済み(parseGridCellCSV参照)なので末尾=最大Tier
+
+        // 範囲外(CSVで定義されている最大Tierを超えて解放しようとした)場合のみ、末尾(最大Tier、
+        // Tier昇順ソート済み)にクランプする。以前はexactが見つからない場合を全部この分岐で
+        // 拾っていたため、tier計算側にバグがあってTier1が見つからない、といった異常系まで
+        // 無条件にTier最大(=最も高額)のコストへすり替わってしまっていた
+        // (最小Tierを要求しているのに最大Tierの価格が出るという不具合の原因)。
+        const maxTier = this.gridCells[this.gridCells.length - 1].tier;
+        const minTier = this.gridCells[0].tier;
+        if (tier > maxTier) return this.gridCells[this.gridCells.length - 1];
+        if (tier < minTier) return this.gridCells[0];
+
+        console.warn(`[GameDatabase] getGridCellDataForTier: Tier ${tier} is within the defined range (${minTier}-${maxTier}) but no exact row was found. Check GridCells.csv for gaps in the Tier column.`);
+        return null;
     }
 
     public getBehaviorData(id: string): BehaviorData | null {

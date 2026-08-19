@@ -1,5 +1,5 @@
 import { _decorator, Component, Node, Graphics, Color, UITransform, Button, RichText, Label, Vec3, ScrollView, Input, input, EventKeyboard, KeyCode, BlockInputEvents, Sprite, SpriteFrame, resources } from 'cc';
-import { DataManager, IGridPart } from './DataManager';
+import { DataManager, IGridPart, getCurrentGridData } from './DataManager';
 import { SoundManager } from './SoundManager';
 import { GameManager } from './GameManager';
 import { UIManager } from './UIManager';
@@ -275,7 +275,7 @@ export class CustomizeUI extends Component {
 
     private getLayout(): number[][] | null {
         const data = DataManager.instance && DataManager.instance.data;
-        return (data && data.gridData && data.gridData.layout) ? data.gridData.layout : null;
+        return data ? getCurrentGridData(data).layout : null;
     }
 
     // notifyOverlayOpening()の戻り値(世代番号)。notifyOverlayClosed()に渡し、同名の遅延closeで
@@ -351,7 +351,7 @@ export class CustomizeUI extends Component {
     // (refreshCell()の色分け、配置モード中のcanPlaceShape()判定の両方で使う)。
     private getOccupiedCellSet(): Set<string> {
         const data = DataManager.instance && DataManager.instance.data;
-        const parts = data && data.gridData ? data.gridData.equippedParts : [];
+        const parts = data ? getCurrentGridData(data).equippedParts : [];
         const set = new Set<string>();
         for (const part of parts || []) {
             const cells = part.cells ? shapeCellsAt(part.cells, part.x, part.y) : null;
@@ -473,7 +473,7 @@ export class CustomizeUI extends Component {
     // オブジェクト自体が欲しい呼び出し元(グリッドのシングル/ダブルクリック処理)向け。
     private getPartAtCell(x: number, y: number): IGridPart | null {
         const data = DataManager.instance && DataManager.instance.data;
-        const parts = data && data.gridData ? data.gridData.equippedParts : [];
+        const parts = data ? getCurrentGridData(data).equippedParts : [];
         for (const part of parts || []) {
             if (partOccupiedCells(part).some(c => c.x === x && c.y === y)) return part;
         }
@@ -855,7 +855,7 @@ export class CustomizeUI extends Component {
         // 再配置中は自分自身のパーツとの重なりを無視する(元の位置に戻す/隣接位置へずらす操作を
         // 「自分自身とぶつかっている」として弾かないようにするため、CustomizeCalc.canPlaceShape()の
         // excludePartId引数を使う)。
-        this.placementValid = !!layout && canPlaceShape(cells, layout, data.gridData.equippedParts, this.placementMovingPartId || undefined);
+        this.placementValid = !!layout && canPlaceShape(cells, layout, getCurrentGridData(data).equippedParts, this.placementMovingPartId || undefined);
 
         const g = this.placementGhostGraphics;
         g.clear();
@@ -893,7 +893,7 @@ export class CustomizeUI extends Component {
             // (「再移動できない場合はキャンセル(元に戻す)」は、そもそもconfirmするまでpart.x/yを
             // 一切変更しない=Escapeキャンセル/未確定のままCustomizeを閉じれば自動的に満たされる)。
             const data = DataManager.instance.data;
-            const part = (data.gridData.equippedParts || []).find(p => p.id === movingPartId);
+            const part = (getCurrentGridData(data).equippedParts || []).find(p => p.id === movingPartId);
             if (part) {
                 part.x = anchor.x;
                 part.y = anchor.y;
@@ -1026,7 +1026,7 @@ export class CustomizeUI extends Component {
     // 再配置は引き続き無料)。
     private ejectPart(part: IGridPart) {
         const data = DataManager.instance.data;
-        const parts = data.gridData.equippedParts || [];
+        const parts = getCurrentGridData(data).equippedParts || [];
         const idx = parts.findIndex(p => p.id === part.id);
         if (idx < 0) return;
         const db = GameDatabase.instance;
@@ -1069,9 +1069,10 @@ export class CustomizeUI extends Component {
 
         const curStats = computeWeaponLevelStats(weapon, currentLv);
         const nextStats = computeWeaponLevelStats(weapon, cost.nextLv);
+        const remainingCredits = data.money - cost.creditsCost;
         const body =
             `Lv${currentLv} → Lv${cost.nextLv}\n` +
-            `<color=${creditColor}>${cost.creditsCost} credits</color>\n` +
+            `<color=${creditColor}>${data.money} - ${cost.creditsCost} = ${remainingCredits} credits</color>\n` +
             `<color=${itemColor}>${itemLine}</color>\n` +
             `ShootSpeed ${curStats.sp.toFixed(2)} → <color=#66ff66>${nextStats.sp.toFixed(2)}</color>\n` +
             `Damage ${curStats.dmg.toFixed(2)} → <color=#66ff66>${nextStats.dmg.toFixed(2)}</color>\n` +
@@ -1116,5 +1117,6 @@ export class CustomizeUI extends Component {
         if (this.sharedInfoLabel) this.sharedInfoLabel.string = `Leveled up to Lv${cost.nextLv}!`;
         this.refreshEquipmentList();
         this.refreshAll();
+        if (UIManager.instance && UIManager.instance.sideBarUI) UIManager.instance.sideBarUI.updateShipInfo();
     }
 }

@@ -1,5 +1,6 @@
 import { _decorator, Component, Node, Label, Color, Widget, Graphics, Button, BlockInputEvents, tween, v3, UIOpacity } from 'cc';
 import { GameManager } from './GameManager';
+import { UIManager } from './UIManager';
 import { SoundManager } from './SoundManager';
 import { DataManager } from './DataManager';
 import { instantiatePrefabButton } from './UIButtonPrefab';
@@ -18,6 +19,13 @@ export class ResultUI extends Component {
     public earnedReward: number = 0;
     public previousTotal: number = 0;
 
+    // GameManager.onMissionComplete()が計算したボーナス内訳(そのまま表示するだけ、ここでは
+    // 計算し直さない - 計算式が二重管理になって食い違うのを防ぐため)。
+    public timeBonusPct: number = 0;
+    public noDamageBonusPct: number = 0;
+    public allKillsBonusPct: number = 0;
+    public totalEnemiesSpawned: number = 0;
+
     onLoad() {
         // Force to center (0,0) if added to Canvas
         if (this.node.parent && this.node.parent.name === "Canvas") {
@@ -31,12 +39,19 @@ export class ResultUI extends Component {
         this.contentNode.setPosition(0, 0);
     }
 
-    public setup(enemies: number, items: number, score: number, itemsList: any[] = [], reward: number = 0, prevTotal: number = 0) {
+    public setup(enemies: number, items: number, score: number, itemsList: any[] = [], reward: number = 0, prevTotal: number = 0,
+        bonusInfo: { timeBonusPct: number; noDamageBonusPct: number; allKillsBonusPct: number; totalEnemiesSpawned: number } = null) {
         this.destroyedEnemies = enemies;
         this.collectedItemsCount = items;
         this.itemsList = itemsList;
         this.earnedReward = reward;
         this.previousTotal = prevTotal;
+        if (bonusInfo) {
+            this.timeBonusPct = bonusInfo.timeBonusPct || 0;
+            this.noDamageBonusPct = bonusInfo.noDamageBonusPct || 0;
+            this.allKillsBonusPct = bonusInfo.allKillsBonusPct || 0;
+            this.totalEnemiesSpawned = bonusInfo.totalEnemiesSpawned || 0;
+        }
 
         // startSequence()内で例外が起きても(QuickHomeButtonで戻れるとはいえ)原因が分かるように
         // ログには残す。UnhandledPromiseRejectionとして握りつぶされるのを防ぐ意味もある。
@@ -76,36 +91,52 @@ export class ResultUI extends Component {
         await this.fadeIn(heading, 0.3); // Shortened from 0.6
         await this.wait(0.2); // Shortened from 0.5
 
-        // --- Phase 1: Stats & Payment ---
+        // --- Phase 1: Stats(ボーナス表示込み) → 最後にEARNED/TOTAL CREDITS ---
         currentY -= 80;
-        const stats = [
-            `DISTANCE: ${dist}km`,
-            `TARGET TIME: ${targetTime}s`,
-            `CLEAR TIME: ${clearTime.toFixed(1)}s`
-        ];
 
-        for (const str of stats) {
-            const node = this.createLabel(str, 0, currentY, 32, Color.WHITE);
+        const addLine = async (str: string, color: Color, size: number = 32, gapAfter: number = 40, waitAfter: number = 0.1) => {
+            const node = this.createLabel(str, 0, currentY, size, color);
             this.contentNode.addChild(node);
             node.getComponent(UIOpacity).opacity = 0;
-            await this.fadeIn(node, 0.2); // Halved from 0.4
-            currentY -= 40;
-            await this.wait(0.1); // Shortened from 0.3
-        }
+            await this.fadeIn(node, 0.2);
+            currentY -= gapAfter;
+            await this.wait(waitAfter);
+        };
 
-        // TIME BONUS?
-        if (clearTime <= targetTime && targetTime > 0) {
-            const bonusNode = this.createLabel("TIME BONUS!!", 0, currentY, 36, Color.CYAN);
-            this.contentNode.addChild(bonusNode);
-            bonusNode.getComponent(UIOpacity).opacity = 0;
-            await this.fadeIn(bonusNode, 0.2); // Shortened from 0.5
-            currentY -= 60;
-            await this.wait(0.2); // Shortened from 0.5
+        await addLine(`DISTANCE: ${dist}km`, Color.WHITE);
+        await addLine(`TARGET TIME: ${targetTime}s`, Color.WHITE);
+
+        // CLEAR TIME: 目標との差分を併記し、色はtimeBonusPct(GameManager側の±マージン判定込みの
+        // 実際のボーナス結果)に合わせる - 早くても遅くても、マージン内(ノーカウント)なら白のまま。
+        const timeDelta = clearTime - targetTime; // 負=早い(短縮)、正=遅い(超過)
+        const deltaSign = timeDelta <= 0 ? '-' : '+';
+        const deltaColor = this.timeBonusPct > 0 ? ResultUI.COLOR_FAST : (this.timeBonusPct < 0 ? Color.RED : Color.WHITE);
+        await addLine(`CLEAR TIME: ${clearTime.toFixed(1)}s (${deltaSign}${Math.abs(timeDelta).toFixed(1)}s)`, deltaColor);
+
+        if (this.timeBonusPct !== 0) {
+            const pct = Math.round(this.timeBonusPct * 100);
+            const label = this.timeBonusPct > 0 ? `TIME BONUS!! +${pct}%` : `TIME PENALTY -${Math.abs(pct)}%`;
+            await addLine(label, this.timeBonusPct > 0 ? ResultUI.COLOR_FAST : Color.RED, 30, 40, 0.15);
         } else {
-            currentY -= 20;
+            currentY -= 10;
         }
 
-        // --- Payment Animation (Priority) ---
+        await addLine(`DAMAGE DEALT: ${Math.floor(dmgDealt)}`, Color.WHITE);
+        await addLine(`DAMAGE RECEIVED: ${Math.floor(dmgReceived)}`, Color.WHITE);
+        if (this.noDamageBonusPct > 0) {
+            await addLine(`NO DAMAGE BONUS!! +${Math.round(this.noDamageBonusPct * 100)}%`, ResultUI.COLOR_FAST, 30, 40, 0.15);
+        }
+
+        const enemyDenom = this.totalEnemiesSpawned > 0 ? `${this.destroyedEnemies}/${this.totalEnemiesSpawned}` : `${this.destroyedEnemies}`;
+        await addLine(`ENEMIES DESTROYED: ${enemyDenom}`, Color.WHITE);
+        if (this.allKillsBonusPct > 0) {
+            await addLine(`ALL ENEMIES DESTROYED!! +${Math.round(this.allKillsBonusPct * 100)}%`, ResultUI.COLOR_FAST, 30, 40, 0.15);
+        }
+
+        await this.wait(0.2);
+
+        // --- Payment Animation(全ての内訳を見せた後の最終結果として表示) ---
+        currentY -= 20;
         const rewardLabelNode = this.createLabel(`EARNED: ${this.earnedReward}`, 0, currentY, 36, Color.YELLOW);
         this.contentNode.addChild(rewardLabelNode);
         const totalLabelNode = this.createLabel(`TOTAL CREDITS: ${this.previousTotal}`, 0, currentY - 50, 28, Color.WHITE);
@@ -113,37 +144,21 @@ export class ResultUI extends Component {
 
         rewardLabelNode.getComponent(UIOpacity).opacity = 0;
         totalLabelNode.getComponent(UIOpacity).opacity = 0;
-        await this.fadeIn(rewardLabelNode, 0.2); // Halved from 0.4
-        await this.fadeIn(totalLabelNode, 0.2); // Halved from 0.4
-        await this.wait(0.2); // Halved from 0.4
+        await this.fadeIn(rewardLabelNode, 0.2);
+        await this.fadeIn(totalLabelNode, 0.2);
+        await this.wait(0.2);
 
-        // Counter Animation
+        // Counter Animation: EARNEDが0へカウントダウンする分だけTOTAL CREDITSが加算されていく
         await this.animateCredits(rewardLabelNode.getComponent(Label), totalLabelNode.getComponent(Label));
-
-        currentY -= 90;
-        await this.wait(0.2); // Halved from 0.4
-
-        // Combat Stats
-        const combatStats = [
-            `DAMAGE DEALT: ${Math.floor(dmgDealt)}`,
-            `DAMAGE RECEIVED: ${Math.floor(dmgReceived)}`,
-            `ENEMIES DESTROYED: ${this.destroyedEnemies}`
-        ];
-
-        for (const str of combatStats) {
-            const node = this.createLabel(str, 0, currentY, 32, Color.WHITE);
-            this.contentNode.addChild(node);
-            node.getComponent(UIOpacity).opacity = 0;
-            await this.fadeIn(node, 0.2); // Halved from 0.4
-            currentY -= 40;
-            await this.wait(0.1); // Halved from 0.2
-        }
 
         await this.wait(1.0);
 
         // Show NEXT Button
+        // ボーナス行(最大3行)の有無で内容の縦幅が変わるため、TOTAL CREDITSラベル(currentY-50)より
+        // 確実に下、かつ短い時でも画面下部の定位置(-280)より上には来ないようにする。
+        const buttonY = Math.min(-280, currentY - 50 - 70);
         console.log("[ResultUI] Creating NEXT button...");
-        this.createPhaseButton(0, -280, () => {
+        this.createPhaseButton(0, buttonY, () => {
             console.log("[ResultUI] NEXT clicked.");
             this.startPhaseTwo().catch(err => console.error("[ResultUI] startPhaseTwo failed:", err));
         });
@@ -193,15 +208,40 @@ export class ResultUI extends Component {
 
         await this.wait(1.0);
 
-        // Final Home Button
-        this.createHomeButton(0, -280);
+        // Final Buttons: MISSIONを左隣に置いて連続出撃できるようにする(HOMEと同じ等倍サイズ、
+        // 240px幅ボタン2つが重ならない間隔として±130)。
+        this.createMissionButton(-130, -280);
+        this.createHomeButton(130, -280);
     }
 
     private createPhaseButton(x: number, y: number, callback: () => void) {
         instantiatePrefabButton("Prefabs/Canvas/Button-Next", this.contentNode, x, y, callback, this.node, "NEXT", new Color(0, 100, 200));
     }
 
+    // MissionClear直後、Homeへ戻ると同時にMission Selectを開いて連続出撃できるようにするボタン。
+    // returnToHomeTransition()のブラックアウトが画面を覆っている間にgoToHome()→openMissionUI()の
+    // 順で呼んでもらう(onArrivedコールバック)ので、Home画面が一瞬見えてからMission選択が
+    // ポップアップする、という不自然な間が空かない。
+    private createMissionButton(x: number, y: number) {
+        instantiatePrefabButton("Prefabs/Canvas/Button-Next", this.contentNode, x, y, () => this.onMissionClicked(), this.node, "MISSION", new Color(0, 150, 120));
+    }
+
+    private onMissionClicked() {
+        console.log("[ResultUI] Mission Clicked.");
+        if (SoundManager.instance) {
+            SoundManager.instance.stopAllBGM(1.0);
+        }
+        if (GameManager.instance) {
+            GameManager.instance.returnToHomeTransition(() => {
+                if (UIManager.instance) UIManager.instance.openMissionUI();
+            });
+        }
+        this.node.destroy();
+    }
+
     private static readonly BUTTON_NODE_NAMES = ["Button-Next", "Button-Home", "ButtonFallback"];
+    // CLEAR TIMEが目標より早い/各種ボーナス達成時に使う青緑。遅い時はColor.REDを使う。
+    private static readonly COLOR_FAST = new Color(0, 230, 160, 255);
 
     private fadeIn(node: Node, duration: number): Promise<void> {
         return new Promise(resolve => {

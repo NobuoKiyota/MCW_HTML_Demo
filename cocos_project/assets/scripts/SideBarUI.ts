@@ -1,11 +1,15 @@
 import { _decorator, Component, Node, Label, Color, Sprite, UITransform, Size, Widget, Graphics, LabelOutline, resources, SpriteFrame, Button } from 'cc';
-import { DataManager } from './DataManager';
+import { DataManager, getCurrentGridData } from './DataManager';
 import { GameManager } from './GameManager';
 import { GameState } from './Constants';
 import { UIManager } from './UIManager';
 import { SoundManager } from './SoundManager';
 import { getTotalUpgradeStars, getUpgradedParamValue } from './PlayerUpgradeCalc';
 import { computeEquippedWeight } from './CustomizeCalc';
+import { GameDatabase } from './GameDatabase';
+
+// Customizeで装備した武器の最大搭載数(表示行数もこれに合わせて固定12行にする)。
+const MAX_EQUIPPED_WEAPONS_DISPLAY = 12;
 
 const { ccclass, property } = _decorator;
 
@@ -117,6 +121,11 @@ export class SideBarUI extends Component {
     @property(Label)
     public damageCounterLabel: Label = null;
 
+    // Customizeで装備した武器一覧(Lv付き、最大MAX_EQUIPPED_WEAPONS_DISPLAY行固定)。
+    // Prefab側に手動で用意した"Equipments"という名前のノードがあればそれを使う。
+    @property(Label)
+    public equipmentsLabel: Label = null;
+
     // State for Dynamic Layout
     private _isPowerActive: boolean = false;
     private _isRapidActive: boolean = false;
@@ -180,31 +189,58 @@ export class SideBarUI extends Component {
         if (!this.buffRapidLabel) this.buffRapidLabel = this.createLabel(this.leftPanel, "RAPID: READY", 0, 0, 20, Color.GRAY, true);
         if (!this.buffRapidBarNode) this.buffRapidBarNode = this.createBar(this.leftPanel, 0, 0, innerWidth, 10, Color.CYAN);
 
+        // SideBarUI.prefab側でエディタ手動配置されたバーノードはcreateBar()を経由しない
+        // (=一度も.rect()/.fill()が呼ばれず、Graphicsに色などのスタイルは保存されていても
+        // 実際の描画パスが空のまま)。ここで1回だけ明示的に描画する(以後の更新はsetScale()のみ)。
+        this.paintBarGraphics(this.hpBarNode);
+        this.paintBarGraphics(this.buffPowerBarNode);
+        this.paintBarGraphics(this.buffRapidBarNode);
+
+        if (!this.equipmentsLabel) {
+            const found = this.findChildByNames(this.leftPanel, ["Equipments"]);
+            this.equipmentsLabel = (found && found.getComponent(Label)) || null;
+        }
+
         // RightPanel（1回のみ）
         if (!this.rightPanel) {
             this.rightPanel = this.createPanel("RightPanel", sideWidth, false, new Color(0, 20, 50, 200));
             this.node.addChild(this.rightPanel);
         }
 
-        // RightPanelラベル
-        if (!this.shipNameLabel) this.shipNameLabel = this.createLabel(this.rightPanel, "VEHICLE STATUS", 0, 310, 20, Color.YELLOW, false);
-        if (!this.moneyTitleLabel) this.moneyTitleLabel = this.createLabel(this.rightPanel, "CREDITS: 0", 0, 280, 24, Color.WHITE, false);
+        // RightPanelラベル。全項目、Prefab側に手動で用意されたノードがあればまず名前で探して使う
+        // (Inspector未割当かつPrefab側にも見つからない場合のみ、最終手段としてcreateLabelで
+        // コード側固定座標にフォールバック生成する)。Prefab側の手動配置を尊重し、コードが
+        // 勝手に別位置へ複製生成してレイアウトが崩れて見える、という事態を避けるため。
+        if (!this.shipNameLabel) {
+            const found = this.findChildByNames(this.rightPanel, ["ShipNameLabel", "VehicleStatus", "VehicleStatusLabel"]);
+            this.shipNameLabel = (found && found.getComponent(Label)) || this.createLabel(this.rightPanel, "VEHICLE STATUS", 0, 310, 20, Color.YELLOW, false);
+        }
+        if (!this.moneyTitleLabel) {
+            const found = this.findChildByNames(this.rightPanel, ["MoneyTitleLabel", "CreditsLabel", "Credits"]);
+            this.moneyTitleLabel = (found && found.getComponent(Label)) || this.createLabel(this.rightPanel, "CREDITS: 0", 0, 280, 24, Color.WHITE, false);
+        }
         // TotalUpgradeLabelはPrefab側に手動で用意されている想定(Inspectorで未割当の場合のみ、
         // 名前で探す→それでも無ければ最終手段としてcreateLabelでフォールバック生成する)。
         if (!this.totalUpgradeLabel) {
             const found = this.findChildByNames(this.rightPanel, ["TotalUpgradeLabel"]);
             this.totalUpgradeLabel = (found && found.getComponent(Label)) || this.createLabel(this.rightPanel, "TotalUpgrade: ★0", 0, 250, 20, Color.WHITE, false);
         }
-        if (!this.shipStatsLabel) this.shipStatsLabel = this.createLabel(this.rightPanel, "MAX HP: 100\nACCEL: 100\n...", 0, 80, 20, Color.WHITE, false);
+        if (!this.shipStatsLabel) {
+            const found = this.findChildByNames(this.rightPanel, ["ShipStatsLabel", "VehicleStats", "VehicleStatsLabel"]);
+            this.shipStatsLabel = (found && found.getComponent(Label)) || this.createLabel(this.rightPanel, "MAX HP: 100\nACCEL: 100\n...", 0, 80, 20, Color.WHITE, false);
+        }
         // CARGO/Shoot-Down/DamageはLabel見出し+実数を2行表示にするため、フォールバック生成時の
         // Y間隔も2行ぶん確保する(30px間隔だと1行目と2行目が次のLabelと重なってしまうため60pxに)。
-        if (!this.cargoLabel) this.cargoLabel = this.createLabel(this.rightPanel, "CARGO\n-- / --", 0, -140, 20, Color.YELLOW, false);
+        if (!this.cargoLabel) {
+            const found = this.findChildByNames(this.rightPanel, ["CargoLabel", "Cargo"]);
+            this.cargoLabel = (found && found.getComponent(Label)) || this.createLabel(this.rightPanel, "CARGO\n-- / --", 0, -140, 20, Color.YELLOW, false);
+        }
         // ShootDownScoreLabel/DamageCounterLabelもTotalUpgradeLabelと同じく、Prefab側に手動で
         // 用意されている場合はそれを使う(名前の表記ゆれをいくつか試す。それでも見つからなければ
         // 最終手段としてcreateLabelでフォールバック生成する)。
         if (!this.shootDownScoreLabel) {
-            const found = this.findChildByNames(this.rightPanel, ["ShootDownScoreLabel", "Shoot-DownScoreLabel", "ShootDownScore", "Shoot-DownScore"]);
-            this.shootDownScoreLabel = (found && found.getComponent(Label)) || this.createLabel(this.rightPanel, "SHOOT DOWN\n0", 0, -200, 20, Color.WHITE, false);
+            const found = this.findChildByNames(this.rightPanel, ["EnemiesDestroyed", "EnemiesDestroyedLabel", "ShootDownScoreLabel", "Shoot-DownScoreLabel", "ShootDownScore", "Shoot-DownScore"]);
+            this.shootDownScoreLabel = (found && found.getComponent(Label)) || this.createLabel(this.rightPanel, "ENEMIES DESTROYED\n0", 0, -200, 20, Color.WHITE, false);
         }
         if (!this.damageCounterLabel) {
             const found = this.findChildByNames(this.rightPanel, ["DamageCounterLabel", "DamageCounter"]);
@@ -277,12 +313,12 @@ export class SideBarUI extends Component {
         }
     }
 
+    // SideBarUI.prefab側でエディタ手動配置済みのため、位置(x/y)は上書きしない
+    // (以前はここでnode.setPosition()していたが、手動レイアウトを毎フレーム/毎更新で
+    // 上書きしてしまうため廃止。show/hideの切り替えだけ行う)。
     private setNodeVisible(node: Node, visible: boolean, x: number = 0, y: number = 0) {
         if (node) {
             node.active = visible;
-            if (visible) {
-                node.setPosition(x, y);
-            }
         }
     }
 
@@ -385,6 +421,35 @@ export class SideBarUI extends Component {
         fillGr.fill();
 
         return bgNode;
+    }
+
+    // エディタで手動配置されたバーノード(BG+子"BarFill")用。createBar()と違い、既存のUITransform
+    // /Graphics(色などのスタイルはPrefab側で保存済み)をそのまま使い、パス(rect+fill)だけを描く。
+    private paintBarGraphics(barNode: Node) {
+        if (!barNode || !barNode.isValid) return;
+
+        const bgTrans = barNode.getComponent(UITransform);
+        const bgGr = barNode.getComponent(Graphics);
+        if (bgTrans && bgGr) {
+            const w = bgTrans.contentSize.width;
+            const h = bgTrans.contentSize.height;
+            bgGr.clear();
+            bgGr.rect(-w / 2, -h / 2, w, h);
+            bgGr.fill();
+        }
+
+        const fillNode = barNode.getChildByName("BarFill");
+        if (fillNode) {
+            const fillTrans = fillNode.getComponent(UITransform);
+            const fillGr = fillNode.getComponent(Graphics);
+            if (fillTrans && fillGr) {
+                const w = fillTrans.contentSize.width;
+                const h = fillTrans.contentSize.height;
+                fillGr.clear();
+                fillGr.rect(0, -h / 2, w, h);
+                fillGr.fill();
+            }
+        }
     }
 
     private createPlate(parent: Node, x: number, y: number, w: number, h: number, color: Color) {
@@ -500,7 +565,7 @@ export class SideBarUI extends Component {
     // 表示更新(カウントアップ演出)はupdate()側が行う。
     public updateMissionStats(kills: number, damage: number) {
         if (this.shootDownScoreLabel && this.shootDownScoreLabel.isValid) {
-            this.shootDownScoreLabel.string = `SHOOT DOWN\n${kills}`;
+            this.shootDownScoreLabel.string = `ENEMIES DESTROYED\n${kills}`;
         }
         this._targetDamage = damage;
     }
@@ -584,7 +649,7 @@ export class SideBarUI extends Component {
             const wos = this.getUpgradedValue('WOS');
             this.shipStatsLabel.string =
                 `HP: ${hp.toFixed(0)}\nCP: ${cp.toFixed(0)}\nSP: ${sp.toFixed(0)}\nAC: ${ac.toFixed(0)}\nDF: ${df.toFixed(1)}\n` +
-                `TN: ${tn.toFixed(0)}\nCR: ${cr.toFixed(0)}\nVOS: ${vos.toFixed(0)}%\nWOS: ${wos.toFixed(0)}%`;
+                `TN: ${tn.toFixed(0)}\nCR: ${cr.toFixed(0)}\nVOS: ${vos.toFixed(1)}%\nWOS: ${wos.toFixed(1)}%`;
         }
 
         if (this.cargoLabel) {
@@ -594,7 +659,7 @@ export class SideBarUI extends Component {
                 // 変化が分からないという問題があった)。積載重量側も、旧仕様の「ミッション専用の
                 // 貨物重量」ではなく、Customizeで現在装備中のパーツ(武器)の合計重量を表示する
                 // ことで、Home画面でも装備変更の影響がすぐ分かるようにする。
-                const equippedWeight = computeEquippedWeight(data.gridData ? data.gridData.equippedParts : null);
+                const equippedWeight = computeEquippedWeight(getCurrentGridData(data).equippedParts);
                 this.cargoLabel.string = `CARGO\n${equippedWeight.toFixed(0)} / ${cp.toFixed(0)}`;
             } else {
                 const gm = GameManager.instance;
@@ -607,9 +672,38 @@ export class SideBarUI extends Component {
             this.totalUpgradeLabel.string = `TotalUpgrade\n★${getTotalUpgradeStars()}`;
         }
 
+        this.updateEquipmentsList(data);
+
         if (!isIngame) {
             this.updateTimer(-1); // Resets to --:-- or 00:00
         }
+    }
+
+    // Customizeで装備した武器一覧を"Equipments:"見出し+固定12行の箇条書きで表示する
+    // (例: "・BeamGun:Lv1")。武器未装備のパーツ(Cockpit等、weaponId無し)は対象外。
+    // 表示のLvは1始まり(part.lv=0 → "Lv1")。行数は常にMAX_EQUIPPED_WEAPONS_DISPLAYで固定し、
+    // 空きスロットは見出しだけの空行にする。
+    private updateEquipmentsList(data: any) {
+        if (!this.equipmentsLabel) return;
+
+        const parts: any[] = getCurrentGridData(data).equippedParts || [];
+        const db = GameDatabase.instance;
+        const weapons = parts.filter(p => !!p.weaponId);
+
+        const lines: string[] = ["Equipments:"];
+        for (let i = 0; i < MAX_EQUIPPED_WEAPONS_DISPLAY; i++) {
+            const part = weapons[i];
+            if (!part) {
+                lines.push("・");
+                continue;
+            }
+            const equipment = db && part.equipmentId ? db.getEquipmentData(part.equipmentId) : null;
+            const name = equipment ? equipment.name : (part.weaponId || part.type || "?");
+            const lv = (part.lv || 0) + 1;
+            lines.push(`・${name}:Lv${lv}`);
+        }
+
+        this.equipmentsLabel.string = lines.join("\n");
     }
 
     public updateTimer(time: number) {

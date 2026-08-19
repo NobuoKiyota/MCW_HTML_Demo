@@ -34,6 +34,9 @@ interface RowRefs {
     btnReset: Node;
     btnResetButton: Button | null;
     labelNotice: Label | null;
+    // 現在Lvを"000"→"001"のようにゼロ埋め3桁で表示するラベル(任意)。未追加の行はnullのまま
+    // スキップされるだけなので、9行すべてに用意していない段階でも壊れない。
+    labelLevel: Label | null;
 }
 
 /**
@@ -104,6 +107,8 @@ export class UpgradeUI extends Component {
                 continue;
             }
 
+            const labelLevelNode = child.getChildByName('ParamLevel');
+
             const row: RowRefs = {
                 paramId,
                 root: child,
@@ -113,6 +118,7 @@ export class UpgradeUI extends Component {
                 btnReset: btnResetNode,
                 btnResetButton: btnResetNode.getComponent(Button),
                 labelNotice: labelNoticeNode.getComponentInChildren(Label),
+                labelLevel: labelLevelNode ? labelLevelNode.getComponentInChildren(Label) : null,
             };
             this.rows.push(row);
 
@@ -224,6 +230,10 @@ export class UpgradeUI extends Component {
         const info = getUpgradeStepInfo(row.paramId, currentLv, gm);
         if (!info) return;
 
+        if (row.labelLevel) {
+            row.labelLevel.string = String(currentLv).padStart(3, '0');
+        }
+
         // グレーアウトはLvMax到達時のみ(=それ以上プレビューする内容が無い)。クレジット/素材不足は
         // ボタンを無効化せず、1回目タップ(プレビュー)は常に許可する。不足の判定・拒否は
         // onUpgradeClicked()の2回目タップ(確定)側だけで行う(共有情報欄の赤字表示+errorSEで伝える)。
@@ -237,10 +247,10 @@ export class UpgradeUI extends Component {
         }
     }
 
-    // パラメータの実値を表示用に整形する。VOS/WOSは倍率(%)、DFは小数点1桁、それ以外は整数。
+    // パラメータの実値を表示用に整形する。VOS/WOS/DFは小数点1桁、それ以外は整数。
     // SideBarUI.tsのStatus欄の表示形式と合わせてある。
     private formatParamValue(paramId: string, value: number): string {
-        if (paramId === 'VOS' || paramId === 'WOS') return `${value.toFixed(0)}%`;
+        if (paramId === 'VOS' || paramId === 'WOS') return `${value.toFixed(1)}%`;
         if (paramId === 'DF') return value.toFixed(1);
         return value.toFixed(0);
     }

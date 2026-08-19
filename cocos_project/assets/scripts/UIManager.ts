@@ -41,6 +41,13 @@ export class UIManager extends Component {
     @property(Color)
     public notifyTextColor: Color = new Color(0, 0, 0, 255); // 文字本体の色 (デフォルト黒)
 
+    @property({ tooltip: "複数アイテムを同時に拾った時、通知が重なって読めなくなるのを防ぐための積み上げ間隔(px)" })
+    public notifyStackSpacing: number = 32;
+
+    // 現在表示中(まだ消えていない)の通知数。showItemLog()の呼び出しごとにこの数だけYをずらして
+    // 積み上げ、消えたら1つ減らす(複数ドロップ同時取得で文字が重なって見えなくなる対策)。
+    private _activeNotificationCount: number = 0;
+
     // --- SideBar Integration ---
     @property({ type: SideBarUI })
     public sideBarUI: SideBarUI = null;
@@ -609,6 +616,12 @@ export class UIManager extends Component {
             }
         }
 
+        // 複数アイテムを同時に拾った場合、同じ座標に重なって文字が読めなくなるのを防ぐため、
+        // 現在表示中の通知の数だけYをずらして積み上げる(上限を設けて画面外へ飛び出しすぎないようにする)。
+        const stackIndex = Math.min(this._activeNotificationCount, 8);
+        startPos.y += stackIndex * this.notifyStackSpacing;
+        this._activeNotificationCount++;
+
         // --- 4. Opacity & Lifetime ---
         const op = node.addComponent(UIOpacity);
         op.opacity = 255 * 0.75;
@@ -623,7 +636,10 @@ export class UIManager extends Component {
             .to(0.4, { position: v3(startPos.x, targetY, 0) }, { easing: "sineOut" })
             .delay(this.notifyDuration)
             .to(0.8, { position: v3(startPos.x, targetY + 80, 0) })
-            .call(() => { if (node.isValid) node.destroy(); })
+            .call(() => {
+                if (node.isValid) node.destroy();
+                this._activeNotificationCount = Math.max(0, this._activeNotificationCount - 1);
+            })
             .start();
 
         tween(op)

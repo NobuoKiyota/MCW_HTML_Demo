@@ -72,6 +72,15 @@ export class PlayerController extends Component {
         this._intervalMultByPatternId = new Map(Object.entries(mults || {}));
     }
 
+    // 武器のLv別Damage成長を、ShotPatternID単位でShotRuntimeに伝えるための倍率マップ。
+    // DmgMin基準の比率(Dmg@現在Lv ÷ DmgMin)。Powerバフ(damageMultiplier)/カーゴペナルティとは
+    // 掛け算で両立する(getDamageMult参照)。
+    private _damageMultByPatternId: Map<string, number> = new Map();
+
+    public setDamageMultipliers(mults: { [shotPatternId: string]: number }) {
+        this._damageMultByPatternId = new Map(Object.entries(mults || {}));
+    }
+
     // Speed Zone Params
     @property({ type: Enum({ STEP: 0, LINEAR: 1, SMOOTH: 2, EXP: 3 }), tooltip: "Speed Curve Type based on Y-Pos" })
     public speedCurveType: number = 0; // Default STEP
@@ -130,6 +139,11 @@ export class PlayerController extends Component {
     // overrideShotPatternIds(PlayerWeaponManager等が注入するロードアウト)が複数武器を同時に
     // 発射させうるため、単一ではなく配列で保持する。
     private _shotRuntimes: ShotRuntime[] = [];
+    // ミッション開始演出中(GameManager.playPlayerStartAnimation()がdelayFiring()経由で設定)、
+    // この秒数が0になるまでShotRuntimeのtickそのものを止めて発射させない。PlayerController自体は
+    // 毎ミッションNewされるnode/componentなので、宣言時の初期値0がそのまま「演出未指定なら
+    // 遅延なし」の既定動作になる。
+    private _fireDelayTimer: number = 0;
     private _resolvedPatternIds: Set<string> = new Set();
     private _failedPatternIds: Set<string> = new Set();
     private _shotRuntimeRetryCount: number = 0;
@@ -248,7 +262,7 @@ export class PlayerController extends Component {
 
                 const runtime = new ShotRuntime(patternData._graph, this._gm, this.node, false);
                 runtime.getSpeedMult = () => 1.0;
-                runtime.getDamageMult = () => Math.max(0.1, this.damageMultiplier - this.cargoDamagePenalty);
+                runtime.getDamageMult = () => Math.max(0.1, this.damageMultiplier - this.cargoDamagePenalty) * (this._damageMultByPatternId.get(id) ?? 1.0);
                 runtime.getIntervalMult = () => this.fireRateMultiplier * (this._intervalMultByPatternId.get(id) ?? 1.0);
                 runtime.getScaleMult = () => this._scaleMultByPatternId.get(id) ?? 1.0;
                 this._shotRuntimes.push(runtime);
@@ -421,8 +435,13 @@ export class PlayerController extends Component {
 
         // 3. Shooting: ShotRuntime(発射パターングラフ)に一任する。装備数ぶん(通常1、
         // PlayerWeaponManager経由の追加装備があればそれ以上)、それぞれ独立にtickする。
-        for (const runtime of this._shotRuntimes) {
-            runtime.tick(deltaTime, this.hp, this.maxHp);
+        // ミッション開始演出中(_fireDelayTimer>0)はtickごと止めて発射させない。
+        if (this._fireDelayTimer > 0) {
+            this._fireDelayTimer -= deltaTime;
+        } else {
+            for (const runtime of this._shotRuntimes) {
+                runtime.tick(deltaTime, this.hp, this.maxHp);
+            }
         }
 
         // Manual orbit logic removed, now handled by BuffVisualEffect component
@@ -440,6 +459,12 @@ export class PlayerController extends Component {
             this.createBuffVisual("Rapid");
         }
         this.updateBuffVisuals();
+    }
+
+    // ミッション開始演出(GameManager.playPlayerStartAnimation())から呼ばれる。指定秒数、
+    // ShotRuntimeのtickを止めて発射させない(移動/入力自体は止めない - 軽い演出という方針のため)。
+    public delayFiring(seconds: number) {
+        this._fireDelayTimer = Math.max(this._fireDelayTimer, seconds);
     }
 
     public resetBuffs() {

@@ -1,16 +1,22 @@
-import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3, Vec4, Color, game, resources, UITransform, Sprite, BoxCollider2D, LabelOutline, tween, v3, UIOpacity, BlockInputEvents, Graphics, Size, CCInteger, CCFloat, Camera, DirectionalLight, Light, Vec3 as Vec3Type, Layers, Canvas, JsonAsset } from 'cc';
+import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3, Vec4, Color, game, resources, UITransform, Sprite, BoxCollider2D, LabelOutline, tween, v3, UIOpacity, BlockInputEvents, Graphics, Size, CCInteger, CCFloat, Camera, DirectionalLight, Light, Vec3 as Vec3Type, Layers, Canvas, JsonAsset, Animation, AnimationClip } from 'cc';
 import './enginePatches';
 import { UIManager } from './UIManager';
-import { GameState, GAME_SETTINGS, IGameManager, SpawnLaserBeamOptions } from './Constants'; // Removed Constants
+import { GameState, GAME_SETTINGS, IGameManager, SpawnLaserBeamOptions, ENEMY_ONLY_LAYER, FG_CLOUD_LAYER } from './Constants'; // Removed Constants
 import { SoundManager } from './SoundManager';
 import { GameSpeedManager } from './GameSpeedManager';
 import { GameDatabase } from './GameDatabase';
 import { ResultUI } from './ResultUI'; // Import Added Here
-import { DataManager } from './DataManager';
+import { DataManager, getCurrentGridData } from './DataManager';
 import { CocosLogger } from './CocosLogger';
 import { CocosDiagnostic } from './CocosDiagnostic';
 import { MovePoint } from './MovePoint';
 import { VideoBackground } from './VideoBackground';
+import { StarField } from './StarField';
+import { GoalWarningEffect } from './GoalWarningEffect';
+import { RemainDistanceHUD } from './RemainDistanceHUD';
+import { resolveEquippedLoadout } from './WeaponCalc';
+import { BackgroundThemeManager } from './BackgroundThemeManager';
+import { CloudLayerManager } from './CloudLayerManager';
 
 
 const { ccclass, property } = _decorator;
@@ -40,6 +46,10 @@ const CYCLE_INTERVAL_SECONDS: { [key: string]: number } = {
 export class GameManager extends Component implements IGameManager {
 
     public static instance: GameManager = null;
+
+    // 時間ボーナス判定のノーカウント範囲(秒)。目標タイムとの差がこの範囲内ならボーナス/ペナルティ
+    // 無し(onMissionComplete()参照)。シビアすぎるという指摘を受けて追加。
+    private static readonly TIME_BONUS_MARGIN_SEC = 2.0;
 
     @property(Label)
     public debugLabel: Label = null;
@@ -82,6 +92,22 @@ export class GameManager extends Component implements IGameManager {
     @property(GameDatabase)
     public gameDatabase: GameDatabase = null;
 
+    // GOAL到達時、Playerのアクロバット退場演出(triggerPlayerAerobaticOutro())で再生する
+    // AnimationClip(任意)。Cocos純正のAnimation Editorでカーブ/イージング/継続回転を
+    // 視覚的に調整できるようにするための差し込み口。未割り当てなら簡易tween版にフォールバックする。
+    @property(AnimationClip)
+    public playerOutroClip: AnimationClip = null;
+
+    // ミッション開始時、Playerの軽い登場演出として再生するAnimationClip(任意)。playerOutroClipと
+    // 同じPlayer上のAnimationコンポーネントを共有する(defaultClipを都度差し替えて再生するだけなので、
+    // Inspector上でどちらが「Default Clip」になっていても実行時の挙動には影響しない)。
+    // ノンブロッキングで再生する(入力停止はしない)ため、position/rotationはPlayerController側の
+    // 毎フレームのマウス追従/バンク処理と同じプロパティを取り合ってしまう - クリップ側はscaleの
+    // ポップインや、パーティクル子ノードのactive切り替えなど「操作と競合しないプロパティ」だけを
+    // キーフレームすること(詳細はplayPlayerStartAnimation()のコメント参照)。
+    @property(AnimationClip)
+    public playerStartClip: AnimationClip = null;
+
     public state: GameState = GameState.TITLE;
     public score: number = 0;
     public isPaused: boolean = false;
@@ -108,6 +134,35 @@ export class GameManager extends Component implements IGameManager {
     private spawnTimer: number = 0;
     private frameCount: number = 0; // For performance check or periodic log
 
+    // 距離トリガー式の敵湧きキュー(BehaviorTestController.tsの_missionSpawnQueueと同じ役割)。
+    // currentMission.spawnTableIdsが設定されている(MissionUI経由の本番ミッション)場合のみ
+    // startInGame()で組み立てられ、update()がplayState.distanceと突き合わせて発火させる。
+    // キューが1件以上ある間は、下の継続タイマー式ランダム湧き(spawnEnemy())を止める
+    // (両方同時に湧かせると、マージン区間が本来の「静かな区間」にならないため)。
+    private _missionSpawnQueue: { id: string; triggerAtDistance: number; fired: boolean }[] = [];
+
+    // GOAL接近演出(残り100km時のGUI予告)を1ミッション中1回だけ出すためのフラグ。
+    // startInGame()でミッションごとにリセットする。
+    private _goalApproachShown: boolean = false;
+
+    // resolveInGameReferences()が収集する背景StarFieldのコンポーネント参照。
+    // GOAL到達時などにtriggerBurst()を呼んで一時的に「集中線」演出を出すために使う。
+    private starField: StarField = null;
+
+    // GOAL接近中(残り100km以下)にPlayerへ重ねる警告オーラのノード(showGoalWarning()が生成、
+    // playerNodeの子として自動追従する)。playerNode自体がミッションごとに再生成されるため、
+    // 明示的にhideGoalWarning()を呼ぶ箇所(outro開始時/Home・Title遷移時)以外でも
+    // ノードごと自然に破棄される。
+    private goalWarningNode: Node = null;
+
+    // resolveInGameReferences()が収集する残り距離HUD(RemainDistanceノード)。
+    // GameManagerのisPausedに関わらず明滅させ続けたいので、専用コンポーネントに委譲する。
+    private remainDistanceHUD: RemainDistanceHUD = null;
+
+    // showGoalText()が生成したGOAL!!テキストノード。outro完了後にfinishGoalSequence()側で
+    // 破棄する必要があるため、生成元と破棄元が別メソッドになった分の橋渡しとして保持する。
+    private _goalTextNode: Node = null;
+
     // InGame State (Distance, etc)
     private missionStartHp: number = 100;
     public playState: any = {
@@ -115,6 +170,7 @@ export class GameManager extends Component implements IGameManager {
         enemies: [],
         items: [],
         killedEnemies: 0,
+        totalEnemiesSpawned: 0, // 敵全滅ボーナス判定用(killedEnemies>=totalEnemiesSpawned)
         collectedItemsCount: 0,
         elapsedTime: 0,
         damageDealt: 0,    // New
@@ -135,6 +191,10 @@ export class GameManager extends Component implements IGameManager {
     // 背景動画に掛ける色合い/明るさの周期変化のための経過時間(軽量負荷 - Sprite.colorを
     // 毎フレームsin波で揺らすだけで、シェーダーや追加デコードは不要)。
     private _videoBGEffectTime: number = 0;
+
+    // BackgroundThemeManagerがMissionLvから引いた系統色。updateVideoBGColorEffect()の乗算ティントの
+    // ベースにする(未設定/BackgroundThemeManager無しならnull=従来通りの白ベースにフォールバック)。
+    private _videoBGThemeColor: Color = null;
 
     // GameManagerEditor(MasterManagerパネル)経由でassets/resources/Data/GameManagerConfig.json
     // から読み込む倍率。PlayerController.update()がPlayer機3Dモデルの基準スケールに掛ける
@@ -220,6 +280,18 @@ export class GameManager extends Component implements IGameManager {
     // mainCamera guarantees it always renders on top, regardless of what UI_2D content
     // happens to overlap it on screen.
     private foregroundCamera: Camera = null;
+
+    // ENEMY_ONLY_LAYER専用カメラ(Enemyの3Dモデルのみ描画)。Playerと同居していたDEFAULTレイヤーから
+    // Enemyを分離し、雲の前景レイヤーをEnemyとPlayerの間に挟めるようにするための新カメラ。
+    private enemyCamera: Camera = null;
+
+    // FG_CLOUD_LAYER専用カメラ("薄い"/"程よく薄い"雲層のみ描画)。Enemy/Bullet/UIより手前、
+    // Playerより奥に描画する。
+    private cloudFrontCamera: Camera = null;
+
+    // Ingame背景の3層クラウド(極薄い/薄い/程よく薄い)。resolveInGameReferences()でミッションごとに
+    // 生成し直す(Editor側のPrefab編集は不要、完全にコード側で動的生成する)。
+    private cloudLayerManager: CloudLayerManager = null;
 
     onLoad() {
         console.log("[GameManager] onLoad triggered.");
@@ -325,7 +397,7 @@ export class GameManager extends Component implements IGameManager {
         }
         this.bgCamera = bgCamNode.getComponent(Camera);
 
-        // Dedicated foreground (DEFAULT-layer / 3D ship) camera - create once if missing.
+        // Dedicated foreground (DEFAULT-layer / Player 3D ship only) camera - create once if missing.
         let fgCamNode = scene.getChildByName("ForegroundCamera");
         if (!fgCamNode) {
             console.log("[GameManager] Creating missing ForegroundCamera.");
@@ -334,6 +406,31 @@ export class GameManager extends Component implements IGameManager {
             scene.addChild(fgCamNode);
         }
         this.foregroundCamera = fgCamNode.getComponent(Camera);
+
+        // Dedicated Enemy-only camera (ENEMY_ONLY_LAYER) - create once if missing. Enemies used
+        // to share ForegroundCamera/DEFAULT with the Player, which meant nothing could ever
+        // render between "always behind everything" and "always in front of everything". Splitting
+        // them out lets the cloud foreground layer sit between Enemy and Player (雲で敵は隠れるが
+        // Playerは常に見える、see CloudLayerManager).
+        let enemyCamNode = scene.getChildByName("EnemyCamera");
+        if (!enemyCamNode) {
+            console.log("[GameManager] Creating missing EnemyCamera.");
+            enemyCamNode = new Node("EnemyCamera");
+            enemyCamNode.addComponent(Camera);
+            scene.addChild(enemyCamNode);
+        }
+        this.enemyCamera = enemyCamNode.getComponent(Camera);
+
+        // Dedicated cloud-foreground camera (FG_CLOUD_LAYER) - create once if missing. Draws the
+        // "薄い"/"程よく薄い" cloud layers on top of Enemy/Bullet/UI but still behind Player.
+        let cloudFgCamNode = scene.getChildByName("CloudFrontCamera");
+        if (!cloudFgCamNode) {
+            console.log("[GameManager] Creating missing CloudFrontCamera.");
+            cloudFgCamNode = new Node("CloudFrontCamera");
+            cloudFgCamNode.addComponent(Camera);
+            scene.addChild(cloudFgCamNode);
+        }
+        this.cloudFrontCamera = cloudFgCamNode.getComponent(Camera);
 
         // directional light - only add if missing
         let lightNode = scene.getChildByName("DirectionalLight");
@@ -410,10 +507,40 @@ export class GameManager extends Component implements IGameManager {
             this.bgCamera.enabled = true;
         }
 
+        // EnemyCamera: ENEMY_ONLY_LAYERのみを描画。以前はForegroundCameraでPlayerと同居していたが、
+        // 分離することで「雲の前景レイヤーはEnemyより手前・Playerより奥」という重なりを作れるようにする。
+        if (this.enemyCamera) {
+            this.enemyCamera.visibility = ENEMY_ONLY_LAYER;
+            this.enemyCamera.node.setPosition(this.mainCamera.node.position);
+            this.enemyCamera.projection = Camera.ProjectionType.ORTHO;
+            this.enemyCamera.orthoHeight = 360;
+            this.enemyCamera.far = 2000;
+            this.enemyCamera.clearFlags = Camera.ClearFlag.DONT_CLEAR;
+            this.enemyCamera.priority = 2;
+            this.enemyCamera.node.active = true;
+            this.enemyCamera.enabled = true;
+        }
+
+        // CloudFrontCamera: FG_CLOUD_LAYERのみを描画(CloudLayerManagerの"薄い"/"程よく薄い"層)。
+        // Enemy/Bullet/UIより手前、Playerより奥に来るよう、enemyCameraとforegroundCameraの間の
+        // priorityに置く。
+        if (this.cloudFrontCamera) {
+            this.cloudFrontCamera.visibility = FG_CLOUD_LAYER;
+            this.cloudFrontCamera.node.setPosition(this.mainCamera.node.position);
+            this.cloudFrontCamera.projection = Camera.ProjectionType.ORTHO;
+            this.cloudFrontCamera.orthoHeight = 360;
+            this.cloudFrontCamera.far = 2000;
+            this.cloudFrontCamera.clearFlags = Camera.ClearFlag.DONT_CLEAR;
+            this.cloudFrontCamera.priority = 3;
+            this.cloudFrontCamera.node.active = true;
+            this.cloudFrontCamera.enabled = true;
+        }
+
         // ForegroundCamera: same view transform as mainCamera but only sees DEFAULT-layer
-        // content (Player's 3D ship, SideBarUI's DEFAULT-layer children), drawn LAST
-        // (highest priority) so nothing UI_2D can occlude it. Never clears anything - it
-        // only adds 3D content on top of whatever mainCamera already drew.
+        // content (Player's 3D ship only now that Enemy has its own EnemyCamera/ENEMY_ONLY_LAYER,
+        // plus SideBarUI's DEFAULT-layer children), drawn LAST (highest priority) so nothing -
+        // not even the cloud foreground layer - can occlude it. Never clears anything - it
+        // only adds 3D content on top of whatever the other cameras already drew.
         if (this.foregroundCamera) {
             this.foregroundCamera.visibility = Layers.BitMask.DEFAULT;
             this.foregroundCamera.node.setPosition(this.mainCamera.node.position);
@@ -421,7 +548,7 @@ export class GameManager extends Component implements IGameManager {
             this.foregroundCamera.orthoHeight = 360;
             this.foregroundCamera.far = 2000; // see mainCamera.far comment above
             this.foregroundCamera.clearFlags = Camera.ClearFlag.DONT_CLEAR;
-            this.foregroundCamera.priority = 2;
+            this.foregroundCamera.priority = 4;
             this.foregroundCamera.node.active = true;
             this.foregroundCamera.enabled = true;
         }
@@ -484,13 +611,19 @@ export class GameManager extends Component implements IGameManager {
         this._videoBGEffectTime += dt;
         const t = this._videoBGEffectTime;
 
-        // 3チャンネルを120°ずつ位相をずらしたsin波でゆっくり色相を回す。
+        // 3チャンネルを120°ずつ位相をずらしたsin波でベース色を中心にゆっくり色相を揺らす。
+        // _videoBGThemeColorが設定されていれば(BackgroundThemeManager経由、MissionLv系統色)、
+        // 白(255-amp)ではなくその色を中心に揺らすことで「系統色から大きく外れない」範囲の
+        // 変化になる。未設定時は従来通り白ベース(全Lv共通のレインボー変化)にフォールバックする。
         const amp = this.videoBGColorCycleAmplitude;
         const hueSpeed = this.videoBGColorCycleSpeed;
-        const base = 255 - amp;
-        const r = base + Math.sin(t * hueSpeed) * amp;
-        const g = base + Math.sin(t * hueSpeed + 2.094) * amp;
-        const b = base + Math.sin(t * hueSpeed + 4.188) * amp;
+        const theme = this._videoBGThemeColor;
+        const baseR = theme ? theme.r : (255 - amp);
+        const baseG = theme ? theme.g : (255 - amp);
+        const baseB = theme ? theme.b : (255 - amp);
+        const r = baseR + Math.sin(t * hueSpeed) * amp;
+        const g = baseG + Math.sin(t * hueSpeed + 2.094) * amp;
+        const b = baseB + Math.sin(t * hueSpeed + 4.188) * amp;
 
         // 明るさを(1 - amplitude)〜1.0の範囲で緩やかに明滅させる。
         const brightAmp = this.videoBGBrightnessAmplitude;
@@ -836,12 +969,34 @@ export class GameManager extends Component implements IGameManager {
 
         this.playState.distance = this.currentMission.distance;
         this.playState.killedEnemies = 0;
+        this.playState.totalEnemiesSpawned = 0;
         this.playState.collectedItemsCount = 0;
         this.playState.items = []; // Reset items
         this.playState.elapsedTime = 0; // Reset Timer
         this.playState.damageDealt = 0;    // Reset
         this.playState.damageReceived = 0; // Reset
         this.playState.itemsList = [];      // Reset
+        this.spawnTimer = 0;
+        this._goalApproachShown = false;
+        this.hideGoalWarning();
+
+        // 距離トリガー式の湧きキューを組み立てる(MissionUI経由の本番ミッションのみ、
+        // BehaviorTestController.onStartMissionClicked()と同じアルゴリズム)。各SpawnTableの
+        // 発火しきい値(残り距離)は「そのテーブルより後ろの全テーブルのdist合計+終了margin」。
+        // 先頭(SubLv最小)のテーブルが最初に、末尾のテーブルが終了margin直前に発火する。
+        this._missionSpawnQueue = [];
+        const spawnTableIds = this.currentMission.spawnTableIds;
+        const spawnTableDists = this.currentMission.spawnTableDists;
+        if (spawnTableIds && spawnTableIds.length > 0 && spawnTableDists && spawnTableDists.length === spawnTableIds.length) {
+            let remaining = this.currentMission.marginEndKm || 0;
+            const triggers: { id: string; triggerAtDistance: number; fired: boolean }[] = [];
+            for (let i = spawnTableIds.length - 1; i >= 0; i--) {
+                remaining += spawnTableDists[i];
+                triggers.unshift({ id: spawnTableIds[i], triggerAtDistance: remaining, fired: false });
+            }
+            this._missionSpawnQueue = triggers;
+            console.log(`[GameManager] Mission spawn queue built: ${triggers.length} table(s) [${spawnTableIds.join(', ')}].`);
+        }
 
         // Inject GM to Player
         if (this.playerNode) {
@@ -859,6 +1014,18 @@ export class GameManager extends Component implements IGameManager {
                 } else {
                     pCtrl.cargoDamagePenalty = 0;
                 }
+
+                // --- Customizeで実際に装備した武器を発射に反映 ---
+                // 以前はPlayerController.shotPatternId(Inspector既定の固定1パターン)が常に
+                // 使われ続け、装備/Lvが発射に一切反映されていなかった(PlayerWeaponManagerは
+                // scene-BehaviorTest専用のデバッグハーネスで、本番では一度も呼ばれていなかった)。
+                const equippedParts = getCurrentGridData(data).equippedParts;
+                const loadout = resolveEquippedLoadout(equippedParts);
+                if (pCtrl.setOverrideShotPatternIds) pCtrl.setOverrideShotPatternIds(loadout.shotPatternIds);
+                if (pCtrl.setScaleMultipliers) pCtrl.setScaleMultipliers(loadout.scaleMultByPatternId);
+                if (pCtrl.setIntervalMultipliers) pCtrl.setIntervalMultipliers(loadout.intervalMultByPatternId);
+                if (pCtrl.setDamageMultipliers) pCtrl.setDamageMultipliers(loadout.damageMultByPatternId);
+                console.log(`[GameManager] Equipped loadout resolved: ${loadout.shotPatternIds.join(', ') || '(none, falling back to default shotPatternId)'}`);
             }
         }
 
@@ -866,12 +1033,83 @@ export class GameManager extends Component implements IGameManager {
             UIManager.instance.updateDist(this.playState.distance);
             UIManager.instance.resetBuffs(); // Ensure clean UI state
         }
+        if (this.remainDistanceHUD) this.remainDistanceHUD.setDistance(this.playState.distance);
 
         // Start BGM
         if (SoundManager.instance) {
             SoundManager.instance.pauseBGM(1.0); // Pause OutGame Atmosphere
             SoundManager.instance.playBGM("bgm_ingame01", 1.0);
         }
+
+        this.playPlayerStartAnimation();
+    }
+
+    // ミッション開始時のPlayer軽演出。ノンブロッキング(isPausedにしない、入力も止めない)なので、
+    // PlayerController側のマウス追従/バンクと同時に動く。そのため、position/rotationを
+    // 動かすクリップだと毎フレーム取り合いになって暴れる - scaleのポップインや、子ノード
+    // (例: PlayerShip3D配下のパーティクル演出ノード)のactive切り替えなど、PlayerControllerが
+    // 触らないプロパティだけで組む前提。
+    private playPlayerStartAnimation() {
+        if (!this.playerStartClip || !this.playerNode) return;
+        const anim = this.playerNode.getComponent(Animation) || this.playerNode.addComponent(Animation);
+        anim.defaultClip = this.playerStartClip;
+        anim.play();
+
+        // 演出時間 = Startクリップ自身の尺(秒)。ハードコードした秒数ではなくクリップのdurationを
+        // 基準にすることで、クリップの長さを変えても弾遅延/STARTロゴ/集中線が自動的に追従する。
+        const presentationSec = this.playerStartClip.duration;
+
+        const pCtrl = this.playerNode.getComponent("PlayerController") as any;
+        if (pCtrl && pCtrl.delayFiring) {
+            pCtrl.delayFiring(presentationSec);
+        }
+
+        this.showStartText(presentationSec);
+
+        if (this.starField) {
+            this.starField.triggerBurst(presentationSec, 6.0, 4.5);
+        }
+    }
+
+    // GOALのshowGoalText()と対になる、ミッション開始時のSTARTロゴ。GOAL側と違い後続の画面遷移を
+    // 待つ相手がいないので、durationSec表示した後は自分でフェードアウトして自己完結する。
+    private showStartText(durationSec: number) {
+        const scene = director.getScene();
+        const canvas = scene ? scene.getChildByName("Canvas") : null;
+        if (!canvas) return;
+
+        const node = new Node("START_Text");
+        canvas.addChild(node);
+        node.setPosition(0, 0, 0);
+
+        const lbl = node.addComponent(Label);
+        lbl.string = "START!!";
+        lbl.fontSize = 120;
+        lbl.lineHeight = 130;
+        lbl.color = Color.CYAN; // GOALの黄色と差別化
+        lbl.overflow = Label.Overflow.NONE;
+
+        const outline = node.addComponent(LabelOutline);
+        outline.color = Color.BLACK;
+        outline.width = 6;
+
+        const trans = node.getComponent(UITransform) || node.addComponent(UITransform);
+        trans.setContentSize(new Size(800, 200));
+
+        const opacity = node.addComponent(UIOpacity);
+
+        tween(node)
+            .set({ scale: v3(0, 0, 0) })
+            .to(0.4, { scale: v3(1.1, 1.1, 1) }, { easing: 'backOut' })
+            .to(0.15, { scale: v3(1, 1, 1) })
+            .start();
+
+        const holdSec = Math.max(0, durationSec - 0.6);
+        tween(opacity)
+            .delay(holdSec)
+            .to(0.4, { opacity: 0 })
+            .call(() => { if (node.isValid) node.destroy(); })
+            .start();
     }
 
     public retryGame() {
@@ -882,6 +1120,7 @@ export class GameManager extends Component implements IGameManager {
 
     public goToTitle() {
         console.log("[GameManager] Switch to Title via Prefab");
+        this.hideGoalWarning();
         this.state = GameState.TITLE;
         this.applyCameraForState();
         this.switchContent(this.titlePrefab);
@@ -895,6 +1134,7 @@ export class GameManager extends Component implements IGameManager {
 
     public goToHome() {
         console.log("[GameManager] Switch to Home via Prefab");
+        this.hideGoalWarning();
         this.state = GameState.HOME;
         this.applyCameraForState();
         this.switchContent(this.homePrefab);
@@ -999,6 +1239,18 @@ export class GameManager extends Component implements IGameManager {
         if (starField) {
             starField.setPosition(0, 0, 0);
             this.forceBackgroundLayer(starField);
+            this.starField = starField.getComponent(StarField);
+        } else {
+            this.starField = null;
+        }
+
+        // 残り距離HUD(RemainDistanceノード、RichText)。専用コンポーネントを実行時にアタッチ
+        // (Prefab自体はエディタ側でノード配置のみ済んでいれば良い、JSONは直接編集しない)。
+        const remainDistanceNode = findNode(rootNode, "RemainDistance");
+        if (remainDistanceNode) {
+            this.remainDistanceHUD = remainDistanceNode.getComponent(RemainDistanceHUD) || remainDistanceNode.addComponent(RemainDistanceHUD);
+        } else {
+            this.remainDistanceHUD = null;
         }
 
         // MP4背景に統一 - 既存の静止画クロスフェード(BackgroundLayer)はstaticBGNodeとして渡し
@@ -1006,7 +1258,23 @@ export class GameManager extends Component implements IGameManager {
         // 親ノードはrootNode直下ではなく、BackgroundLayer/StarFieldと同じ「Canvas」ラッパー
         // (wrapper2、cc.Canvasコンポーネント付き)を使う - rootNode直下だとこのCanvas階層の
         // 外側になってしまい、座標を(0,0,0)に補正しても正しく描画されなかったため。
-        this.videoBG.setup(wrapper2 || rootNode, "VideoBGSpriteNode", "Movies/BGV_Ingame001_Galaxy_Blue", bgLayer, BG_ONLY_LAYER);
+        // 彩度低めのBase素材群(BackgroundThemeManagerのプールからミッションごとにランダムで1本)に、
+        // MissionLv系統色の乗算ティント(updateVideoBGColorEffect()参照)を掛ける前提。
+        // BackgroundThemeManager未配置ならBase素材1本+白ティング(=無補正)にフォールバックする。
+        const btm = BackgroundThemeManager.instance;
+        const videoPath = btm ? btm.getRandomVideoPattern() : "Movies/BGV_Ingame001_Galaxy_Base";
+        this._videoBGThemeColor = btm ? btm.getColorForLv(this.currentMission ? this.currentMission.stars : 1) : null;
+        this.videoBG.setup(wrapper2 || rootNode, "VideoBGSpriteNode", videoPath, bgLayer, BG_ONLY_LAYER);
+
+        // 3層クラウド(極薄い=BG_ONLY_LAYER、薄い/程よく薄い=FG_CLOUD_LAYER)。ミッションごとに
+        // 前回ぶんを破棄して作り直す(VideoBGと同じ、Editor側のPrefab編集は不要)。
+        if (this.cloudLayerManager && this.cloudLayerManager.isValid) {
+            this.cloudLayerManager.node.destroy();
+        }
+        const cloudNode = new Node("CloudLayerManager");
+        (wrapper2 || rootNode).addChild(cloudNode);
+        this.cloudLayerManager = cloudNode.addComponent(CloudLayerManager);
+        this.cloudLayerManager.setup(wrapper2 || rootNode, BG_ONLY_LAYER, FG_CLOUD_LAYER);
 
         // ズーム/色合い/明滅は毎フレームsin波で計算する(updateVideoBGColorEffect())- Ken Burns風
         // ズームを開始時に一度きりのtweenで組んでいた旧実装だと、GameManagerEditorの数値が
@@ -1105,8 +1373,11 @@ export class GameManager extends Component implements IGameManager {
         this.frameCount++;
         this.playState.elapsedTime += deltaTime;
 
-        // Timer Logic (行動パターン検証用テストシーンでは自動湧きを止める)
-        if (!this.testMode) {
+        // Timer Logic (行動パターン検証用テストシーンでは自動湧きを止める)。
+        // _missionSpawnQueueが組まれているミッション(MissionUI経由の本番ミッション)では、
+        // こちらの継続タイマー式ランダム湧きは止める - 両方同時に湧かせると、開始/終了margin
+        // が「静かな区間」にならず、SpawnTable側で選んだLv相応の敵構成の意味も薄れるため。
+        if (!this.testMode && this._missionSpawnQueue.length === 0) {
             this.spawnTimer += deltaTime;
             const interval = (GAME_SETTINGS.ENEMY.SPAWN_INTERVAL / 60); // Convert frames to seconds approx
 
@@ -1137,8 +1408,27 @@ export class GameManager extends Component implements IGameManager {
         this.playState.distance -= distDec;
         if (this.playState.distance < 0) this.playState.distance = 0;
 
+        // 距離トリガー式の湧きキュー消化(BehaviorTestController.updateMissionRuntime()と同じ判定)。
+        // 残り距離がしきい値以下になった時点で該当SpawnTableを1回だけ発火する。
+        if (this._missionSpawnQueue.length > 0) {
+            for (const t of this._missionSpawnQueue) {
+                if (!t.fired && this.playState.distance <= t.triggerAtDistance) {
+                    t.fired = true;
+                    this.spawnFromSpawnTable(t.id);
+                }
+            }
+        }
+
+        // GOAL接近予告(残り100km、1ミッション1回のみ)。testModeでも見た目確認できるよう出す
+        // (ゴール判定自体と違い、演出だけなのでゲームを止めたりはしない)。
+        if (!this._goalApproachShown && this.playState.distance > 0 && this.playState.distance <= 100) {
+            this._goalApproachShown = true;
+            this.showGoalApproachingCue();
+            this.showGoalWarning();
+        }
+
         if (!this.testMode && this.playState.distance <= 0) {
-            this.triggerGoalSequence();
+            this.beginGoalSequence();
         }
 
         // UI Update (via UIManager)
@@ -1148,6 +1438,7 @@ export class GameManager extends Component implements IGameManager {
             UIManager.instance.updateTimer(this.playState.elapsedTime);
             UIManager.instance.updateMissionStats(this.playState.killedEnemies || 0, this.playState.damageDealt || 0);
         }
+        if (this.remainDistanceHUD) this.remainDistanceHUD.setDistance(this.playState.distance);
 
         // Debug Label Update
         if (this.debugLabel) {
@@ -1246,6 +1537,9 @@ export class GameManager extends Component implements IGameManager {
         const enemyComp = node.getComponent("Enemy") as any;
         if (enemyComp) {
             enemyComp.init(enemyData, this);
+        }
+        if (this.playState) {
+            this.playState.totalEnemiesSpawned = (this.playState.totalEnemiesSpawned || 0) + 1;
         }
         console.log(`[GameManager] Spawned enemy: ${enemyData.id} at (${x.toFixed(1)}, ${y.toFixed(1)})`);
         return node;
@@ -1369,95 +1663,321 @@ export class GameManager extends Component implements IGameManager {
         return { spawnedIds: idsToSpawn };
     }
 
-    public triggerGoalSequence() {
-        if (this.state === GameState.RESULT) return;
-        this.state = GameState.RESULT;
-        // applyCameraForState()はここでは呼ばない(以前はここで即座に呼んでいたため、Ingame画面が
-        // まだ完全に見えている状態でカメラ/Canvasだけ先にworld(0,0)→(640,360)へジャンプし、
-        // 画面全体が一瞬(-640,-360)ずれて見えるバグがあった)。GOALテキスト表示~ブラックアウトが
-        // 完全に不透明になるまでの間はIngame座標のままにしておき、画面が黒で覆われた後
-        // (下のblackout opacity=255到達コールバック内)でカメラを移動させる。
+    /**
+     * 残り距離100km到達時に一度だけ出すGOAL接近予告のGUI演出。ゲームは止めず、
+     * 短時間のテキストポップアップのみでプレイヤーに「そろそろゴール」を意識させる。
+     */
+    private showGoalApproachingCue() {
+        console.log("[GameManager] Goal approaching (distance <= 100km). Showing cue.");
 
+        const scene = director.getScene();
+        const canvas = scene ? scene.getChildByName("Canvas") : null;
+        if (!canvas) return;
+
+        const node = new Node("GoalApproach_Text");
+        canvas.addChild(node);
+        node.setPosition(0, 180, 0);
+
+        const lbl = node.addComponent(Label);
+        lbl.string = "GOAL APPROACHING!";
+        lbl.fontSize = 44;
+        lbl.lineHeight = 50;
+        lbl.color = Color.YELLOW;
+        lbl.overflow = Label.Overflow.NONE;
+
+        const outline = node.addComponent(LabelOutline);
+        outline.color = Color.BLACK;
+        outline.width = 4;
+
+        const trans = node.getComponent(UITransform) || node.addComponent(UITransform);
+        trans.setContentSize(new Size(700, 80));
+
+        const opacity = node.addComponent(UIOpacity);
+        opacity.opacity = 0;
+
+        tween(node)
+            .set({ scale: v3(0.7, 0.7, 1) })
+            .to(0.3, { scale: v3(1, 1, 1) }, { easing: 'backOut' })
+            .start();
+
+        tween(opacity)
+            .to(0.25, { opacity: 255 })
+            .delay(1.4)
+            .to(0.5, { opacity: 0 })
+            .call(() => node.destroy())
+            .start();
+
+        if (SoundManager.instance) {
+            SoundManager.instance.playSE('powerup01', 'System');
+        }
+    }
+
+    /**
+     * GOAL到達直後の入り口。GOAL!!テキスト(showGoalText())とPlayerのアクロバット退場演出
+     * (triggerPlayerAerobaticOutro())を同時に開始し、実際の画面遷移(finishGoalSequence())は
+     * outroが終わるまで待つ。triggerPlayerAerobaticOutro()が最初にisPausedをtrueにするため、
+     * 以後このフレーム以降update()冒頭のガード(state!==INGAME||isPaused)で再入が防止される。
+     */
+    private beginGoalSequence() {
+        if (this.isPaused) return; // 既にoutro中/GOAL演出中
         console.log("[GameManager] GOAL Distance reached! Triggering sequence...");
+        this.state = GameState.RESULT;
 
-        // 1. Stop Game World
-        this.isPaused = true;
+        // 残っている敵とPlayerのバフを撃破扱いにせず静かに消す(アイテムドロップ/撃破数加算/
+        // 爆発演出なし)。outroやGOALロゴの邪魔にならないよう最初に片付けておく。
+        this.clearEnemiesAndBuffsForGoal();
+
+        // GOAL!!ロゴはoutroアニメーション(150フレーム)の完了を待たず、outroの開始と同時に出す
+        // (アニメ終了後に出すと「間が悪い」というフィードバックのため)。一方、実際の画面遷移
+        // (ブラックアウト→Result)はoutroが最後まで終わるのを待ってから行う
+        // (finishGoalSequence()、triggerPlayerAerobaticOutro()のonComplete経由)。
+        this.showGoalText();
+        this.triggerPlayerAerobaticOutro(() => {
+            this.finishGoalSequence();
+        });
+    }
+
+    // GOAL到達時、残っている敵とPlayerのバフを撃破/消費扱いにせず静かに消す。Enemy.die()を
+    // 経由するとアイテムドロップ/撃破数加算/爆発演出が全部走ってしまうため、あえて
+    // node.destroy()を直接呼んで何もドロップさせずに片付ける。
+    private clearEnemiesAndBuffsForGoal() {
+        if (this.enemyLayer) {
+            const enemies = this.enemyLayer.children.slice();
+            for (const e of enemies) e.destroy();
+        }
+
+        const pCtrl = this.playerNode ? (this.playerNode.getComponent("PlayerController") as any) : null;
+        if (pCtrl && pCtrl.resetBuffs) pCtrl.resetBuffs();
+    }
+
+    // bulletLayer上のPlayer弾(isEnemy===false)だけを破棄する。敵弾はそのまま残しても
+    // 演出上問題ない(すぐ後のfinishGoalSequence()のブラックアウトで隠れる)ため対象外。
+    private clearPlayerBullets() {
+        if (!this.bulletLayer) return;
+        const children = this.bulletLayer.children.slice();
+        for (const c of children) {
+            const b = c.getComponent("Bullet") as any;
+            if (b && b.isEnemy === false) {
+                c.destroy();
+            }
+        }
+    }
+
+    // GOAL接近中(残り100km以下)、Playerに重ねて半透明・赤点灯の警告オーラを表示する。
+    // playerNodeの子として追従させるので、SideBarUI等の常設UIには一切影響しない
+    // (以前ミッションを抜けても点灯しっぱなしになっていたのは、SideBar側のラベル更新が
+    // isPaused/ステート遷移でそもそも呼ばれなくなり、自己リセット処理が実行されないまま
+    // 止まっていたのが原因。今回はplayerNode配下に直接ぶら下げ、outro開始時/Home・Title遷移時に
+    // 明示的にhideGoalWarning()を呼ぶことで同じ問題を避けている)。
+    private showGoalWarning() {
+        if (this.goalWarningNode || !this.playerNode) return;
+        const node = new Node("GoalWarningGhost");
+        node.addComponent(GoalWarningEffect);
+        this.playerNode.addChild(node);
+        node.setPosition(0, 0, 0);
+        this.goalWarningNode = node;
+    }
+
+    private hideGoalWarning() {
+        if (this.goalWarningNode) {
+            if (this.goalWarningNode.isValid) this.goalWarningNode.destroy();
+            this.goalWarningNode = null;
+        }
+    }
+
+    /**
+     * GOAL到達時、beginGoalSequence()がshowGoalText()と同時に呼ぶPlayerのアクロバット退場演出。
+     * 弾を止め(isPaused=trueでcanControl()経由の新規発射/移動入力を止め、既存弾も明示的に破棄)、
+     * playerOutroClip(Inspectorで割り当てたAnimationClip)があればそれを再生し、無ければ
+     * 簡易tween版にフォールバックする。完了したらonComplete()(=finishGoalSequence())を呼ぶ。
+     */
+    private triggerPlayerAerobaticOutro(onComplete: () => void) {
+        const pNode = this.playerNode;
+        const pCtrl = pNode ? (pNode.getComponent("PlayerController") as any) : null;
+        if (!pNode || !pCtrl) {
+            onComplete();
+            return;
+        }
+
+        console.log("[GameManager] Player aerobatic outro starting.");
+
+        this.isPaused = true; // 新規発射/移動入力を止める(canControl()経由)
+        this.clearPlayerBullets();
+        this.hideGoalWarning();
+
+        // 集中線バースト。outro開始と同時に長めに掛けることで、粒子が実際に画面を埋めるだけの
+        // 時間を確保する(ParticleSystem2Dのspeed/emissionRateはCocosの仕様上、新規発生分にしか
+        // 効かないため、短すぎると古い(遅い)粒子に埋もれて「確認できない」ほど薄まってしまう)。
+        if (this.starField) {
+            this.starField.triggerBurst(3.2, 6.0, 4.5);
+        }
+
+        if (this.playerOutroClip) {
+            this.playAnimationClipOutro(pNode, onComplete);
+        } else {
+            this.playTweenFallbackOutro(pNode, pCtrl, onComplete);
+        }
+    }
+
+    // playerOutroClip(Cocos純正Animation Editorで作成した.anim)がInspectorに割り当てられている
+    // 場合の再生経路。位置/回転/スケールをまとめてキーフレームで自由に調整できるため、
+    // 「旋回し続ける」「緩急をつける」といった作り込みはこちら側(エディタ上の作業)に任せる。
+    //
+    // AnimationClipはtweenと違い「現在値からの相対移動」ではなく絶対座標のキーフレームを
+    // 再生する仕組みのため、再生開始の瞬間にPlayerの位置がクリップの最初のキーフレーム座標へ
+    // 一瞬でスナップする。GOAL到達時、Playerは画面内のどこにいるか分からない(プレイヤー操作の
+    // 結果なので)ため、再生直前に位置だけを固定の基準点(ローカル原点=Player.prefabを編集モードで
+    // 開いた時に見える初期位置と同じ)へ矯正しておく - クリップ側はこの原点から動き始める前提で
+    // キーフレームを打てば、実際のプレイ内容に関わらず毎回同じ見た目で再生される
+    // (回転/スケールは通常のゲームプレイ中もpNode自体には触れていないため、リセット不要)。
+    private playAnimationClipOutro(pNode: Node, onComplete: () => void) {
+        pNode.setPosition(0, 0, 0);
+
+        const anim = pNode.getComponent(Animation) || pNode.addComponent(Animation);
+        anim.defaultClip = this.playerOutroClip;
+        anim.play();
+        anim.once(Animation.EventType.FINISHED, () => {
+            if (pNode.isValid) pNode.active = false;
+            onComplete();
+        }, this);
+    }
+
+    // playerOutroClip未割り当て時の簡易フォールバック。専用グラフ/AnimationClipを用意するまでの
+    // 繋ぎとして、tweenだけでスラローム→縮小消失の一連を再現する。
+    private playTweenFallbackOutro(pNode: Node, pCtrl: any, onComplete: () => void) {
+        const model: Node = pCtrl.model3D || null;
+        const startScale = pNode.scale.clone();
+
+        const burst = () => {
+            if (!pNode.isValid) return;
+            const wp = pNode.worldPosition;
+            this.spawnExplosion(wp.x, wp.y, false);
+            if (SoundManager.instance) SoundManager.instance.playSE('missile01', 'Player');
+        };
+
+        // スラローム経由点(Player自身のローカル座標系。原点付近を基準に左右へ振る)
+        const p1 = v3(220, 90, 0);
+        const p2 = v3(-220, 170, 0);
+        const p3 = v3(180, -40, 0);
+        const p4 = v3(-160, 100, 0);
+        const vanish = v3(560, 420, 0);
+
+        tween(pNode)
+            .to(0.4, { position: p1 }, { easing: 'sineInOut' })
+            .call(burst)
+            .to(0.35, { position: p2 }, { easing: 'sineInOut' }) // 緩急: 短く速いターン
+            .call(burst)
+            .to(0.55, { position: p3 }, { easing: 'sineInOut' }) // 緩急: 長く溜める
+            .call(burst)
+            .to(0.3, { position: p4 }, { easing: 'sineInOut' })  // 緩急: また短く速く
+            .to(0.15, { scale: v3(startScale.x * 1.15, startScale.y * 1.15, startScale.z * 1.15) })
+            .to(0.6, { position: vanish, scale: v3(0.05, 0.05, 0.05) }, { easing: 'quadIn' })
+            .call(() => {
+                if (pNode.isValid) pNode.active = false;
+                onComplete();
+            })
+            .start();
+
+        // バンク(旋回)風の見た目。Node.angle(Z軸)は2D的な単純回転として安全にtween可能なため使う
+        // (model3D.eulerAnglesの直接tweenはこのプロジェクトの既存コード(Enemy.ts)でも避けられている手法)。
+        // 「旋回し続けないとしょぼい」フィードバックを踏まえ、往復角度の緩急を強めに付けてある。
+        // ただしこれはあくまで簡易フォールバックであり、本格的に「回り続ける」「加減速する」演出は
+        // playerOutroClip(Animation Editorで作るカーブ)側で作り込む想定(このメソッドの上のコメント参照)。
+        if (model) {
+            tween(model)
+                .to(0.4, { angle: -35 }, { easing: 'sineInOut' })
+                .to(0.35, { angle: 35 }, { easing: 'sineInOut' })
+                .to(0.55, { angle: -20 }, { easing: 'sineInOut' })
+                .to(0.3, { angle: 40 }, { easing: 'sineInOut' })
+                .to(0.6, { angle: 0 }, { easing: 'sineInOut' })
+                .start();
+        }
+    }
+
+    // GOAL!!テキストのポップイン表示だけを担当する。beginGoalSequence()からoutro開始と同時に
+    // 呼ばれる(outro完了を待たない)。実際の画面遷移はfinishGoalSequence()側が別途担当する。
+    private showGoalText() {
+        const scene = director.getScene();
+        const canvas = scene ? scene.getChildByName("Canvas") : null;
+        if (!canvas) return;
+
         if (SoundManager.instance) {
             SoundManager.instance.stopBGM(0.5);
+            SoundManager.instance.playBGM("sounds/BGM/shooter_BGM_Result", 0.5);
         }
 
-        // 2. Show GOAL Decorative Text
+        const goalNode = new Node("GOAL_Text");
+        canvas.addChild(goalNode);
+        goalNode.setPosition(0, 0, 0);
+
+        const lbl = goalNode.addComponent(Label);
+        lbl.string = "GOAL!!";
+        lbl.fontSize = 120;
+        lbl.lineHeight = 130; // Prevent clipping
+        lbl.color = Color.YELLOW;
+        lbl.overflow = Label.Overflow.NONE;
+
+        const outline = goalNode.addComponent(LabelOutline);
+        outline.color = Color.BLACK;
+        outline.width = 6;
+
+        const trans = goalNode.getComponent(UITransform) || goalNode.addComponent(UITransform);
+        trans.setContentSize(new Size(800, 200));
+
+        // Simple scale pop
+        tween(goalNode)
+            .set({ scale: v3(0, 0, 0) })
+            .to(0.5, { scale: v3(1.1, 1.1, 1) }, { easing: 'backOut' })
+            .to(0.2, { scale: v3(1, 1, 1) })
+            .start();
+
+        this._goalTextNode = goalNode;
+    }
+
+    // Playerのoutro(150フレームのAnimationClip、または簡易tween版)が完全に終わってから呼ばれる。
+    // ブラックアウト→カメラ移動→Result画面遷移という「次画面への切り替え」はここに一本化し、
+    // outroが終わるまで絶対に先へ進まないようにする。
+    private finishGoalSequence() {
         const scene = director.getScene();
-        const canvas = scene.getChildByName("Canvas");
-        if (canvas) {
-            // 2. Show GOAL Decorative Text
-            const goalNode = new Node("GOAL_Text");
-            canvas.addChild(goalNode);
-            goalNode.setPosition(0, 0, 0);
-
-            const lbl = goalNode.addComponent(Label);
-            lbl.string = "GOAL!!";
-            lbl.fontSize = 120;
-            lbl.lineHeight = 130; // Prevent clipping
-            lbl.color = Color.YELLOW;
-            lbl.overflow = Label.Overflow.NONE;
-
-            const outline = goalNode.addComponent(LabelOutline);
-            outline.color = Color.BLACK;
-            outline.width = 6;
-
-            // Ensure UITransform is enough
-            const trans = goalNode.getComponent(UITransform) || goalNode.addComponent(UITransform);
-            trans.setContentSize(new Size(800, 200));
-
-            // UI Sound with GOAL text
-            if (SoundManager.instance) {
-                SoundManager.instance.playBGM("sounds/BGM/shooter_BGM_Result", 0.5);
-            }
-
-            // Simple scale pop
-            tween(goalNode)
-                .set({ scale: v3(0, 0, 0) })
-                .to(0.5, { scale: v3(1.1, 1.1, 1) }, { easing: 'backOut' })
-                .to(0.2, { scale: v3(1, 1, 1) })
-                .start();
-
-            // 3. Blackout (0.5s fade, shorter wait)
-            this.scheduleOnce(() => {
-                const blackout = new Node("Blackout");
-                canvas.addChild(blackout);
-                blackout.setPosition(0, 0, 0);
-                blackout.addComponent(BlockInputEvents);
-
-                const graphics = blackout.addComponent(Graphics);
-                graphics.fillColor = new Color(0, 0, 0, 0);
-                graphics.rect(-2000, -2000, 4000, 4000);
-                graphics.fill();
-
-                const opacity = blackout.addComponent(UIOpacity);
-                tween(opacity)
-                    .to(0.5, { opacity: 255 }) // Halved from 1.0
-                    .call(() => {
-                        goalNode.destroy();
-                        // 画面が完全に黒で覆われた今のタイミングでカメラ/CanvasをUI状態の座標
-                        // (640,360)へ移動する(triggerGoalSequence()冒頭のコメント参照)。
-                        this.applyCameraForState();
-                        this.onMissionComplete();
-                        // Fade in blackout briefly or let ResultUI handle its own appearance
-                        tween(opacity)
-                            .delay(0.2) // Shortened from 0.5
-                            .to(0.3, { opacity: 0 }) // Shortened from 0.5
-                            .call(() => blackout.destroy())
-                            .start();
-                    })
-                    .start();
-            }, 1.0); // Wait 1s (Halved from 2s) for GOAL text to be seen
-        } else {
-            // Canvasが見つからずGOAL演出自体を出せない異常系。ブラックアウトによる遮蔽が無いので
-            // カメラ移動が一瞬見えてしまう可能性はあるが、演出無しの即時完了ではこれが精一杯。
+        const canvas = scene ? scene.getChildByName("Canvas") : null;
+        if (!canvas) {
+            // Canvasが見つからずブラックアウト演出自体を出せない異常系。カメラ移動が一瞬
+            // 見えてしまう可能性はあるが、演出無しの即時完了ではこれが精一杯。
+            if (this._goalTextNode && this._goalTextNode.isValid) this._goalTextNode.destroy();
+            this._goalTextNode = null;
             this.applyCameraForState();
             this.onMissionComplete();
+            return;
         }
+
+        const blackout = new Node("Blackout");
+        canvas.addChild(blackout);
+        blackout.setPosition(0, 0, 0);
+        blackout.addComponent(BlockInputEvents);
+
+        const graphics = blackout.addComponent(Graphics);
+        graphics.fillColor = new Color(0, 0, 0, 0);
+        graphics.rect(-2000, -2000, 4000, 4000);
+        graphics.fill();
+
+        const opacity = blackout.addComponent(UIOpacity);
+        tween(opacity)
+            .to(0.5, { opacity: 255 })
+            .call(() => {
+                if (this._goalTextNode && this._goalTextNode.isValid) this._goalTextNode.destroy();
+                this._goalTextNode = null;
+                // 画面が完全に黒で覆われた今のタイミングでカメラ/CanvasをUI状態の座標
+                // (640,360)へ移動する(以前はここより早く呼んでいたため、Ingame画面がまだ見えている
+                // 状態でカメラだけ先にジャンプし、画面全体が一瞬(-640,-360)ずれて見えるバグがあった)。
+                this.applyCameraForState();
+                this.onMissionComplete();
+                tween(opacity)
+                    .delay(0.2)
+                    .to(0.3, { opacity: 0 })
+                    .call(() => blackout.destroy())
+                    .start();
+            })
+            .start();
     }
 
     public onMissionComplete() {
@@ -1465,22 +1985,55 @@ export class GameManager extends Component implements IGameManager {
 
         console.log("Mission Complete!");
 
-        // 1. Add Mission Reward with Time Bonus/Penalty
+        // 1. Add Mission Reward with Time/No-Damage/All-Kills Bonus
+        // ボーナス%は基礎報酬(rewardG)にのみ掛かる(荷物報酬rewardHは対象外)。3種のボーナスは
+        // それぞれ独立に%を求めて合計してから1回だけ掛ける(複利ではなく単純加算)。
+        // rewardG/rewardHが無い(旧来の固定ミッション等)場合はreward全体をrewardG扱いにフォールバックする。
         let actualReward = 0;
         let prevCredits = DataManager.instance ? DataManager.instance.data.money : 0;
+        // ResultUIへそのまま渡すボーナス内訳(表示専用、計算はここが唯一の情報源)。
+        let timeBonusPct = 0;
+        let noDamageBonusPct = 0;
+        let allKillsBonusPct = 0;
+        const totalSpawnedForResult = this.playState.totalEnemiesSpawned || 0;
 
         if (this.currentMission && this.currentMission.reward > 0) {
-            actualReward = this.currentMission.reward;
-            const targetTime = this.currentMission.targetTime || 60;
-            const timeBonus = 0.1; // ±10%
+            const rewardG = (typeof this.currentMission.rewardG === 'number') ? this.currentMission.rewardG : this.currentMission.reward;
+            const rewardH = (typeof this.currentMission.rewardH === 'number') ? this.currentMission.rewardH : 0;
+            const lv = this.currentMission.stars || 1;
 
-            if (this.playState.elapsedTime <= targetTime) {
-                actualReward = Math.floor(actualReward * (1 + timeBonus));
-                console.log(`[GameManager] Target Time met! Bonus applied: ${actualReward}`);
+            // 時間ボーナス: 目標タイムとの差が±TIME_BONUS_MARGIN_SEC以内はノーカウント(ボーナスも
+            // ペナルティも無し)。それを超えて早ければ+10%、遅ければ-10%。
+            const targetTime = this.currentMission.targetTime || 60;
+            const timeDelta = this.playState.elapsedTime - targetTime; // 負=早い、正=遅い
+            if (Math.abs(timeDelta) <= GameManager.TIME_BONUS_MARGIN_SEC) {
+                timeBonusPct = 0;
+                console.log(`[GameManager] Time bonus: none (within ±${GameManager.TIME_BONUS_MARGIN_SEC}s margin, delta=${timeDelta.toFixed(1)}s)`);
+            } else if (timeDelta < 0) {
+                timeBonusPct = 0.1;
+                console.log("[GameManager] Time bonus: +10%");
             } else {
-                actualReward = Math.floor(actualReward * (1 - timeBonus));
-                console.log(`[GameManager] Target Time exceeded! Penalty applied: ${actualReward}`);
+                timeBonusPct = -0.1;
+                console.log("[GameManager] Time penalty: -10%");
             }
+
+            // 被弾0ボーナス: +5% × MissionLv
+            if ((this.playState.damageReceived || 0) <= 0) {
+                noDamageBonusPct = 0.05 * lv;
+                console.log(`[GameManager] No-damage bonus: +${(noDamageBonusPct * 100).toFixed(0)}%`);
+            }
+
+            // 敵全滅ボーナス: +10% × MissionLv(gm.despawnAllEnemies()/GOAL時のclearEnemiesAndBuffsForGoal()は
+            // 撃破扱いにしないためkilledEnemiesを増やさない = 未撃破のまま残っていれば全滅にならない)
+            const killed = this.playState.killedEnemies || 0;
+            if (totalSpawnedForResult > 0 && killed >= totalSpawnedForResult) {
+                allKillsBonusPct = 0.1 * lv;
+                console.log(`[GameManager] All-kills bonus: +${(allKillsBonusPct * 100).toFixed(0)}% (${killed}/${totalSpawnedForResult})`);
+            }
+
+            const bonusPct = timeBonusPct + noDamageBonusPct + allKillsBonusPct;
+            actualReward = Math.floor(rewardG * (1 + bonusPct)) + rewardH;
+            console.log(`[GameManager] Reward: rewardG=${rewardG} x(1+${bonusPct.toFixed(2)}) + rewardH=${rewardH} = ${actualReward}`);
 
             if (DataManager.instance) {
                 DataManager.instance.addResource("credits", actualReward);
@@ -1512,17 +2065,21 @@ export class GameManager extends Component implements IGameManager {
         const enemies = this.playState.killedEnemies || 0;
         const items = this.playState.collectedItemsCount || 0;
 
-        resUI.setup(enemies, items, 0, this.playState.itemsList, actualReward, prevCredits);
+        resUI.setup(enemies, items, 0, this.playState.itemsList, actualReward, prevCredits, {
+            timeBonusPct, noDamageBonusPct, allKillsBonusPct,
+            totalEnemiesSpawned: totalSpawnedForResult,
+        });
     }
 
     /**
      * Transition back to Home with blackout and crossfade
      */
-    public returnToHomeTransition() {
+    public returnToHomeTransition(onArrived?: () => void) {
         const scene = director.getScene();
         const canvas = scene.getChildByName("Canvas");
         if (!canvas) {
             this.goToHome();
+            if (onArrived) onArrived();
             return;
         }
 
@@ -1548,6 +2105,7 @@ export class GameManager extends Component implements IGameManager {
                 }
                 // Switch Content
                 this.goToHome();
+                if (onArrived) onArrived();
 
                 // Fade out blackout after switching scene content
                 this.scheduleOnce(() => {
