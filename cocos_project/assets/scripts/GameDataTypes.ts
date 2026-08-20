@@ -495,6 +495,50 @@ export class WeaponData {
 }
 
 /**
+ * デバイスマスタデータ (assets/resources/Excels/Device.csv)
+ * Equipment.csvとは独立したLv0~Lv5の性能値/必須アイテム個数を直接CSVに持つ(PlayerUpgradeParam/
+ * WeaponDataのようなカーブ計算式ではなく、行ごとの実測値をそのまま使う)。IDはEquipment.csv側の
+ * 同名アイテム(EQ061_BuffAmpDeviceS等)と一致させてあるが、突き合わせは今のところ行わない
+ * (Equipment.csv側はグリッド配置形状、Device.csv側は性能/Lvアップコストの情報源、と役割分担する)。
+ * groupIdが同じ行同士は同時装備不可(将来のCustomize側実装用、2つ以上装備できないようにする想定)。
+ */
+@ccclass('DeviceData')
+export class DeviceData {
+    @property
+    public id: string = "";
+
+    @property
+    public name: string = "";
+
+    @property({ type: CCInteger, tooltip: "排他グループ(同グループは同時装備2つ以上不可の想定)" })
+    public groupId: number = 0;
+
+    @property({ type: CCFloat, tooltip: "重量" })
+    public weight: number = 0;
+
+    @property({ type: CCInteger, tooltip: "パラメータ価値(★の数)。Lvアップのクレジットコスト計算に使う" })
+    public starValue: number = 1;
+
+    @property({ type: CCFloat, tooltip: "Lvアップコストのクレジット単価。Lv0=CreditValue、LvN(N>=1)=CreditValue×N×StarValue" })
+    public creditValue: number = 0;
+
+    // Lv0~Lv5の性能値。LuckyParts等「レベルアップの概念は無し」の行はvalues[1]以降がNaN(CSVで空欄)。
+    public values: number[] = [];
+
+    @property
+    public requiredItemId: string = "";
+
+    // Lv0(解放)~Lv5、必要個数。valuesと同じ添字でLvに対応する。
+    public requiredQty: number[] = [];
+
+    @property
+    public note: string = "";
+
+    @property({ tooltip: "性能値の適用式の説明(人間向けメモ。実際の効果適用ロジックはまだ未実装)" })
+    public formulaNote: string = "";
+}
+
+/**
  * ドロップテーブルデータ (旧互換用 DropData)
  */
 @ccclass('DropData')

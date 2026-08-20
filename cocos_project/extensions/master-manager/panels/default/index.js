@@ -16,6 +16,7 @@ const CSV_FILES = [
     { label: 'Sounds', file: 'Sounds.csv' },
     { label: 'GridCellManager', file: 'GridCells.csv' },
     { label: 'AchievementManager', file: 'Achievements.csv' },
+    { label: 'DeviceManager', file: 'Device.csv' },
 ];
 
 // ID-reference schema: for a given CSV file, which columns are "foreign keys" into another
@@ -106,6 +107,9 @@ const SCHEMA = {
         UnlockItemID_1: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
         UnlockItemID_2: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
         UnlockItemID_3: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
+    },
+    'Device.csv': {
+        RequiredItemID: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
     },
     'Achievements.csv': {
         // AchievementManager.checkAndUnlock()(assets/scripts/AchievementManager.ts)のisConditionMet()と

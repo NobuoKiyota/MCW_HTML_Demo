@@ -1,3 +1,15 @@
+================8/21======================
+DeviceManager(Device.csv)方針メモ
+
+Equipment.csv(EQ061~EQ103)とDeviceManagerのShapeCells扱いについて:
+・Equipment.csv側は削除せずそのまま残す(ShapeCells/Category/グリッド配置情報の情報源として維持)
+・DeviceManagerはShapeCellsを持たず、Weapons.csvのequipmentId→_equipment解決と同じパターンで
+  Equipment.csv側(IDが一致するEQ061_...等)を参照する形にする
+・理由: WeaponDataで既に確立済みのパターンを踏襲することで、ShapeCellsの二重管理によるデータ
+  不整合(EquipmentQty_1にLv0性能値が紛れ込んでいた件と同種の事故)を避けられる
+・未実装: DeviceDataへの_equipment解決フィールド追加、セーブデータへのDevice所持/Lv状態の保持、
+  グリッドUIからの装備/レベルアップ導線、性能値の実際のゲームプレイ計算への反映
+
 ================2/21======================
 課題
 VehicleRepairの費用が固定で600になっているので残HPに応じて変動するように変更
