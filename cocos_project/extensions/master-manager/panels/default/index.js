@@ -190,44 +190,16 @@ const GC_SCHEMA = [
         note: 'シーンのAmbient(cc.AmbientInfo)のGround Lighting Color(groundAlbedo)を起動時に上書きする(GameManager.tsが適用)',
     },
     {
-        key: 'videoBGZoomScale', category: '背景動画演出', label: '背景動画 ズーム倍率', step: 0.01, min: 1, max: 1.5, default: 1.08,
-        note: 'Ingame背景動画のKen Burns風ズームの最大倍率(GameManager.tsが適用)',
+        key: 'bgScrollSpeedPxPerSec', category: '背景スクロール', label: '背景 スクロール速度(px/秒)', step: 1, min: 0, max: 1000, default: 60,
+        note: 'Ingame背景(ScrollingBackgroundManager、縦スクロールタイル)のスクロール速度。0で静止(GameManager.tsが適用)',
     },
     {
-        key: 'videoBGZoomDurationSec', category: '背景動画演出', label: '背景動画 ズーム周期(秒)', step: 1, min: 5, max: 120, default: 25,
-        note: '拡大→縮小それぞれに掛ける秒数(往復1周期はこの2倍)',
+        key: 'bgOpacity', category: '背景スクロール', label: '背景 不透明度(0-255)', step: 1, min: 0, max: 255, default: 255,
+        note: 'Ingame背景タイル全体の不透明度',
     },
     {
-        key: 'videoBGRotationDurationSec', category: '背景動画演出', label: '背景動画 回転周期(秒)', step: 1, min: 0, max: 300, default: 0,
-        note: 'Ingame背景動画が1周(360度)回転するのに掛ける秒数。0なら回転無し(GameManager.tsが適用)',
-    },
-    {
-        key: 'videoBGShuffleCycleDurationSec', category: '背景動画演出', label: '背景動画 シャッフル表示時間(秒)', step: 1, min: 3, max: 120, default: 30,
-        note: 'Ingame中、1クリップあたりの表示サイクル総時間(フェードイン+ホールド+フェードアウトの合計)。実ファイルの尺より長ければ内部ループで埋める(VideoBackground.enableAutoShuffle()が適用)',
-    },
-    {
-        key: 'videoBGShuffleFadeDurationSec', category: '背景動画演出', label: '背景動画 シャッフルFade時間(秒)', step: 0.1, min: 0.1, max: 10, default: 3,
-        note: 'Ingame中、各クリップの先頭/末尾をフェードイン/アウトする秒数(上のシャッフル表示時間に含まれる)',
-    },
-    {
-        key: 'videoBGShuffleWaitDurationSec', category: '背景動画演出', label: '背景動画 シャッフル切替待ち(秒)', step: 0.1, min: 0, max: 10, default: 2,
-        note: 'フェードアウト後、次のクリップに切り替わるまでの非表示待機時間(秒)',
-    },
-    {
-        key: 'videoBGColorCycleAmplitude', category: '背景動画演出', label: '背景動画 色相振幅', step: 1, min: 0, max: 100, default: 55,
-        note: '背景動画の色合いをsin波で揺らす際のR/G/Bチャンネル振幅(0で色合い変化なし)',
-    },
-    {
-        key: 'videoBGColorCycleSpeed', category: '背景動画演出', label: '背景動画 色相速度', step: 0.01, min: 0, max: 1, default: 0.06,
-        note: '色合いが周期変化する速さ(大きいほど速く色が回る)',
-    },
-    {
-        key: 'videoBGBrightnessAmplitude', category: '背景動画演出', label: '背景動画 明滅振幅', step: 0.01, min: 0, max: 0.5, default: 0.125,
-        note: '背景動画の明るさをsin波で揺らす振幅(0で明滅なし、最大0.5で0.5〜1.0の範囲)',
-    },
-    {
-        key: 'videoBGBrightnessSpeed', category: '背景動画演出', label: '背景動画 明滅速度', step: 0.01, min: 0, max: 1, default: 0.15,
-        note: '明るさが周期変化する速さ',
+        key: 'bgRotationDeg', category: '背景スクロール', label: '背景 回転角度(度)', step: 90, min: 0, max: 270, default: 90,
+        note: 'PNG/MP4素材を何度回転してタイル化するか(0/90/180/270想定)。ミッション開始時に1回だけ適用され、タイル形状を決める(mid-mission変更は反映されない)',
     },
     {
         key: 'initialCredit', category: 'Economy', label: '初期保有Credit', step: 100, min: 0, max: 1000000, default: 0,

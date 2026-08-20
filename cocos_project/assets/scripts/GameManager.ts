@@ -11,13 +11,12 @@ import { DataManager, getCurrentGridData } from './DataManager';
 import { CocosLogger } from './CocosLogger';
 import { CocosDiagnostic } from './CocosDiagnostic';
 import { MovePoint } from './MovePoint';
-import { VideoBackground } from './VideoBackground';
 import { StarField } from './StarField';
 import { GoalWarningEffect } from './GoalWarningEffect';
 import { RemainDistanceHUD } from './RemainDistanceHUD';
 import { resolveEquippedLoadout } from './WeaponCalc';
-import { BackgroundThemeManager } from './BackgroundThemeManager';
 import { CloudManager } from './CloudManager';
+import { ScrollingBackgroundManager } from './ScrollingBackgroundManager';
 
 
 const { ccclass, property } = _decorator;
@@ -188,14 +187,8 @@ export class GameManager extends Component implements IGameManager {
     // Ingame(startInGame経由でscene-BehaviorTestも共有)のMP4背景。BackgroundLayerの静止画に
     // 代わり、BG_ONLY_LAYER(UI_2Dではない)に敷くことでbgCameraだけが描画する - Player3Dモデルを
     // 隠してしまわないようにするため。切り替えのたびswitchContent()内でdestroy()して作り直す。
-    private videoBG: VideoBackground = new VideoBackground();
-    // 背景動画に掛ける色合い/明るさの周期変化のための経過時間(軽量負荷 - Sprite.colorを
-    // 毎フレームsin波で揺らすだけで、シェーダーや追加デコードは不要)。
-    private _videoBGEffectTime: number = 0;
-
-    // BackgroundThemeManagerがMissionLvから引いた系統色。updateVideoBGColorEffect()の乗算ティントの
-    // ベースにする(未設定/BackgroundThemeManager無しならnull=従来通りの白ベースにフォールバック)。
-    private _videoBGThemeColor: Color = null;
+    // Ingame背景(縦スクロールタイル)。ミッションごとにresolveInGameReferences()で作り直す
+    // (CloudManagerと同じ、Editor側のPrefab編集は不要)。
 
     // GameManagerEditor(MasterManagerパネル)経由でassets/resources/Data/GameManagerConfig.json
     // から読み込む倍率。PlayerController.update()がPlayer機3Dモデルの基準スケールに掛ける
@@ -260,22 +253,13 @@ export class GameManager extends Component implements IGameManager {
     // 影響しない(GameManagerConfig.json由来、GameManagerEditorタブで調整)。
     public initialCredit: number = 0;
 
-    // 背景動画のKen Burns風ズーム/色合い周期変化/明滅のパラメータ。既定値はこれらの演出を
-    // 最初に実装した際の固定値と同じ - GameManagerEditorタブから調整できる。
-    private videoBGZoomScale: number = 1.08;
-    private videoBGZoomDurationSec: number = 25;
-    // Ingame背景動画を1周(360度)回転させるのに掛ける秒数。0なら回転無し(既定)。
-    private videoBGRotationDurationSec: number = 0;
-    // Ingame背景動画の自動シャッフル(VideoBackground.enableAutoShuffle())用。1クリップあたり
-    // cycleDurationSec秒表示し(前後fadeDurationSec秒をフェード)、フェードアウト後
-    // waitDurationSec秒待ってから次のクリップへ切り替える。
-    private videoBGShuffleCycleDurationSec: number = 30;
-    private videoBGShuffleFadeDurationSec: number = 3;
-    private videoBGShuffleWaitDurationSec: number = 2;
-    private videoBGColorCycleAmplitude: number = 55;
-    private videoBGColorCycleSpeed: number = 0.06;
-    private videoBGBrightnessAmplitude: number = 0.125;
-    private videoBGBrightnessSpeed: number = 0.15;
+    // Ingame背景(ScrollingBackgroundManager、縦スクロールタイル背景)のパラメータ。
+    // GameManagerEditorタブから調整できる。
+    private bgScrollSpeedPxPerSec: number = 60;
+    private bgOpacity: number = 255;
+    // タイルの回転角度(度、0/90/180/270想定)。setup()時に1回だけ読まれ、タイル形状を決める
+    // (mid-mission変更は再タイル化されないため反映されない)。
+    private bgRotationDeg: number = 90;
 
     // Single persistent camera, owned exclusively by GameManager. Never searched-for,
     // reactivated, or recreated per content switch - see applyCameraForState().
@@ -309,6 +293,10 @@ export class GameManager extends Component implements IGameManager {
     // resolveInGameReferences()でミッションごとに生成し直す(Editor側のPrefab編集は不要、
     // 完全にコード側で動的生成する)。
     private cloudManager: CloudManager = null;
+
+    // Ingame背景(縦スクロールタイル、PNG/MP4両対応)。cloudManagerと同じくミッションごとに
+    // resolveInGameReferences()で作り直す。
+    private scrollingBackgroundManager: ScrollingBackgroundManager = null;
 
     onLoad() {
         console.log("[GameManager] onLoad triggered.");
@@ -621,62 +609,6 @@ export class GameManager extends Component implements IGameManager {
     }
 
     /**
-     * Ingame背景動画に色合いの周期変化+明るさの緩やかな明滅+ズーム(Ken Burns風)を掛ける。
-     * Sprite.color(sin波)とNodeのscale(sin波)だけで完結する(シェーダー不要、追加デコードも
-     * 発生しない)ので負荷はごく僅か。全てのパラメータをGameManagerConfig.json由来のフィールド
-     * から毎フレーム読むので、非同期読み込みが遅れて後から値が更新されても次のフレームから
-     * 自然に追従する(videoBGZoomScale等がstart()時点の一度きりのtweenだと反映され損ねる
-     * ことがある、playerShipScaleMultiplierと同じ理由の対策)。
-     * videoBGが未セットアップ(Title/Home等)の間は videoBG.sprite が null で早期returnする。
-     */
-    private updateVideoBGColorEffect(dt: number) {
-        const sprite = this.videoBG.sprite;
-        if (!sprite) return;
-
-        this._videoBGEffectTime += dt;
-        const t = this._videoBGEffectTime;
-
-        // 3チャンネルを120°ずつ位相をずらしたsin波でベース色を中心にゆっくり色相を揺らす。
-        // _videoBGThemeColorが設定されていれば(BackgroundThemeManager経由、MissionLv系統色)、
-        // 白(255-amp)ではなくその色を中心に揺らすことで「系統色から大きく外れない」範囲の
-        // 変化になる。未設定時は従来通り白ベース(全Lv共通のレインボー変化)にフォールバックする。
-        const amp = this.videoBGColorCycleAmplitude;
-        const hueSpeed = this.videoBGColorCycleSpeed;
-        const theme = this._videoBGThemeColor;
-        const baseR = theme ? theme.r : (255 - amp);
-        const baseG = theme ? theme.g : (255 - amp);
-        const baseB = theme ? theme.b : (255 - amp);
-        const r = baseR + Math.sin(t * hueSpeed) * amp;
-        const g = baseG + Math.sin(t * hueSpeed + 2.094) * amp;
-        const b = baseB + Math.sin(t * hueSpeed + 4.188) * amp;
-
-        // 明るさを(1 - amplitude)〜1.0の範囲で緩やかに明滅させる。
-        const brightAmp = this.videoBGBrightnessAmplitude;
-        const brightness = (1 - brightAmp) + Math.sin(t * this.videoBGBrightnessSpeed) * brightAmp;
-
-        sprite.color = new Color(
-            Math.max(0, Math.min(255, r * brightness)),
-            Math.max(0, Math.min(255, g * brightness)),
-            Math.max(0, Math.min(255, b * brightness)),
-            255
-        );
-
-        // ゆっくりズーム(Ken Burns風)- 拡大→縮小それぞれvideoBGZoomDurationSec秒かける
-        // 往復(cos波で0→1→0)。videoBGZoomScaleが1(演出なし)ならscaleは常に1のまま。
-        const spriteNode = this.videoBG.spriteNode;
-        if (spriteNode && this.videoBGZoomDurationSec > 0) {
-            const zoomFactor = (1 - Math.cos(t * Math.PI / this.videoBGZoomDurationSec)) / 2;
-            const s = 1 + (this.videoBGZoomScale - 1) * zoomFactor;
-            spriteNode.setScale(s, s, s);
-        }
-
-        // ゆっくり回転。videoBGRotationDurationSec秒で1周(360度)、0なら回転無し(既定、angleは0のまま)。
-        if (spriteNode && this.videoBGRotationDurationSec > 0) {
-            spriteNode.angle = (t / this.videoBGRotationDurationSec * 360) % 360;
-        }
-    }
-
-    /**
      * "#rrggbb"文字列(GameManagerEditorのcolor入力の値)を、cc.AmbientInfoのgroundAlbedo/skyColor
      * (Vec4、0〜1正規化 + w=強度)に変換する。Color.fromHEX()でRGBをパースし、wは1.0固定とする
      * (HDR強度の個別調整はGameManagerConfig.jsonでは今回サポートしない)。
@@ -703,11 +635,7 @@ export class GameManager extends Component implements IGameManager {
             }
             const config = asset.json as {
                 playerShipScaleMultiplier?: number; playerShipBaseRotationX?: number; playerShipBaseRotationY?: number; ambientSkyIllum?: number; groundLightingColor?: string;
-                videoBGZoomScale?: number; videoBGZoomDurationSec?: number; videoBGRotationDurationSec?: number;
-                videoBGShuffleCycleDurationSec?: number;
-                videoBGShuffleFadeDurationSec?: number; videoBGShuffleWaitDurationSec?: number;
-                videoBGColorCycleAmplitude?: number; videoBGColorCycleSpeed?: number;
-                videoBGBrightnessAmplitude?: number; videoBGBrightnessSpeed?: number;
+                bgScrollSpeedPxPerSec?: number; bgOpacity?: number; bgRotationDeg?: number;
                 missionMaxDuplicateSpawnTable?: number;
                 missionMarginStartKm?: number; missionMarginEndKm?: number;
                 missionAssumedMaxSpeedKmPerMin?: number; missionTargetSpeedRatio?: number;
@@ -732,16 +660,9 @@ export class GameManager extends Component implements IGameManager {
             if (typeof config.playerShipBaseRotationY === 'number') {
                 this.playerShipBaseRotationY = config.playerShipBaseRotationY;
             }
-            if (typeof config.videoBGZoomScale === 'number') this.videoBGZoomScale = config.videoBGZoomScale;
-            if (typeof config.videoBGZoomDurationSec === 'number') this.videoBGZoomDurationSec = config.videoBGZoomDurationSec;
-            if (typeof config.videoBGRotationDurationSec === 'number') this.videoBGRotationDurationSec = config.videoBGRotationDurationSec;
-            if (typeof config.videoBGShuffleCycleDurationSec === 'number') this.videoBGShuffleCycleDurationSec = config.videoBGShuffleCycleDurationSec;
-            if (typeof config.videoBGShuffleFadeDurationSec === 'number') this.videoBGShuffleFadeDurationSec = config.videoBGShuffleFadeDurationSec;
-            if (typeof config.videoBGShuffleWaitDurationSec === 'number') this.videoBGShuffleWaitDurationSec = config.videoBGShuffleWaitDurationSec;
-            if (typeof config.videoBGColorCycleAmplitude === 'number') this.videoBGColorCycleAmplitude = config.videoBGColorCycleAmplitude;
-            if (typeof config.videoBGColorCycleSpeed === 'number') this.videoBGColorCycleSpeed = config.videoBGColorCycleSpeed;
-            if (typeof config.videoBGBrightnessAmplitude === 'number') this.videoBGBrightnessAmplitude = config.videoBGBrightnessAmplitude;
-            if (typeof config.videoBGBrightnessSpeed === 'number') this.videoBGBrightnessSpeed = config.videoBGBrightnessSpeed;
+            if (typeof config.bgScrollSpeedPxPerSec === 'number') this.bgScrollSpeedPxPerSec = config.bgScrollSpeedPxPerSec;
+            if (typeof config.bgOpacity === 'number') this.bgOpacity = config.bgOpacity;
+            if (typeof config.bgRotationDeg === 'number') this.bgRotationDeg = config.bgRotationDeg;
             if (typeof config.missionMaxDuplicateSpawnTable === 'number') this.missionMaxDuplicateSpawnTable = config.missionMaxDuplicateSpawnTable;
             if (typeof config.missionMarginStartKm === 'number') this.missionMarginStartKm = config.missionMarginStartKm;
             if (typeof config.missionMarginEndKm === 'number') this.missionMarginEndKm = config.missionMarginEndKm;
@@ -856,7 +777,6 @@ export class GameManager extends Component implements IGameManager {
     }
 
     onDestroy() {
-        this.videoBG.destroy();
         game.off(Game.EVENT_HIDE, this.onGameHide, this);
         if (GameManager.instance === this) {
             GameManager.instance = null;
@@ -904,12 +824,6 @@ export class GameManager extends Component implements IGameManager {
             this.currentContentNode.destroy();
             this.currentContentNode = null;
         }
-
-        // Tear down any Ingame MP4 background before it (and its host node) gets orphaned -
-        // videoBG is a single persistent instance reused across screens, so its internal
-        // HTMLVideoElement/DOM state must be reset here or the next startInGame() setup()
-        // call would silently no-op (see VideoBackground.setup()'s videoElement guard).
-        this.videoBG.destroy();
 
         // Also cleanup old references
         this.playerNode = null;
@@ -1299,26 +1213,23 @@ export class GameManager extends Component implements IGameManager {
             this.remainDistanceHUD = null;
         }
 
-        // MP4背景に統一 - 既存の静止画クロスフェード(BackgroundLayer)はstaticBGNodeとして渡し
-        // 自動非表示にする。UI_2DではなくBG_ONLY_LAYERを指定し、bgCameraだけに描画させる。
+        // 縦スクロールタイル背景に統一(旧: フルスクリーンMP4 1枚+シャッフル/回転演出)。
+        // 既存の静止画クロスフェード(BackgroundLayer)はもう使わないため非表示にする。
         // 親ノードはrootNode直下ではなく、BackgroundLayer/StarFieldと同じ「Canvas」ラッパー
         // (wrapper2、cc.Canvasコンポーネント付き)を使う - rootNode直下だとこのCanvas階層の
         // 外側になってしまい、座標を(0,0,0)に補正しても正しく描画されなかったため。
-        // 彩度低めのBase素材群(BackgroundThemeManagerのプールからミッションごとにランダムで1本)に、
-        // MissionLv系統色の乗算ティント(updateVideoBGColorEffect()参照)を掛ける前提。
-        // BackgroundThemeManager未配置ならBase素材1本+白ティング(=無補正)にフォールバックする。
-        const btm = BackgroundThemeManager.instance;
-        const videoPath = btm ? btm.getRandomVideoPattern() : "Movies/BGV_Ingame001_Galaxy_Base";
-        this._videoBGThemeColor = btm ? btm.getColorForLv(this.currentMission ? this.currentMission.stars : 1) : null;
-        this.videoBG.setup(wrapper2 || rootNode, "VideoBGSpriteNode", videoPath, bgLayer, BG_ONLY_LAYER);
-        // ミッション中、動画クリップの前後をフェードしながら一定間隔でプールからランダムに
-        // シャッフルし続ける(setup()直後・同期的に呼ぶ必要がある、VideoBackground.enableAutoShuffle()参照)。
-        this.videoBG.enableAutoShuffle(this.videoBGShuffleCycleDurationSec, this.videoBGShuffleFadeDurationSec, this.videoBGShuffleWaitDurationSec, (currentPath) => {
-            return BackgroundThemeManager.instance ? BackgroundThemeManager.instance.getRandomVideoPattern(currentPath) : currentPath;
-        });
+        if (bgLayer) bgLayer.active = false;
+        if (this.scrollingBackgroundManager && this.scrollingBackgroundManager.isValid) {
+            this.scrollingBackgroundManager.node.destroy();
+        }
+        const scrollingBGNode = new Node("ScrollingBackgroundManager");
+        (wrapper2 || rootNode).addChild(scrollingBGNode);
+        this.scrollingBackgroundManager = scrollingBGNode.addComponent(ScrollingBackgroundManager);
+        this.scrollingBackgroundManager.setup(wrapper2 || rootNode, BG_ONLY_LAYER, this.bgRotationDeg);
+        this.scrollingBackgroundManager.applyTunables(this.bgScrollSpeedPxPerSec, this.bgOpacity);
 
         // 雲(奥=BG_ONLY_LAYER、手前=FG_CLOUD_LAYER)。ミッションごとに前回ぶんを破棄して
-        // 作り直す(VideoBGと同じ、Editor側のPrefab編集は不要)。
+        // 作り直す(ScrollingBackgroundManagerと同じ、Editor側のPrefab編集は不要)。
         if (this.cloudManager && this.cloudManager.isValid) {
             this.cloudManager.node.destroy();
         }
@@ -1326,17 +1237,6 @@ export class GameManager extends Component implements IGameManager {
         (wrapper2 || rootNode).addChild(cloudNode);
         this.cloudManager = cloudNode.addComponent(CloudManager);
         this.cloudManager.setup(wrapper2 || rootNode, BG_ONLY_LAYER, FG_CLOUD_LAYER);
-
-        // ズーム/色合い/明滅は毎フレームsin波で計算する(updateVideoBGColorEffect())- Ken Burns風
-        // ズームを開始時に一度きりのtweenで組んでいた旧実装だと、GameManagerEditorの数値が
-        // GameManagerConfig.jsonの非同期読み込み完了より前にこのタイミングを迎えた場合、
-        // 反映されないまま固定されてしまう(playerShipScaleMultiplierで実際に踏んだのと同じ
-        // 競合)。sin波なら_gm側の値が後から更新されても次のフレームから自然に追従する。
-        this._videoBGEffectTime = 0;
-        const videoBGNode = this.videoBG.spriteNode;
-        if (videoBGNode) {
-            videoBGNode.setScale(1, 1, 1);
-        }
 
         // EnemyMovePoint(EMP)収集: "MovePoints" コンテナ配下のMovePointコンポーネント付き子ノードを
         // ID -> ローカル座標のマップにする。他のレイヤーと同様(0,0,0)に矯正してenemyLayerと同じ
@@ -1416,8 +1316,9 @@ export class GameManager extends Component implements IGameManager {
     }
 
     update(deltaTime: number) {
-        this.videoBG.updateFrame();
-        this.updateVideoBGColorEffect(deltaTime);
+        if (this.scrollingBackgroundManager && this.scrollingBackgroundManager.isValid) {
+            this.scrollingBackgroundManager.applyTunables(this.bgScrollSpeedPxPerSec, this.bgOpacity);
+        }
 
         if (this.state !== GameState.INGAME || this.isPaused) return;
 

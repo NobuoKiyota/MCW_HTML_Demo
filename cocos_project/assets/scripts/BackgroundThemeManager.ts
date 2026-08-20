@@ -39,6 +39,15 @@ export class BackgroundThemeManager extends Component {
     })
     public videoPatterns: string[] = ["Movies/BGV_Ingame001_Galaxy_Base"];
 
+    // ScrollingBackgroundManager.ts(縦スクロール背景)専用の画像パターンプール。videoPatternsと
+    // 同じ規約(resources.load用パス、拡張子無し)。getRandomBackgroundPattern()がこちらと
+    // videoPatternsを合わせた1つのプールとしてランダムに1件選ぶ。
+    @property({
+        type: [String],
+        tooltip: "縦スクロール背景(ScrollingBackgroundManager)用の画像パターンのプール(resources.load用パス、拡張子無し)。videoPatternsと合わせて1つのプールとしてランダムに選ばれる"
+    })
+    public imagePatterns: string[] = [];
+
     onLoad() {
         BackgroundThemeManager.instance = this;
     }
@@ -60,6 +69,17 @@ export class BackgroundThemeManager extends Component {
         }
         const candidates = this.videoPatterns.filter(p => p !== excludePath);
         const pool = candidates.length > 0 ? candidates : this.videoPatterns;
+        return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    // ScrollingBackgroundManager.ts用: videoPatterns/imagePatternsを合わせた1つのプールから
+    // ランダムに1件選び、動画かどうか(isVideo)も一緒に返す。両方空ならvideoPatternsの
+    // フォールバック既定パス(動画扱い)を返す。
+    public getRandomBackgroundPattern(): { path: string; isVideo: boolean } {
+        const videoEntries = (this.videoPatterns || []).map(path => ({ path, isVideo: true }));
+        const imageEntries = (this.imagePatterns || []).map(path => ({ path, isVideo: false }));
+        const pool = videoEntries.concat(imageEntries);
+        if (pool.length === 0) return { path: "Movies/BGV_Ingame001_Galaxy_Base", isVideo: true };
         return pool[Math.floor(Math.random() * pool.length)];
     }
 }
