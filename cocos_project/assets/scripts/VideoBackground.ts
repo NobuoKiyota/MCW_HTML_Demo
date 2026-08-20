@@ -1,4 +1,4 @@
-import { Node, UITransform, Size, Sprite, SpriteFrame, Texture2D, ImageAsset, Layers, resources, VideoClip } from 'cc';
+import { Node, UITransform, Size, Sprite, SpriteFrame, Texture2D, ImageAsset, Layers, resources, VideoClip, UIOpacity, tween, Tween } from 'cc';
 
 /**
  * HTMLVideoElement の再生フレームを 2D Sprite テクスチャとして画面最背面に描画するヘルパー。
@@ -16,8 +16,19 @@ export class VideoBackground {
     private videoTexture: Texture2D | null = null;
     private bgSpriteFrame: SpriteFrame | null = null;
     private bgSprite: Sprite | null = null;
+    private bgOpacity: UIOpacity | null = null;
     private videoFrameCanvas: HTMLCanvasElement | null = null;
     private videoFrameCtx: CanvasRenderingContext2D | null = null;
+
+    // enableAutoShuffle()で有効化するIngame専用の自動切り替え(要件: 「前後に1秒のフェード、
+    // ミッション中にシャッフルで動画を切り替える」)。無効時(Home画面等)は従来通りvideo.loop=trueの
+    // 単純な無限ループのままで、opacityは常に255固定(見た目・挙動を一切変えない)。
+    private shuffleEnabled: boolean = false;
+    private cycleDurationSec: number = 30;
+    private fadeDurationSec: number = 3;
+    private waitDurationSec: number = 2;
+    private pickNextPath: ((currentResourcePath: string) => string) | null = null;
+    private currentResourcePath: string = "";
 
     /** setup()後、呼び出し元が背景スプライトのNode/Componentに追加演出(tween等)を掛けるための参照。 */
     get spriteNode(): Node | null {
@@ -60,6 +71,9 @@ export class VideoBackground {
 
         this.bgSprite = spriteBGNode.getComponent(Sprite) || spriteBGNode.addComponent(Sprite);
         this.bgSprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        this.bgOpacity = spriteBGNode.getComponent(UIOpacity) || spriteBGNode.addComponent(UIOpacity);
+
+        this.currentResourcePath = resourcePath;
 
         if (typeof document === 'undefined' || this.videoElement) {
             return;
@@ -77,29 +91,118 @@ export class VideoBackground {
         video.style.pointerEvents = 'none';
         document.body.appendChild(video);
 
-        video.onloadeddata = () => {
-            console.log(`[VideoBackground] ${resourcePath} loaded data. ReadyState:`, video.readyState);
-        };
         video.onerror = (e) => {
-            console.error(`[VideoBackground] ${resourcePath} video error:`, e, video.error);
+            console.error(`[VideoBackground] video error:`, e, video.error);
         };
 
+        this.videoElement = video;
+        this.loadAndPlay(resourcePath, () => {
+            if (this.shuffleEnabled) {
+                if (this.bgOpacity) this.bgOpacity.opacity = 0;
+                this.beginFadeCycle();
+            }
+        });
+    }
+
+    /**
+     * VideoClipをロードして再生開始する(setup()の初回、およびシャッフルでの差し替え時の両方から使う
+     * 共通ヘルパー)。loadedmetadata(video.duration取得可能になるタイミング)を待ってからonReadyを
+     * 呼ぶ - beginFadeCycle()がフェードアウト開始タイミングをvideo.durationから逆算するため、
+     * durationが未確定のまま呼んでしまうとフォールバック値頼みになってしまう。
+     */
+    private loadAndPlay(resourcePath: string, onReady?: () => void) {
         resources.load(resourcePath, VideoClip, (err, clip: VideoClip) => {
             if (err || !clip) {
                 console.error(`[VideoBackground] Failed to load ${resourcePath} VideoClip:`, err);
                 return;
             }
+            const video = this.videoElement;
+            if (!video) return;
 
             const videoUrl = clip.nativeUrl || (clip as any)._nativeAsset;
             console.log(`[VideoBackground] ${resourcePath} VideoClip loaded! URL:`, videoUrl);
+            if (!videoUrl) return;
 
-            if (videoUrl) {
-                video.src = videoUrl;
+            const startPlayback = () => {
+                video.currentTime = 0;
                 video.play().catch(e => console.error(`[VideoBackground] ${resourcePath} video.play() failed:`, e));
+                if (onReady) onReady();
+            };
+
+            video.src = videoUrl;
+            if (video.readyState >= 1) {
+                // 既に(別クリップ再生中に)メタデータ読み込み済みの状態からのsrc差し替えでは
+                // loadedmetadataが発火しないことがあるため、readyStateを直接見て判定する。
+                startPlayback();
+            } else {
+                video.addEventListener('loadedmetadata', startPlayback, { once: true });
             }
         });
+    }
 
-        this.videoElement = video;
+    /**
+     * Ingame専用: 動画をフェードイン→再生→フェードアウト→(シャッフト先の読み込み待ち)→次の動画、
+     * を無限に繰り返す自動切り替えを有効化する。setup()の直後・同期的に呼ぶこと
+     * (setup()内のVideoClipロードは非同期なので、その完了より前にこのフラグを立てておく必要がある)。
+     * @param cycleDurationSec 1クリップあたりの表示サイクル総時間(秒、フェードイン+ホールド+フェードアウト
+     *                          の合計)。実ファイルの尺(video.duration)より長い場合はvideo.loop=trueで
+     *                          内部ループさせて埋める(逆に短ければフェードアウトで途中カットされる)。
+     * @param fadeDurationSec 各クリップの先頭/末尾のフェード時間(秒)
+     * @param waitDurationSec フェードアウト後、次のクリップへ切り替わるまでの待機時間(秒、この間は非表示)
+     * @param pickNextPath 現在の再生パスを受け取り、次に再生するresources.loadパスを返す関数
+     *                      (BackgroundThemeManager.getRandomVideoPattern()等、呼び出し元が用意する)
+     */
+    enableAutoShuffle(cycleDurationSec: number, fadeDurationSec: number, waitDurationSec: number, pickNextPath: (currentResourcePath: string) => string) {
+        this.shuffleEnabled = true;
+        this.cycleDurationSec = Math.max(0.1, cycleDurationSec);
+        this.fadeDurationSec = Math.max(0.05, fadeDurationSec);
+        this.waitDurationSec = Math.max(0, waitDurationSec);
+        this.pickNextPath = pickNextPath;
+        // video.loop はsetup()側の既定でtrueのまま(cycleDurationSecが実尺より長くても内部ループで
+        // 埋められるようにする)。クリップの切り替え自体はloadAndPlay()でsrcを差し替えて行う。
+
+        // setup()の非同期ロードが既に完了して再生が始まっている状態でこのメソッドが呼ばれた場合
+        // (呼び出し順序を守っていれば通常起こらないが念のため)、ここからサイクルを開始する。
+        if (this.bgOpacity && this.videoElement && this.videoElement.readyState >= 1) {
+            this.bgOpacity.opacity = 0;
+            this.beginFadeCycle();
+        }
+    }
+
+    // 現在再生中のクリップに対して、フェードイン→ホールド→フェードアウトの1サイクル分をtweenで組む。
+    // タイミングはcycleDurationSec(設定値)から算出する - video.durationを見なくなったため、
+    // 実ファイルの尺(仮に10秒固定でなくなっても)や内部ループの有無に関わらず一定間隔で動く。
+    private beginFadeCycle() {
+        const video = this.videoElement;
+        const opacity = this.bgOpacity;
+        if (!video || !opacity || !this.shuffleEnabled) return;
+
+        const fade = Math.min(this.fadeDurationSec, this.cycleDurationSec / 2);
+        const hold = Math.max(0, this.cycleDurationSec - fade * 2);
+
+        tween(opacity)
+            .set({ opacity: 0 })
+            .to(fade, { opacity: 255 })
+            .delay(hold)
+            .to(fade, { opacity: 0 })
+            .call(() => this.onFadeCycleEnd())
+            .start();
+    }
+
+    // フェードアウト完了(=画面上は不透明度0で見えない状態)直後に呼ばれる。次のクリップを選び、
+    // waitDurationSec待ってから読み込み+再生開始し、beginFadeCycle()で次のサイクルへ繋げる。
+    private onFadeCycleEnd() {
+        if (!this.shuffleEnabled || !this.pickNextPath || !this.bgOpacity) return;
+
+        const nextPath = this.pickNextPath(this.currentResourcePath);
+        this.currentResourcePath = nextPath;
+
+        tween(this.bgOpacity)
+            .delay(this.waitDurationSec)
+            .call(() => {
+                this.loadAndPlay(nextPath, () => this.beginFadeCycle());
+            })
+            .start();
     }
 
     /** 呼び出し元コンポーネントの update() から毎フレーム呼ぶこと */
@@ -137,6 +240,9 @@ export class VideoBackground {
 
     /** 呼び出し元コンポーネントの onDestroy() から呼ぶこと */
     destroy() {
+        if (this.bgOpacity) {
+            Tween.stopAllByTarget(this.bgOpacity);
+        }
         if (this.videoElement) {
             this.videoElement.pause();
             this.videoElement.remove();
@@ -150,8 +256,11 @@ export class VideoBackground {
         this.videoTexture = null;
         this.bgSpriteFrame = null;
         this.bgSprite = null;
+        this.bgOpacity = null;
         this.videoFrameCanvas = null;
         this.videoFrameCtx = null;
         this.hostNode = null;
+        this.shuffleEnabled = false;
+        this.pickNextPath = null;
     }
 }

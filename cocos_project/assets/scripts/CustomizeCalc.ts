@@ -103,6 +103,8 @@ export function unlockCell(x: number, y: number, dataManager: { data: ISaveData;
     dataManager.addResource('credits', -info.cost); // 内部でsave()まで行われる
     for (const it of info.items) dataManager.addResource(it.itemId, -it.qty);
     layout[y][x] = 2;
+    // AchievementManager.ts「初機体改造」実績用のカウンタ加算(判定はAchievementManagerのみが行う)。
+    dataManager.data.careerStats.customizeActionCount++;
     dataManager.save(); // layout自体の変更はaddResource()経由のsave()に含まれないため明示的に呼ぶ
     return true;
 }
@@ -199,6 +201,8 @@ export function placeEquipment(entry: EquipmentListEntry, ox: number, oy: number
     };
 
     equippedParts.push(part);
+    // AchievementManager.ts「初機体改造」実績用のカウンタ加算(判定はAchievementManagerのみが行う)。
+    dataManager.data.careerStats.customizeActionCount++;
     dataManager.save();
     return true;
 }

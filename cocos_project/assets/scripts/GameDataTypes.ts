@@ -292,6 +292,44 @@ export class GridCellData {
 }
 
 /**
+ * 実績報酬データ (assets/resources/Excels/Achievements.csv)
+ * AchievementManager.checkAndUnlock()が、DataManager.data.careerStats等をconditionType/
+ * conditionParamと照合して達成判定する。報酬(credits+アイテム最大3種)はGridCellData.unlockItems
+ * と同じ「固定スロット」規約(RewardItemID_1/RewardItemQty_1 ~ _3)。
+ */
+@ccclass('AchievementData')
+export class AchievementData {
+    @property
+    public id: string = "";
+
+    @property
+    public label: string = "";
+
+    @property
+    public description: string = "";
+
+    // ConditionType(AchievementManager.checkAndUnlock()のisConditionMet()と完全に一致させること):
+    // MissionClearCount / NoDamageClearCount / AllKillsClearCount / CustomizeCount /
+    // EquipmentPurchaseCount / VehicleUpgradeCount / DamageTotalCount / DamageTakenTotalCount /
+    // MissionClearComplete / EquipmentPurchaseComplete / ArchievementsComplete /
+    // FirstVehicleCreate / FirstRarePartsGet / Lv<NN>AllSubMissionClearCount(NN=01,02,...可変)。
+    @property
+    public conditionType: string = "";
+
+    @property({ type: CCFloat, tooltip: "条件の閾値(回数、または累計値)" })
+    public conditionParam: number = 0;
+
+    @property({ type: CCInteger, tooltip: "達成時に付与するCredit(0なら無し)" })
+    public rewardCredits: number = 0;
+
+    // RewardItemID_1/RewardItemQty_1 ~ _3(GridCellData.unlockItemsの3枠版と同じ規約)。
+    public rewardItems: IUnlockItemRequirement[] = [];
+
+    @property
+    public note: string = "";
+}
+
+/**
  * 機体永続強化パラメータ定義 (assets/resources/Excels/PlayerUpgrade.csv)
  * PlayerManager(実装予定)が、MinValue/MaxValue/GrowthType/MaxLvから各Lv1..MaxLvの実値・必要コストを
  * べき指数カーブで自動計算する際の元データ。GrowthTypeの5種と指数の対応はMasterManagerパネルの

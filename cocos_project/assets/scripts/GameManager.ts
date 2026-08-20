@@ -264,6 +264,14 @@ export class GameManager extends Component implements IGameManager {
     // 最初に実装した際の固定値と同じ - GameManagerEditorタブから調整できる。
     private videoBGZoomScale: number = 1.08;
     private videoBGZoomDurationSec: number = 25;
+    // Ingame背景動画を1周(360度)回転させるのに掛ける秒数。0なら回転無し(既定)。
+    private videoBGRotationDurationSec: number = 0;
+    // Ingame背景動画の自動シャッフル(VideoBackground.enableAutoShuffle())用。1クリップあたり
+    // cycleDurationSec秒表示し(前後fadeDurationSec秒をフェード)、フェードアウト後
+    // waitDurationSec秒待ってから次のクリップへ切り替える。
+    private videoBGShuffleCycleDurationSec: number = 30;
+    private videoBGShuffleFadeDurationSec: number = 3;
+    private videoBGShuffleWaitDurationSec: number = 2;
     private videoBGColorCycleAmplitude: number = 55;
     private videoBGColorCycleSpeed: number = 0.06;
     private videoBGBrightnessAmplitude: number = 0.125;
@@ -661,6 +669,11 @@ export class GameManager extends Component implements IGameManager {
             const s = 1 + (this.videoBGZoomScale - 1) * zoomFactor;
             spriteNode.setScale(s, s, s);
         }
+
+        // ゆっくり回転。videoBGRotationDurationSec秒で1周(360度)、0なら回転無し(既定、angleは0のまま)。
+        if (spriteNode && this.videoBGRotationDurationSec > 0) {
+            spriteNode.angle = (t / this.videoBGRotationDurationSec * 360) % 360;
+        }
     }
 
     /**
@@ -690,7 +703,9 @@ export class GameManager extends Component implements IGameManager {
             }
             const config = asset.json as {
                 playerShipScaleMultiplier?: number; playerShipBaseRotationX?: number; playerShipBaseRotationY?: number; ambientSkyIllum?: number; groundLightingColor?: string;
-                videoBGZoomScale?: number; videoBGZoomDurationSec?: number;
+                videoBGZoomScale?: number; videoBGZoomDurationSec?: number; videoBGRotationDurationSec?: number;
+                videoBGShuffleCycleDurationSec?: number;
+                videoBGShuffleFadeDurationSec?: number; videoBGShuffleWaitDurationSec?: number;
                 videoBGColorCycleAmplitude?: number; videoBGColorCycleSpeed?: number;
                 videoBGBrightnessAmplitude?: number; videoBGBrightnessSpeed?: number;
                 missionMaxDuplicateSpawnTable?: number;
@@ -719,6 +734,10 @@ export class GameManager extends Component implements IGameManager {
             }
             if (typeof config.videoBGZoomScale === 'number') this.videoBGZoomScale = config.videoBGZoomScale;
             if (typeof config.videoBGZoomDurationSec === 'number') this.videoBGZoomDurationSec = config.videoBGZoomDurationSec;
+            if (typeof config.videoBGRotationDurationSec === 'number') this.videoBGRotationDurationSec = config.videoBGRotationDurationSec;
+            if (typeof config.videoBGShuffleCycleDurationSec === 'number') this.videoBGShuffleCycleDurationSec = config.videoBGShuffleCycleDurationSec;
+            if (typeof config.videoBGShuffleFadeDurationSec === 'number') this.videoBGShuffleFadeDurationSec = config.videoBGShuffleFadeDurationSec;
+            if (typeof config.videoBGShuffleWaitDurationSec === 'number') this.videoBGShuffleWaitDurationSec = config.videoBGShuffleWaitDurationSec;
             if (typeof config.videoBGColorCycleAmplitude === 'number') this.videoBGColorCycleAmplitude = config.videoBGColorCycleAmplitude;
             if (typeof config.videoBGColorCycleSpeed === 'number') this.videoBGColorCycleSpeed = config.videoBGColorCycleSpeed;
             if (typeof config.videoBGBrightnessAmplitude === 'number') this.videoBGBrightnessAmplitude = config.videoBGBrightnessAmplitude;
@@ -1292,6 +1311,11 @@ export class GameManager extends Component implements IGameManager {
         const videoPath = btm ? btm.getRandomVideoPattern() : "Movies/BGV_Ingame001_Galaxy_Base";
         this._videoBGThemeColor = btm ? btm.getColorForLv(this.currentMission ? this.currentMission.stars : 1) : null;
         this.videoBG.setup(wrapper2 || rootNode, "VideoBGSpriteNode", videoPath, bgLayer, BG_ONLY_LAYER);
+        // ミッション中、動画クリップの前後をフェードしながら一定間隔でプールからランダムに
+        // シャッフルし続ける(setup()直後・同期的に呼ぶ必要がある、VideoBackground.enableAutoShuffle()参照)。
+        this.videoBG.enableAutoShuffle(this.videoBGShuffleCycleDurationSec, this.videoBGShuffleFadeDurationSec, this.videoBGShuffleWaitDurationSec, (currentPath) => {
+            return BackgroundThemeManager.instance ? BackgroundThemeManager.instance.getRandomVideoPattern(currentPath) : currentPath;
+        });
 
         // 雲(奥=BG_ONLY_LAYER、手前=FG_CLOUD_LAYER)。ミッションごとに前回ぶんを破棄して
         // 作り直す(VideoBGと同じ、Editor側のPrefab編集は不要)。
@@ -2048,6 +2072,8 @@ export class GameManager extends Component implements IGameManager {
             if ((this.playState.damageReceived || 0) <= 0) {
                 noDamageBonusPct = 0.05 * lv;
                 console.log(`[GameManager] No-damage bonus: +${(noDamageBonusPct * 100).toFixed(0)}%`);
+                // AchievementManager.ts「初無傷クリア」実績用のカウンタ加算(判定はAchievementManagerのみが行う)。
+                if (DataManager.instance) DataManager.instance.data.careerStats.noDamageClearCount++;
             }
 
             // 敵全滅ボーナス: +10% × MissionLv(gm.despawnAllEnemies()/GOAL時のclearEnemiesAndBuffsForGoal()は
@@ -2056,6 +2082,18 @@ export class GameManager extends Component implements IGameManager {
             if (totalSpawnedForResult > 0 && killed >= totalSpawnedForResult) {
                 allKillsBonusPct = 0.1 * lv;
                 console.log(`[GameManager] All-kills bonus: +${(allKillsBonusPct * 100).toFixed(0)}% (${killed}/${totalSpawnedForResult})`);
+                // AchievementManager.ts「初全敵撃破クリア」実績用のカウンタ加算(判定はAchievementManagerのみが行う)。
+                if (DataManager.instance) DataManager.instance.data.careerStats.allKillsClearCount++;
+            }
+
+            // AchievementManager.ts「Lv<NN>AllSubMissionClearCount」「MissionClearComplete」実績用。missionLv/subLvはMissionUI.
+            // rollMissionsForPage()が付与する(旧来の固定ミッション等では未設定のためスキップ)。
+            if (DataManager.instance && typeof this.currentMission.missionLv === 'number' && typeof this.currentMission.subLv === 'number') {
+                const data = DataManager.instance.data;
+                if (!data.clearedMissionSubLvs) data.clearedMissionSubLvs = {};
+                const cleared = data.clearedMissionSubLvs[this.currentMission.missionLv] || [];
+                if (!cleared.includes(this.currentMission.subLv)) cleared.push(this.currentMission.subLv);
+                data.clearedMissionSubLvs[this.currentMission.missionLv] = cleared;
             }
 
             const bonusPct = timeBonusPct + noDamageBonusPct + allKillsBonusPct;

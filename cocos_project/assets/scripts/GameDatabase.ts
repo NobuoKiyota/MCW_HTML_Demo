@@ -1,5 +1,5 @@
 import { _decorator, Component, CCInteger, CCFloat, TextAsset, Prefab, resources, director, JsonAsset } from 'cc';
-import { EnemyData, BehaviorData, ShotPatternData, DropData, SoundData, BehaviorGraph, ShotGraph, ItemData, DropTableData, SpawnTableData, MissionDifficultyData, PlayerUpgradeParamData, EquipmentData, WeaponData, GridCellData } from './GameDataTypes';
+import { EnemyData, BehaviorData, ShotPatternData, DropData, SoundData, BehaviorGraph, ShotGraph, ItemData, DropTableData, SpawnTableData, MissionDifficultyData, PlayerUpgradeParamData, EquipmentData, WeaponData, GridCellData, AchievementData } from './GameDataTypes';
 import { GAME_SETTINGS } from './Constants';
 import { CSVHelper } from './CSVHelper';
 import { SoundManager } from './SoundManager';
@@ -41,6 +41,7 @@ export class GameDatabase extends Component {
     public weapons: WeaponData[] = [];
     public sounds: SoundData[] = [];
     public gridCells: GridCellData[] = [];
+    public achievements: AchievementData[] = [];
 
     // --- CSV Assets ---
     @property({ type: TextAsset, tooltip: "CSV: Enemies" })
@@ -81,6 +82,9 @@ export class GameDatabase extends Component {
 
     @property({ type: TextAsset, tooltip: "CSV: GridCells" })
     public gridCellCsv: TextAsset = null;
+
+    @property({ type: TextAsset, tooltip: "CSV: Achievements" })
+    public achievementCsv: TextAsset = null;
 
     // Singleton access helper (Component based)
     public static instance: GameDatabase = null;
@@ -167,6 +171,7 @@ export class GameDatabase extends Component {
         this.sounds = []; // Clear old sounds
         this.enemies = []; // Clear runtime list
         this.gridCells = [];
+        this.achievements = [];
 
         // Items/DropTables/SpawnTables fall back to an ASYNC resources.load() whenever their
         // Inspector TextAsset property isn't assigned (the normal case now that they're edited
@@ -254,6 +259,15 @@ export class GameDatabase extends Component {
             });
         }
 
+        if (this.achievementCsv) this.parseAchievementCSV(this.achievementCsv.text);
+        else {
+            pendingAsync++;
+            resources.load("Excels/Achievements", TextAsset, (err, asset) => {
+                if (!err && asset) this.parseAchievementCSV(asset.text);
+                onAsyncCsvDone();
+            });
+        }
+
         if (this.behaviorCsv) this.parseBehaviorCSV(this.behaviorCsv.text);
         if (this.shotPatternCsv) this.parseShotPatternCSV(this.shotPatternCsv.text);
         if (this.dropCsv) this.parseDropCSV(this.dropCsv.text);
@@ -266,7 +280,7 @@ export class GameDatabase extends Component {
     }
 
     private finishLoadAllCSV() {
-        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.items.length} Items, ${this.dropTables.length} DropTables, ${this.spawnTables.length} SpawnTables, ${this.missionDifficulties.length} MissionDifficulties, ${this.playerUpgradeParams.length} PlayerUpgradeParams, ${this.equipment.length} Equipment, ${this.weapons.length} Weapons, ${this.behaviors.length} Behaviors, ${this.shotPatterns.length} ShotPatterns, ${this.drops.length} Drops, ${this.gridCells.length} GridCells`);
+        console.log(`[GameDatabase] Loaded: ${this.enemies.length} Enemies, ${this.items.length} Items, ${this.dropTables.length} DropTables, ${this.spawnTables.length} SpawnTables, ${this.missionDifficulties.length} MissionDifficulties, ${this.playerUpgradeParams.length} PlayerUpgradeParams, ${this.equipment.length} Equipment, ${this.weapons.length} Weapons, ${this.behaviors.length} Behaviors, ${this.shotPatterns.length} ShotPatterns, ${this.drops.length} Drops, ${this.gridCells.length} GridCells, ${this.achievements.length} Achievements`);
 
         this.isReady = true;
 
@@ -468,6 +482,30 @@ export class GameDatabase extends Component {
         // Tier昇順に並べておく(getGridCellDataForTier()のフォールバック=「最大Tier」判定を簡単にするため)。
         this.gridCells.sort((a, b) => a.tier - b.tier);
         console.log(`[GameDatabase] Loaded ${this.gridCells.length} GridCells.`);
+    }
+
+    private parseAchievementCSV(text: string) {
+        const data = CSVHelper.parse(text);
+        this.achievements = data.map(row => {
+            const a = new AchievementData();
+            a.id = row.ID;
+            a.label = row.Label || row.ID;
+            a.description = row.Description || "";
+            a.conditionType = row.ConditionType || "";
+            a.conditionParam = row.ConditionParam !== undefined && row.ConditionParam !== "" ? parseFloat(row.ConditionParam) : 0;
+            a.rewardCredits = row.RewardCredits !== undefined && row.RewardCredits !== "" ? parseFloat(row.RewardCredits) : 0;
+            a.rewardItems = [];
+            for (let i = 1; i <= 3; i++) {
+                const itemId = row[`RewardItemID_${i}`];
+                if (!itemId || itemId === "None") continue;
+                const qtyRaw = row[`RewardItemQty_${i}`];
+                const qty = qtyRaw !== undefined && qtyRaw !== "" ? parseInt(qtyRaw) : 1;
+                a.rewardItems.push({ itemId, qty: Math.max(1, qty) });
+            }
+            a.note = row.Note || "";
+            return a;
+        });
+        console.log(`[GameDatabase] Loaded ${this.achievements.length} Achievements.`);
     }
 
     private parseBehaviorCSV(text: string) {
@@ -698,6 +736,14 @@ export class GameDatabase extends Component {
 
     public getWeaponData(id: string): WeaponData | null {
         return this.weapons.find(w => w.id === id) || null;
+    }
+
+    public getAchievementData(id: string): AchievementData | null {
+        return this.achievements.find(a => a.id === id) || null;
+    }
+
+    public getAllAchievements(): AchievementData[] {
+        return this.achievements;
     }
 
     /**

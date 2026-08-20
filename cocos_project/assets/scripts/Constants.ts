@@ -168,6 +168,10 @@ export interface IMissionData {
     // 未設定(旧来の固定ミッション等)ならrewardG=reward, rewardH=0として扱うフォールバックあり。
     rewardG?: number;
     rewardH?: number;
+    // Lv<NN>AllSubMissionClearCount実績(AchievementManager.ts)用。MissionUI.rollMissionsForPage()が付与する。
+    // 未設定(旧来の固定ミッション等)ならその実績の対象外として扱う。
+    missionLv?: number;
+    subLv?: number;
     cargoWeight: number; // New: 30/50/70
     targetTime: number;  // New: in seconds
     // 距離トリガー式の敵湧きキュー構築用(MissionGenerator.generateMissionFromDifficultyRowの

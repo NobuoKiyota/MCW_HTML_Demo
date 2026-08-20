@@ -231,6 +231,7 @@
       "__expectedType__": "cc.TextAsset"
     },
     "gridCellCsv": null,
+    "achievementCsv": null,
     "_id": "c7V4ZsMqVOu6m0UjXM8qEV"
   },
   {
@@ -334,7 +335,12 @@
     "videoPatterns": [
       "Movies/BGV_Ingame001_Galaxy_Base01",
       "Movies/BGV_Ingame001_Galaxy_Base02",
-      "Movies/BGV_Ingame001_Galaxy_Base03"
+      "Movies/BGV_Ingame001_Galaxy_Base03",
+      "Movies/BGV_Ingame001_Galaxy_Base04",
+      "Movies/BGV_Ingame001_Galaxy_Base05",
+      "Movies/BGV_Ingame001_Galaxy_Base06",
+      "Movies/BGV_Ingame001_Galaxy_Base07",
+      "Movies/BGV_Ingame001_Galaxy_Base08"
     ],
     "_id": "1de0kJdVtG7rtZWvLNlLYj"
   },
@@ -569,7 +575,7 @@
     "_priority": 0,
     "_fov": 45,
     "_fovAxis": 0,
-    "_orthoHeight": 360,
+    "_orthoHeight": 431.30434782608694,
     "_near": 1,
     "_far": 1000,
     "_color": {

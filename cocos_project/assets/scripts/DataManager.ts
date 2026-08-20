@@ -47,6 +47,15 @@ export interface ISaveData {
         clearedStagesByDifficulty: { [difficulty: number]: number };
         totalDamageDealt: number;
         totalDamageReceived: number;
+        // 実績報酬(AchievementManager.ts)の条件判定用カウンタ。既存フィールドと同じくGameManager/
+        // CustomizeCalc/EquipmentUnlockの各アクション成立時に単純加算するだけで、実績の達成判定
+        // 自体はAchievementManager.checkAndUnlock()だけが行う(判定ロジックを分散させないため)。
+        noDamageClearCount: number;
+        allKillsClearCount: number;
+        customizeActionCount: number;
+        equipmentPurchaseCount: number;
+        // 機体アップグレード(UpgradeUI.ts executeUpgradePurchase())の購入回数。VehicleUpgradeCount実績用。
+        vehicleUpgradeCount: number;
     };
     inventory: { [itemId: string]: number };
     unlockedShips: string[];
@@ -61,6 +70,11 @@ export interface ISaveData {
     // upgradeLevelsとは別物(あちらはグリッド改造パーツ用)。未強化なら0(=Lv0、PlayerUpgrade.csvの
     // MinValue相当)。UpgradeUI.ts(実装予定)が読み書きする。
     playerParamLevels: { [shipId: string]: { [paramId: string]: number } };
+    // 報酬付与済みの実績ID一覧(AchievementManager.checkAndUnlock()が再判定/再付与を防ぐために使う)。
+    unlockedAchievementIds: string[];
+    // Lv<NN>AllSubMissionClearCount/MissionClearComplete実績用: MissionLvごとにクリア済みのSubLv番号(MissionUI.tsの
+    // allRowsForLv.indexOf(diff)+1と同じ採番)をユニークに記録する。GameManager.onMissionComplete()が書く。
+    clearedMissionSubLvs: { [lv: number]: number[] };
 }
 
 // 現在選択中の機体(data.currentShipId)のgridData(装備/レイアウト)を返す。未初期化の機体なら
@@ -135,14 +149,21 @@ export class DataManager {
                 totalClearedStages: 0,
                 clearedStagesByDifficulty: {},
                 totalDamageDealt: 0,
-                totalDamageReceived: 0
+                totalDamageReceived: 0,
+                noDamageClearCount: 0,
+                allKillsClearCount: 0,
+                customizeActionCount: 0,
+                equipmentPurchaseCount: 0,
+                vehicleUpgradeCount: 0
             },
             inventory: {},
             unlockedShips: ['Default'],
             currentShipId: 'Default',
             unlockedEquipmentIds: [],
             capacity: 50,
-            playerParamLevels: {}
+            playerParamLevels: {},
+            unlockedAchievementIds: [],
+            clearedMissionSubLvs: {}
         };
     }
 

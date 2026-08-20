@@ -11,6 +11,9 @@ import { HistoryUI } from './HistoryUI';
 import { UpgradeUI } from './UpgradeUI';
 import { CustomizeUI } from './CustomizeUI';
 import { instantiatePrefabButton } from './UIButtonPrefab';
+import { AchievementManager } from './AchievementManager';
+import { AchievementData } from './GameDataTypes';
+import { showDialogPrefab } from './DialogPrefab';
 
 const { ccclass, property } = _decorator;
 
@@ -20,9 +23,18 @@ export class HomeUI extends Component {
     @property(Label)
     public sessionStatsLabel: Label = null;
 
+    // Home画面は「ミッション結果→Home」「改造/装備購入(Home上のオーバーレイ操作)→Homeに居続ける」等、
+    // 実績条件を満たしうる全ての操作の後に必ず戻ってくる/居続けるハブ画面である。実績判定
+    // (AchievementManager.checkAndUnlock())をあちこちのアクション箇所に埋め込むのではなく、
+    // このHome常駐の定期チェックポイント(start()時+update()のスロットル監視)1箇所に集約する。
+    // 将来「装備品が開発可能になった」アナウンス等も同じ仕組みに相乗りさせる想定。
+    private static readonly ACHIEVEMENT_CHECK_INTERVAL_SEC = 1.0;
+    private _achievementCheckTimer: number = 0;
+
     start() {
         this.setupVideoBackground();
         this.refreshUI();
+        this.checkAchievements();
 
         // Apply Layout
         this.applyButtonLayout("BtnTitle", 0, 160);
@@ -392,6 +404,82 @@ export class HomeUI extends Component {
 
     update(dt: number) {
         this.videoBG.updateFrame();
+
+        this._achievementCheckTimer += dt;
+        if (this._achievementCheckTimer >= HomeUI.ACHIEVEMENT_CHECK_INTERVAL_SEC) {
+            this._achievementCheckTimer = 0;
+            this.checkAchievements();
+        }
+    }
+
+    // AchievementManager.checkAndUnlock()を呼ぶ唯一のcall site。新規達成があれば、専用ダイアログ+
+    // 専用SEで通知する(複数件は1つのダイアログにまとめて表示 = 報酬は既にcheckAndUnlock()側で合算済み)。
+    private checkAchievements() {
+        const unlocked = AchievementManager.instance.checkAndUnlock();
+        if (unlocked.length === 0) return;
+        this.showAchievementDialog(unlocked);
+        SoundManager.instance.playSE("SE_AchievementUnlock", "System");
+    }
+
+    // 実績が複数まとめて解放された場合(要件: 複数達成分を合算して1回のダイアログで通知)、
+    // タイトル一覧+報酬一覧が伸びるぶんウィンドウサイズもOKボタンのY座標も足りなくなり見切れていた
+    // (DialogWindow.prefab側のBody/Titleは固定レイアウトのPrefabで、行数に応じて自動調整されない)。
+    // DialogWindow.prefabのBody RichTextの既定行高24px(1行1件になるよう報酬も" / "区切りではなく
+    // 改行区切りにして折り返し幅に依存しない確定行数にする)を基準に、行数からウィンドウ高さと
+    // OKボタンのY座標を逆算する。件数が極端に多い場合は末尾を省略表示する(スクロール等は導入しない)。
+    private static readonly ACHIEVEMENT_DIALOG_LINE_HEIGHT = 24;
+    private static readonly ACHIEVEMENT_DIALOG_MAX_TITLE_LINES = 10;
+    private static readonly ACHIEVEMENT_DIALOG_MAX_REWARD_LINES = 8;
+
+    private showAchievementDialog(unlocked: AchievementData[]) {
+        let totalCredits = 0;
+        const itemLines: string[] = [];
+        for (const ach of unlocked) {
+            totalCredits += ach.rewardCredits || 0;
+            for (const it of ach.rewardItems || []) {
+                itemLines.push(`${it.itemId} x${it.qty}`);
+            }
+        }
+
+        let titleLinesArr = unlocked.map(a => `・${a.label}`);
+        if (titleLinesArr.length > HomeUI.ACHIEVEMENT_DIALOG_MAX_TITLE_LINES) {
+            const hidden = titleLinesArr.length - HomeUI.ACHIEVEMENT_DIALOG_MAX_TITLE_LINES;
+            titleLinesArr = titleLinesArr.slice(0, HomeUI.ACHIEVEMENT_DIALOG_MAX_TITLE_LINES);
+            titleLinesArr.push(`…ほか${hidden}件`);
+        }
+
+        const rewardParts: string[] = [];
+        if (totalCredits > 0) rewardParts.push(`Credit +${totalCredits}`);
+        rewardParts.push(...itemLines);
+        let rewardLinesArr = rewardParts;
+        if (rewardLinesArr.length > HomeUI.ACHIEVEMENT_DIALOG_MAX_REWARD_LINES) {
+            const hidden = rewardLinesArr.length - HomeUI.ACHIEVEMENT_DIALOG_MAX_REWARD_LINES;
+            rewardLinesArr = rewardLinesArr.slice(0, HomeUI.ACHIEVEMENT_DIALOG_MAX_REWARD_LINES);
+            rewardLinesArr.push(`…ほか${hidden}件`);
+        }
+
+        const bodySections = [titleLinesArr.join("\n")];
+        if (rewardLinesArr.length > 0) bodySections.push(`報酬:\n${rewardLinesArr.join("\n")}`);
+        const body = bodySections.join("\n\n");
+
+        // DialogWindow.prefab既定(Body Y=-30、行高24px)を基準に、行数ぶん(タイトル+空行+
+        // "報酬:"見出し+報酬各行)だけBodyの下端がどこまで伸びるかを計算し、OKボタン・ウィンドウ高さを
+        // それに応じて広げる(小さい実績1〜2件のケースでは従来通りの見た目のまま)。
+        const lineCount = titleLinesArr.length + (rewardLinesArr.length > 0 ? 2 + rewardLinesArr.length : 0);
+        const lh = HomeUI.ACHIEVEMENT_DIALOG_LINE_HEIGHT;
+        const bodyHeight = lineCount * lh;
+        const bodyBottomY = -30 - bodyHeight / 2;
+        const buttonY = Math.min(-110, bodyBottomY - 45);
+        const windowHeight = Math.max(320, (Math.abs(buttonY) + 60) * 2);
+
+        let dialogNodeRef: Node = null;
+        showDialogPrefab(this.node, "実績解放!", body, [
+            {
+                prefabPath: "Prefabs/Canvas/Button-Yes", x: 0, y: buttonY, label: "OK",
+                color: new Color(255, 200, 60),
+                onClick: () => { if (dialogNodeRef && dialogNodeRef.isValid) dialogNodeRef.destroy(); },
+            },
+        ], (node) => { dialogNodeRef = node; }, { width: 560, height: windowHeight });
     }
 
     onDestroy() {

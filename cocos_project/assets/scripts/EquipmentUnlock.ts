@@ -43,6 +43,8 @@ export function unlockEquipment(equipment: EquipmentData, dataManager: { data: I
 
     if (!dataManager.data.unlockedEquipmentIds) dataManager.data.unlockedEquipmentIds = [];
     dataManager.data.unlockedEquipmentIds.push(equipment.id);
+    // AchievementManager.ts「初装備購入」実績用のカウンタ加算(判定はAchievementManagerのみが行う)。
+    dataManager.data.careerStats.equipmentPurchaseCount++;
     dataManager.save(); // unlockCost<=0かつunlockItemsが空でここまで来ることは無いが、念のため明示的にsave()しておく
     return true;
 }

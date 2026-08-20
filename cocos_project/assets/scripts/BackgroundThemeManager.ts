@@ -51,8 +51,15 @@ export class BackgroundThemeManager extends Component {
     }
 
     // 動画パターンプールからランダムに1本選ぶ。空なら安全な既定パスにフォールバックする。
-    public getRandomVideoPattern(): string {
+    // excludePathを渡すと(VideoBackground.tsのシャッフル機能が、直前と同じ動画への連続当選を
+    // 避けるために使う)、プールに他の候補がある限りそれを除外して選ぶ。
+    public getRandomVideoPattern(excludePath?: string): string {
         if (!this.videoPatterns || this.videoPatterns.length === 0) return "Movies/BGV_Ingame001_Galaxy_Base";
-        return this.videoPatterns[Math.floor(Math.random() * this.videoPatterns.length)];
+        if (!excludePath) {
+            return this.videoPatterns[Math.floor(Math.random() * this.videoPatterns.length)];
+        }
+        const candidates = this.videoPatterns.filter(p => p !== excludePath);
+        const pool = candidates.length > 0 ? candidates : this.videoPatterns;
+        return pool[Math.floor(Math.random() * pool.length)];
     }
 }

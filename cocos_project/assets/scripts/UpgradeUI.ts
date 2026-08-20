@@ -405,6 +405,8 @@ export class UpgradeUI extends Component {
             DataManager.instance.addResource(info.material.itemId, -info.material.quantity);
         }
         this.setCurrentLv(paramId, currentLv + 1);
+        // AchievementManager.ts「VehicleUpgradeCount」実績用のカウンタ加算(判定はAchievementManagerのみが行う)。
+        DataManager.instance.data.careerStats.vehicleUpgradeCount++;
         DataManager.instance.save();
 
         SoundManager.instance.playSE('upgrade', 'System');

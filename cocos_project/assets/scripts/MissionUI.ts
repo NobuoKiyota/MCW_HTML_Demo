@@ -173,6 +173,7 @@ export class MissionUI extends Component {
                 if (table && table.slots) enemyPattern.push(...table.slots);
             }
 
+            const subLvIndex = allRowsForLv.indexOf(diff) + 1;
             missions.push({
                 id: Date.now() + seq,
                 stars: gen.lv,
@@ -188,8 +189,11 @@ export class MissionUI extends Component {
                 spawnTableIds: gen.tableIds,
                 spawnTableDists: gen.tableDists,
                 marginEndKm: gen.distC,
+                // AchievementManager.tsのLv<NN>AllSubMissionClearCount/MissionClearComplete条件用(GameManager.onMissionComplete()が読む)。
+                missionLv: lv,
+                subLv: subLvIndex,
             });
-            subLvIndices.push(allRowsForLv.indexOf(diff) + 1);
+            subLvIndices.push(subLvIndex);
         }
         this.displayedMissions = missions;
         this.displayedSubLvIndices = subLvIndices;

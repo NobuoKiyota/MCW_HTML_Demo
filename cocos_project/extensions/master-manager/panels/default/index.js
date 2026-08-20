@@ -15,6 +15,7 @@ const CSV_FILES = [
     { label: 'ShotPatterns', file: 'ShotPatterns.csv' },
     { label: 'Sounds', file: 'Sounds.csv' },
     { label: 'GridCellManager', file: 'GridCells.csv' },
+    { label: 'AchievementManager', file: 'Achievements.csv' },
 ];
 
 // ID-reference schema: for a given CSV file, which columns are "foreign keys" into another
@@ -106,6 +107,30 @@ const SCHEMA = {
         UnlockItemID_2: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
         UnlockItemID_3: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
     },
+    'Achievements.csv': {
+        // AchievementManager.checkAndUnlock()(assets/scripts/AchievementManager.ts)のisConditionMet()と
+        // 完全に一致させること。新しい条件タイプを追加する場合は両方に足す。ここはプルダウン(<select>、
+        // 手入力不可)なので、AchievementManager.ts側が正規表現で吸収する可変パターンの
+        // Lv<NN>AllSubMissionClearCountも、MissionDifficulty.csvの現行Lv範囲(1~10)分をあらかじめ
+        // 列挙しておく(Lv11以降が増えたらここにも追加すること)。
+        ConditionType: {
+            fixedList: [
+                'MissionClearCount', 'NoDamageClearCount', 'AllKillsClearCount',
+                'CustomizeCount', 'EquipmentPurchaseCount', 'VehicleUpgradeCount',
+                'DamageTotalCount', 'DamageTakenTotalCount',
+                'MissionClearComplete', 'EquipmentPurchaseComplete', 'ArchievementsComplete',
+                'FirstVehicleCreate', 'FirstRarePartsGet',
+                'Lv01AllSubMissionClearCount', 'Lv02AllSubMissionClearCount', 'Lv03AllSubMissionClearCount',
+                'Lv04AllSubMissionClearCount', 'Lv05AllSubMissionClearCount', 'Lv06AllSubMissionClearCount',
+                'Lv07AllSubMissionClearCount', 'Lv08AllSubMissionClearCount', 'Lv09AllSubMissionClearCount',
+                'Lv10AllSubMissionClearCount',
+            ],
+            isSelect: true,
+        },
+        RewardItemID_1: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
+        RewardItemID_2: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
+        RewardItemID_3: { file: 'Items.csv', column: 'ID', includeNone: true, isSelect: true },
+    },
 };
 
 // 表示だけを短縮する列名マップ。実データの列名(headers配列/CSVそのもの)は変更しない。
@@ -171,6 +196,22 @@ const GC_SCHEMA = [
     {
         key: 'videoBGZoomDurationSec', category: '背景動画演出', label: '背景動画 ズーム周期(秒)', step: 1, min: 5, max: 120, default: 25,
         note: '拡大→縮小それぞれに掛ける秒数(往復1周期はこの2倍)',
+    },
+    {
+        key: 'videoBGRotationDurationSec', category: '背景動画演出', label: '背景動画 回転周期(秒)', step: 1, min: 0, max: 300, default: 0,
+        note: 'Ingame背景動画が1周(360度)回転するのに掛ける秒数。0なら回転無し(GameManager.tsが適用)',
+    },
+    {
+        key: 'videoBGShuffleCycleDurationSec', category: '背景動画演出', label: '背景動画 シャッフル表示時間(秒)', step: 1, min: 3, max: 120, default: 30,
+        note: 'Ingame中、1クリップあたりの表示サイクル総時間(フェードイン+ホールド+フェードアウトの合計)。実ファイルの尺より長ければ内部ループで埋める(VideoBackground.enableAutoShuffle()が適用)',
+    },
+    {
+        key: 'videoBGShuffleFadeDurationSec', category: '背景動画演出', label: '背景動画 シャッフルFade時間(秒)', step: 0.1, min: 0.1, max: 10, default: 3,
+        note: 'Ingame中、各クリップの先頭/末尾をフェードイン/アウトする秒数(上のシャッフル表示時間に含まれる)',
+    },
+    {
+        key: 'videoBGShuffleWaitDurationSec', category: '背景動画演出', label: '背景動画 シャッフル切替待ち(秒)', step: 0.1, min: 0, max: 10, default: 2,
+        note: 'フェードアウト後、次のクリップに切り替わるまでの非表示待機時間(秒)',
     },
     {
         key: 'videoBGColorCycleAmplitude', category: '背景動画演出', label: '背景動画 色相振幅', step: 1, min: 0, max: 100, default: 55,
