@@ -24,6 +24,7 @@ export class StarField extends Component {
     public baseEmission: number = 5.0;
 
     private _speedManager: GameSpeedManager = null;
+    private _manualSpeed: number = -1;
 
     // 一時的な演出バースト(集中線風)の状態。triggerBurst()で開始し、durationSec経過で
     // 自動的に通常の速度連動計算へ戻る。GOAL到達時などから汎用的に呼べるよう、Goal専用の
@@ -51,6 +52,15 @@ export class StarField extends Component {
         }
     }
 
+    public setSpeedManager(sm: GameSpeedManager) {
+        this._speedManager = sm;
+        this._manualSpeed = -1;
+    }
+
+    public setManualSpeed(speed: number) {
+        this._manualSpeed = speed;
+    }
+
     private setupParticles() {
         const ps = this.particleSystem;
 
@@ -74,9 +84,16 @@ export class StarField extends Component {
     }
 
     update(dt: number) {
-        if (!this.particleSystem || !this._speedManager) return;
+        if (!this.particleSystem) return;
 
-        const currentSpeed = this._speedManager.getCurrentSpeed();
+        let currentSpeed = 0;
+        if (this._manualSpeed >= 0) {
+            currentSpeed = this._manualSpeed;
+        } else if (this._speedManager) {
+            currentSpeed = this._speedManager.getCurrentSpeed();
+        } else {
+            return;
+        }
 
         // バースト倍率の計算。終盤30%の区間でイーズアウトし、通常値へ滑らかに戻す
         // (急に元へ戻すと明滅して見えるため)。

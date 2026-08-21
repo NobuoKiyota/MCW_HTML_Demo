@@ -46,11 +46,10 @@ function getGameManagerConfigPath() {
     return path.join(Editor.Project.path, 'assets', 'resources', 'Data', 'GameManagerConfig.json');
 }
 
-// CloudManager tab (assets/resources/Data/CloudConfig.json). CloudManager.tsとは無関係な
-// GameManager本体の値と混ぜたくないため、BulletConfig.json(behavior-editor拡張側)と同じ理由で
-// GameManagerConfig.jsonとは別ファイルに分離している。ただしCloud設定はBehavior/Shotグラフとは
-// 無関係なドメインなので、behavior-editorではなくこちら(master-manager)で扱う。
-// CloudManager.ts自身がresources.load("Data/CloudConfig", JsonAsset, ...)でこのファイルを読む。
+function getSkyConfigPath() {
+    return path.join(Editor.Project.path, 'assets', 'resources', 'Data', 'SkyConfig.json');
+}
+
 function getCloudConfigPath() {
     return path.join(Editor.Project.path, 'assets', 'resources', 'Data', 'CloudConfig.json');
 }
@@ -174,7 +173,9 @@ module.exports = {
         // Called by the panel via Editor.Message.request('master-manager', 'load-cloud-config').
         loadCloudConfig() {
             try {
-                const text = fs.readFileSync(getCloudConfigPath(), 'utf-8');
+                const skyPath = getSkyConfigPath();
+                const targetPath = fs.existsSync(skyPath) ? skyPath : getCloudConfigPath();
+                const text = fs.readFileSync(targetPath, 'utf-8');
                 return { ok: true, data: JSON.parse(text) };
             } catch (err) {
                 console.error('[MasterManager Extension] loadCloudConfig failed:', err);
@@ -186,12 +187,13 @@ module.exports = {
         saveCloudConfig(data) {
             try {
                 const text = JSON.stringify(data, null, 2) + '\n';
+                fs.writeFileSync(getSkyConfigPath(), text, 'utf-8');
                 fs.writeFileSync(getCloudConfigPath(), text, 'utf-8');
 
-                const url = 'db://assets/resources/Data/CloudConfig.json';
-                Editor.Message.request('asset-db', 'refresh-asset', url).catch((err) => {
-                    console.warn('[MasterManager Extension] asset-db refresh-asset (CloudConfig) failed:', err);
-                });
+                const urlSky = 'db://assets/resources/Data/SkyConfig.json';
+                const urlCloud = 'db://assets/resources/Data/CloudConfig.json';
+                Editor.Message.request('asset-db', 'refresh-asset', urlSky).catch(() => {});
+                Editor.Message.request('asset-db', 'refresh-asset', urlCloud).catch(() => {});
 
                 return { ok: true };
             } catch (err) {

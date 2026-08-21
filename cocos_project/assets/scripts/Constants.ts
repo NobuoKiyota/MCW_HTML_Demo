@@ -151,9 +151,10 @@ export enum GameState {
 export const SAVE_KEY = 'SHOOTER_COCOS_V1';
 
 // Ingame専用の描画レイヤー(カメラのvisibilityマスク用ビットフラグ)。
-// GameManager.ts の BG_ONLY_LAYER (1<<19、背景動画/StarField用) と同じ考え方で、
-// Enemyの3Dモデル・雲の前景レイヤーをPlayerの3Dモデル(Layers.BitMask.DEFAULT)から
-// 分離するための追加ビット。Enemy.ts/GameManager.ts両方から参照するためここに置く。
+// 背景動画/StarField用のBG_ONLY_LAYERと同じ考え方で、Enemyの3Dモデル・雲の前景レイヤーを
+// Playerの3Dモデル(Layers.BitMask.DEFAULT)から分離するための追加ビット。
+// Enemy.ts/GameManager.ts両方から参照するためここに置く。
+export const BG_ONLY_LAYER = 1 << 19;
 export const ENEMY_ONLY_LAYER = 1 << 18;
 export const FG_CLOUD_LAYER = 1 << 17;
 

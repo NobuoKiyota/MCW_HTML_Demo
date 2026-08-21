@@ -72,14 +72,19 @@ export class BackgroundThemeManager extends Component {
         return pool[Math.floor(Math.random() * pool.length)];
     }
 
-    // ScrollingBackgroundManager.ts用: videoPatterns/imagePatternsを合わせた1つのプールから
-    // ランダムに1件選び、動画かどうか(isVideo)も一緒に返す。両方空ならvideoPatternsの
-    // フォールバック既定パス(動画扱い)を返す。
-    public getRandomBackgroundPattern(): { path: string; isVideo: boolean } {
+    // SkyManager.ts用: videoPatterns/imagePatternsを合わせた1つのプールからランダムに1件選び、
+    // 動画かどうか(isVideo)も一緒に返す。両方空ならvideoPatternsのフォールバック既定パス
+    // (動画扱い)を返す。excludePathを渡すと(フェードサイクル完了後の再抽選時、直前と同じ
+    // クリップへの連続当選を避けるために使う)、他に候補がある限りそれを除外して選ぶ。
+    public getRandomBackgroundPattern(excludePath?: string): { path: string; isVideo: boolean } {
         const videoEntries = (this.videoPatterns || []).map(path => ({ path, isVideo: true }));
         const imageEntries = (this.imagePatterns || []).map(path => ({ path, isVideo: false }));
-        const pool = videoEntries.concat(imageEntries);
+        let pool = videoEntries.concat(imageEntries);
         if (pool.length === 0) return { path: "Movies/BGV_Ingame001_Galaxy_Base", isVideo: true };
+        if (excludePath) {
+            const candidates = pool.filter(e => e.path !== excludePath);
+            if (candidates.length > 0) pool = candidates;
+        }
         return pool[Math.floor(Math.random() * pool.length)];
     }
 }

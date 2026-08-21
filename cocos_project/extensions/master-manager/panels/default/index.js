@@ -194,18 +194,10 @@ const GC_SCHEMA = [
         note: 'シーンのAmbient(cc.AmbientInfo)のGround Lighting Color(groundAlbedo)を起動時に上書きする(GameManager.tsが適用)',
     },
     {
-        key: 'bgScrollSpeedPxPerSec', category: '背景スクロール', label: '背景 スクロール速度(px/秒)', step: 1, min: 0, max: 1000, default: 60,
-        note: 'Ingame背景(ScrollingBackgroundManager、縦スクロールタイル)のスクロール速度。0で静止(GameManager.tsが適用)',
-    },
-    {
-        key: 'bgOpacity', category: '背景スクロール', label: '背景 不透明度(0-255)', step: 1, min: 0, max: 255, default: 255,
-        note: 'Ingame背景タイル全体の不透明度',
-    },
-    {
-        key: 'bgRotationDeg', category: '背景スクロール', label: '背景 回転角度(度)', step: 90, min: 0, max: 270, default: 90,
-        note: 'PNG/MP4素材を何度回転してタイル化するか(0/90/180/270想定)。ミッション開始時に1回だけ適用され、タイル形状を決める(mid-mission変更は反映されない)',
-    },
-    {
+        // 旧「背景スクロール」「最背面スカイ背景」カテゴリはSkyManager統合に伴い廃止。
+        // スカイ/動画/星/雲の全設定は「🌌 SkyManager」タブ(SkyConfig.json、SKY_CONFIG_SCHEMA)に
+        // 一元化されている。GameManager.ts側は毎フレームのapplyTunables()呼び出しをやめ、
+        // SkyConfig.json由来の値をSkyManager自身が保持したまま上書きしないようにした。
         key: 'initialCredit', category: 'Economy', label: '初期保有Credit', step: 100, min: 0, max: 1000000, default: 0,
         note: '真の初回起動(既存セーブが無い場合)のみ適用される初期クレジット。既にプレイ中のセーブには影響しない(DataManager.isNewSaveで判定、GameManager.tsが適用)',
     },
@@ -309,11 +301,80 @@ const GC_SCHEMA = [
 let gcValues = {};
 let gcDirty = false;
 
-// 雲(CloudManager.ts)専用のランダム生成範囲設定。assets/resources/Data/CloudConfig.json を
-// 読み書きする。GameManager本体とは無関係な値なので、BulletConfig.jsonと同じ理由でGC_SCHEMAとは
-// 分離している(ただしBehavior/Shotグラフとは無関係なドメインなのでbehavior-editorではなく
-// master-manager側で扱う)。CloudManager.ts自身がこのJSONを読む(GameManager経由にしない)。
-const CLOUD_CONFIG_SCHEMA = [
+// 背景(SkyManager.ts: スカイ/動画/星/雲)の統合設定。assets/resources/Data/SkyConfig.json を
+// 読み書きする。SkyManager.ts自身がこのJSONを直接読み込み、全背景パラメータを一元管理する。
+const SKY_CONFIG_SCHEMA = [
+    {
+        key: 'enableSky', category: '最背面スカイ背景', type: 'boolean', label: 'スカイ背景 有効', default: true,
+        note: '最背面スカイ画像(sky01.png等)のリールスクロールを有効にするか',
+    },
+    {
+        key: 'skyResourcePath', category: '最背面スカイ背景', type: 'string', label: 'スカイ 画像パス', default: 'Materials/sky01',
+        note: '画像パス(例: resources\\Materials\\sky01.png または Materials/sky01)',
+    },
+    {
+        key: 'skyColor', category: '最背面スカイ背景', type: 'color', label: 'スカイ カラー(乗算色)', default: '#ffffff',
+        note: 'スカイ背景のティントカラー(#ffffffで元画像のまま、夕暮れ・夜空・宇宙色などに変更可能)',
+    },
+    {
+        key: 'skyScrollSpeed', category: '最背面スカイ背景', label: 'スカイ スクロール速度(px/秒)', step: 1, min: 0, max: 1000, default: 30,
+        note: '最背面スカイ画像のスクロール速度(0で静止)',
+    },
+    {
+        key: 'skyOpacity', category: '最背面スカイ背景', label: 'スカイ 不透明度(0-255)', step: 1, min: 0, max: 255, default: 255,
+        note: '最背面スカイ画像の不透明度',
+    },
+
+    {
+        key: 'enableVideo', category: '動画背景(フェード切替)', type: 'boolean', label: '動画背景 有効', default: true,
+        note: '動画/画像背景(フェードイン→ホールド→フェードアウト→待機→再抽選のサイクル)を有効にするか',
+    },
+    {
+        key: 'videoPosY', category: '動画背景(フェード切替)', label: '動画 Y座標位置(px)', step: 10, min: -2000, max: 2000, default: 0,
+        note: '動画/画像背景のY座標位置(0で画面中央)',
+    },
+    {
+        key: 'videoCycleDurationSec', category: '動画背景(フェード切替)', label: '動画 表示サイクル時間(秒)', step: 1, min: 3, max: 300, default: 30,
+        note: '1クリップあたりの表示サイクル総時間(フェードイン+ホールド+フェードアウトの合計)',
+    },
+    {
+        key: 'videoFadeDurationSec', category: '動画背景(フェード切替)', label: '動画 フェード時間(秒)', step: 0.1, min: 0.1, max: 30, default: 3,
+        note: '各クリップの先頭/末尾のフェードイン/アウト時間(秒、上の表示サイクル時間に含まれる)',
+    },
+    {
+        key: 'videoWaitDurationSec', category: '動画背景(フェード切替)', label: '動画 切替待ち(秒)', step: 0.1, min: 0, max: 30, default: 2,
+        note: 'フェードアウト後、次のクリップ(再抽選)に切り替わるまでの非表示待機時間(秒)',
+    },
+    {
+        key: 'videoOpacity', category: '動画背景(フェード切替)', label: '動画 最大不透明度(0-255)', step: 1, min: 0, max: 255, default: 255,
+        note: 'フェードイン到達値(0で完全非表示、80〜150程度でスカイとの半透明ブレンド)',
+    },
+    {
+        key: 'videoRotationDeg', category: '動画背景(フェード切替)', label: '動画 回転角度(度)', step: 90, min: 0, max: 270, default: 0,
+        note: '動画/画像素材の回転角度(0/90/180/270)',
+    },
+
+    {
+        key: 'enableStarField', category: '星フィールド演出', type: 'boolean', label: '星演出 有効', default: true,
+        note: '自機速度連動の星パーティクル演出を有効にするか',
+    },
+    {
+        key: 'starSpeedScale', category: '星フィールド演出', label: '星 スピード倍率', step: 1, min: 0, max: 200, default: 50,
+        note: '自機速度に対する星パーティクルのスピード倍率',
+    },
+    {
+        key: 'starEmissionScale', category: '星フィールド演出', label: '星 発生量倍率', step: 1, min: 0, max: 50, default: 10,
+        note: '自機速度に対する星パーティクルの発生量倍率',
+    },
+    {
+        key: 'starBaseEmission', category: '星フィールド演出', label: '星 ベース発生量', step: 1, min: 0, max: 50, default: 5,
+        note: '自機停止時でも発生する星の最低発生レート',
+    },
+
+    {
+        key: 'enableClouds', category: '雲演出', type: 'boolean', label: '雲演出 有効', default: true,
+        note: '奥・手前の雲生成を有効にするか',
+    },
     {
         key: 'spawnIntervalMin', category: '生成頻度', label: '生成間隔(秒) 下限', step: 0.05, min: 0.05, max: 10, default: 0.5,
         note: '雲を生成する間隔(秒)の下限。小さいほど密度が上がる',
@@ -2658,7 +2719,7 @@ function renderTabBar(panel) {
 
     const ccBtn = document.createElement('button');
     ccBtn.className = 'tab-btn tab-btn-graph' + (viewMode === 'cloud-config' ? ' active' : '');
-    ccBtn.textContent = '☁️ CloudManager';
+    ccBtn.textContent = '🌌 SkyManager';
     ccBtn.addEventListener('click', () => switchToCloudConfig(panel));
     tabBar.appendChild(ccBtn);
 }
@@ -2817,8 +2878,13 @@ async function loadSettingsForm(ipcPkg, loadMsg, schema, values, formEl, label, 
     Object.keys(values).forEach((k) => delete values[k]);
     schema.forEach(({ key, type, default: def }) => {
         const v = result.data ? result.data[key] : undefined;
-        const expectedType = type === 'color' ? 'string' : 'number';
-        values[key] = (typeof v === expectedType) ? v : def;
+        if (type === 'boolean') {
+            values[key] = (typeof v === 'boolean') ? v : (v === undefined ? def : Boolean(v));
+        } else if (type === 'string' || type === 'color') {
+            values[key] = (typeof v === 'string') ? v : (v !== undefined ? String(v) : def);
+        } else {
+            values[key] = (typeof v === 'number') ? v : def;
+        }
     });
     renderSettingsForm(formEl, schema, values, onLoaded);
     return true;
@@ -2832,9 +2898,6 @@ function renderSettingsForm(formEl, schema, values, onChange) {
     if (!formEl) return;
     formEl.innerHTML = '';
 
-    // categoryが付いた項目(現状GC_SCHEMAのみ、BULLET_CONFIG_SCHEMAはcategory無しでよい)は、
-    // 直前の項目とcategoryが変わるたびに見出しを1回だけ挟む。項目数が増えて縦に長くなった
-    // GameManagerEditorタブを見出しで区切って探しやすくするための最小限の変更。
     let lastCategory = undefined;
     schema.forEach(({ key, label, type, step, min, max, note, category }) => {
         if (category !== undefined && category !== lastCategory) {
@@ -2855,9 +2918,27 @@ function renderSettingsForm(formEl, schema, values, onChange) {
 
         const input = document.createElement('input');
         input.className = 'gc-input';
-        if (type === 'color') {
+
+        if (type === 'boolean') {
+            input.type = 'checkbox';
+            input.checked = !!values[key];
+            input.style.width = '24px';
+            input.style.height = '24px';
+            input.style.cursor = 'pointer';
+            input.addEventListener('change', (e) => {
+                values[key] = e.target.checked;
+                onChange();
+            });
+        } else if (type === 'string') {
+            input.type = 'text';
+            input.value = values[key] !== undefined ? values[key] : '';
+            input.addEventListener('input', (e) => {
+                values[key] = e.target.value;
+                onChange();
+            });
+        } else if (type === 'color') {
             input.type = 'color';
-            input.value = values[key];
+            input.value = values[key] || '#ffffff';
             input.addEventListener('input', (e) => {
                 values[key] = e.target.value;
                 onChange();
@@ -2930,7 +3011,7 @@ async function switchToCloudConfig(panel) {
 
 async function loadCloudConfig(panel) {
     setStatus(panel, 'Loading CloudConfig...', false);
-    const ok = await loadSettingsForm('master-manager', 'load-cloud-config', CLOUD_CONFIG_SCHEMA, cloudConfigValues, panel.$.ccForm, 'CloudConfig', () => {
+    const ok = await loadSettingsForm('master-manager', 'load-cloud-config', SKY_CONFIG_SCHEMA, cloudConfigValues, panel.$.ccForm, 'CloudConfig', () => {
         cloudConfigDirty = true;
         setStatus(panel, 'CloudConfig has unsaved changes.', false);
     });

@@ -2,7 +2,7 @@ import { _decorator, Component, Node, Label, Prefab, instantiate, director, Vec3
 import './enginePatches';
 import { UIManager } from './UIManager';
 import { OptionsUI } from './OptionsUI';
-import { GameState, GAME_SETTINGS, IGameManager, SpawnLaserBeamOptions, ENEMY_ONLY_LAYER, FG_CLOUD_LAYER } from './Constants'; // Removed Constants
+import { GameState, GAME_SETTINGS, IGameManager, SpawnLaserBeamOptions, BG_ONLY_LAYER, ENEMY_ONLY_LAYER, FG_CLOUD_LAYER } from './Constants'; // Removed Constants
 import { SoundManager } from './SoundManager';
 import { GameSpeedManager } from './GameSpeedManager';
 import { GameDatabase } from './GameDatabase';
@@ -15,8 +15,7 @@ import { StarField } from './StarField';
 import { GoalWarningEffect } from './GoalWarningEffect';
 import { RemainDistanceHUD } from './RemainDistanceHUD';
 import { resolveEquippedLoadout } from './WeaponCalc';
-import { CloudManager } from './CloudManager';
-import { ScrollingBackgroundManager } from './ScrollingBackgroundManager';
+import { SkyManager } from './SkyManager';
 
 
 const { ccclass, property } = _decorator;
@@ -28,7 +27,8 @@ const { ccclass, property } = _decorator;
 // own layer lets a dedicated, lower-priority BackgroundCamera draw it first, while MainCamera
 // (which no longer includes this bit in its visibility) draws the 3D ship and remaining UI_2D
 // content on top without re-drawing the background itself.
-const BG_ONLY_LAYER = 1 << 19;
+// (BG_ONLY_LAYER自体はConstants.tsからimport - BackgroundStudioUI.ts等、GameManager以外からも
+// 参照する必要が生じたため、ENEMY_ONLY_LAYER/FG_CLOUD_LAYERと同じ場所に集約した)
 
 // SpawnTableData.cycle (Instant/Rapid/Normal/Slow, see MasterManager's Cycle dropdown) ->
 // seconds between each individual spawn within one spawnFromSpawnTable() call. Named presets
@@ -253,13 +253,10 @@ export class GameManager extends Component implements IGameManager {
     // 影響しない(GameManagerConfig.json由来、GameManagerEditorタブで調整)。
     public initialCredit: number = 0;
 
-    // Ingame背景(ScrollingBackgroundManager、縦スクロールタイル背景)のパラメータ。
-    // GameManagerEditorタブから調整できる。
-    private bgScrollSpeedPxPerSec: number = 60;
-    private bgOpacity: number = 255;
-    // タイルの回転角度(度、0/90/180/270想定)。setup()時に1回だけ読まれ、タイル形状を決める
-    // (mid-mission変更は再タイル化されないため反映されない)。
-    private bgRotationDeg: number = 90;
+    // 旧: Ingame背景(スクロール/スカイ)のパラメータをここに個別で持っていたが、SkyManager統合に
+    // 伴い廃止した。スカイ/動画/星/雲の全設定は SkyManager.ts が assets/resources/Data/SkyConfig.json
+    // から直接読み込み保持する(Master Managerの「🌌 SkyManager」タブ経由で編集)。GameManager側で
+    // 別の値を毎フレーム上書きすると、SkyConfig.jsonでの調整が反映されなくなるため持たない。
 
     // Single persistent camera, owned exclusively by GameManager. Never searched-for,
     // reactivated, or recreated per content switch - see applyCameraForState().
@@ -289,14 +286,8 @@ export class GameManager extends Component implements IGameManager {
     // Playerより奥に描画する。
     private cloudFrontCamera: Camera = null;
 
-    // Ingame背景の雲(奥/手前2層、それぞれ透明度/サイズ/速度をランダム生成)。
-    // resolveInGameReferences()でミッションごとに生成し直す(Editor側のPrefab編集は不要、
-    // 完全にコード側で動的生成する)。
-    private cloudManager: CloudManager = null;
-
-    // Ingame背景(縦スクロールタイル、PNG/MP4両対応)。cloudManagerと同じくミッションごとに
-    // resolveInGameReferences()で作り直す。
-    private scrollingBackgroundManager: ScrollingBackgroundManager = null;
+    // Ingame背景一元統合マネージャ(スカイ・動画・星・雲を一括制御)
+    private skyManager: SkyManager = null;
 
     onLoad() {
         console.log("[GameManager] onLoad triggered.");
@@ -635,7 +626,6 @@ export class GameManager extends Component implements IGameManager {
             }
             const config = asset.json as {
                 playerShipScaleMultiplier?: number; playerShipBaseRotationX?: number; playerShipBaseRotationY?: number; ambientSkyIllum?: number; groundLightingColor?: string;
-                bgScrollSpeedPxPerSec?: number; bgOpacity?: number; bgRotationDeg?: number;
                 missionMaxDuplicateSpawnTable?: number;
                 missionMarginStartKm?: number; missionMarginEndKm?: number;
                 missionAssumedMaxSpeedKmPerMin?: number; missionTargetSpeedRatio?: number;
@@ -660,9 +650,6 @@ export class GameManager extends Component implements IGameManager {
             if (typeof config.playerShipBaseRotationY === 'number') {
                 this.playerShipBaseRotationY = config.playerShipBaseRotationY;
             }
-            if (typeof config.bgScrollSpeedPxPerSec === 'number') this.bgScrollSpeedPxPerSec = config.bgScrollSpeedPxPerSec;
-            if (typeof config.bgOpacity === 'number') this.bgOpacity = config.bgOpacity;
-            if (typeof config.bgRotationDeg === 'number') this.bgRotationDeg = config.bgRotationDeg;
             if (typeof config.missionMaxDuplicateSpawnTable === 'number') this.missionMaxDuplicateSpawnTable = config.missionMaxDuplicateSpawnTable;
             if (typeof config.missionMarginStartKm === 'number') this.missionMarginStartKm = config.missionMarginStartKm;
             if (typeof config.missionMarginEndKm === 'number') this.missionMarginEndKm = config.missionMarginEndKm;
@@ -1026,8 +1013,8 @@ export class GameManager extends Component implements IGameManager {
 
         this.showStartText(presentationSec);
 
-        if (this.starField) {
-            this.starField.triggerBurst(presentationSec, 6.0, 4.5);
+        if (this.skyManager) {
+            this.skyManager.triggerBurst(presentationSec, 6.0, 4.5);
         }
     }
 
@@ -1213,30 +1200,22 @@ export class GameManager extends Component implements IGameManager {
             this.remainDistanceHUD = null;
         }
 
-        // 縦スクロールタイル背景に統一(旧: フルスクリーンMP4 1枚+シャッフル/回転演出)。
         // 既存の静止画クロスフェード(BackgroundLayer)はもう使わないため非表示にする。
-        // 親ノードはrootNode直下ではなく、BackgroundLayer/StarFieldと同じ「Canvas」ラッパー
-        // (wrapper2、cc.Canvasコンポーネント付き)を使う - rootNode直下だとこのCanvas階層の
-        // 外側になってしまい、座標を(0,0,0)に補正しても正しく描画されなかったため。
         if (bgLayer) bgLayer.active = false;
-        if (this.scrollingBackgroundManager && this.scrollingBackgroundManager.isValid) {
-            this.scrollingBackgroundManager.node.destroy();
-        }
-        const scrollingBGNode = new Node("ScrollingBackgroundManager");
-        (wrapper2 || rootNode).addChild(scrollingBGNode);
-        this.scrollingBackgroundManager = scrollingBGNode.addComponent(ScrollingBackgroundManager);
-        this.scrollingBackgroundManager.setup(wrapper2 || rootNode, BG_ONLY_LAYER, this.bgRotationDeg);
-        this.scrollingBackgroundManager.applyTunables(this.bgScrollSpeedPxPerSec, this.bgOpacity);
 
-        // 雲(奥=BG_ONLY_LAYER、手前=FG_CLOUD_LAYER)。ミッションごとに前回ぶんを破棄して
-        // 作り直す(ScrollingBackgroundManagerと同じ、Editor側のPrefab編集は不要)。
-        if (this.cloudManager && this.cloudManager.isValid) {
-            this.cloudManager.node.destroy();
+        // Ingame背景一元統合システム (SkyManager)
+        // 最背面スカイ、動画/タイル、星フィールド、雲を一括セットアップ
+        if (this.skyManager && this.skyManager.isValid) {
+            this.skyManager.node.destroy();
         }
-        const cloudNode = new Node("CloudManager");
-        (wrapper2 || rootNode).addChild(cloudNode);
-        this.cloudManager = cloudNode.addComponent(CloudManager);
-        this.cloudManager.setup(wrapper2 || rootNode, BG_ONLY_LAYER, FG_CLOUD_LAYER);
+        const skyNode = new Node("SkyManager");
+        (wrapper2 || rootNode).addChild(skyNode);
+        skyNode.setSiblingIndex(0);
+        this.skyManager = skyNode.addComponent(SkyManager);
+        // setup()内でSkyConfig.jsonから読み込んだ全パラメータを使ってレイヤーを構築するため、
+        // GameManager側からapplyTunables()で別の値を上書きしない(SkyConfig.jsonでの調整が
+        // 反映されなくなる不具合の対策)。
+        this.skyManager.setup(wrapper2 || rootNode, BG_ONLY_LAYER, FG_CLOUD_LAYER, this.speedManager);
 
         // EnemyMovePoint(EMP)収集: "MovePoints" コンテナ配下のMovePointコンポーネント付き子ノードを
         // ID -> ローカル座標のマップにする。他のレイヤーと同様(0,0,0)に矯正してenemyLayerと同じ
@@ -1316,10 +1295,6 @@ export class GameManager extends Component implements IGameManager {
     }
 
     update(deltaTime: number) {
-        if (this.scrollingBackgroundManager && this.scrollingBackgroundManager.isValid) {
-            this.scrollingBackgroundManager.applyTunables(this.bgScrollSpeedPxPerSec, this.bgOpacity);
-        }
-
         if (this.state !== GameState.INGAME || this.isPaused) return;
 
         this.frameCount++;
@@ -1760,8 +1735,8 @@ export class GameManager extends Component implements IGameManager {
         // 集中線バースト。outro開始と同時に長めに掛けることで、粒子が実際に画面を埋めるだけの
         // 時間を確保する(ParticleSystem2Dのspeed/emissionRateはCocosの仕様上、新規発生分にしか
         // 効かないため、短すぎると古い(遅い)粒子に埋もれて「確認できない」ほど薄まってしまう)。
-        if (this.starField) {
-            this.starField.triggerBurst(3.2, 6.0, 4.5);
+        if (this.skyManager) {
+            this.skyManager.triggerBurst(3.2, 6.0, 4.5);
         }
 
         if (this.playerOutroClip) {
