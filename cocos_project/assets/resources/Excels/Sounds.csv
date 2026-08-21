@@ -26,3 +26,6 @@ SE_DistortionBeam,"sounds/SE/SE_DistortionBeam",0.6,0.1,4,1
 SE_PMissile,"sounds/SE/SE_PMissile",1.2,1,4,1
 SE_PLaserBeam01,"sounds/SE/SE_PLaserBeam01",0.5,2,1,1
 SE_SweapBlade01,"sounds/SE/SE_SweapBlade01",0.45,0.2,8,1
+SE_AchievementUnlock,"sounds/SE/SE_AchievementUnlock",0.45,0.2,8,1
+SE_Anim_Thruster1,"sounds/SE/SE_Anim_Thruster1",0.45,0.2,8,1
+SE_Anim_Thruster2,"sounds/SE/SE_Anim_Thruster2",0.45,0.2,8,1

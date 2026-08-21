@@ -1002,6 +1002,10 @@ export class GameManager extends Component implements IGameManager {
         anim.defaultClip = this.playerStartClip;
         anim.play();
 
+        if (SoundManager.instance) {
+            SoundManager.instance.playSE('SE_Anim_Thruster1', 'Player');
+        }
+
         // 演出時間 = Startクリップ自身の尺(秒)。ハードコードした秒数ではなくクリップのdurationを
         // 基準にすることで、クリップの長さを変えても弾遅延/STARTロゴ/集中線が自動的に追従する。
         const presentationSec = this.playerStartClip.duration;
@@ -1015,6 +1019,9 @@ export class GameManager extends Component implements IGameManager {
 
         if (this.skyManager) {
             this.skyManager.triggerBurst(presentationSec, 6.0, 4.5);
+            if (this.currentMission) {
+                this.skyManager.applyMissionTheme(this.currentMission.lv, presentationSec);
+            }
         }
     }
 
@@ -1763,6 +1770,11 @@ export class GameManager extends Component implements IGameManager {
         const anim = pNode.getComponent(Animation) || pNode.addComponent(Animation);
         anim.defaultClip = this.playerOutroClip;
         anim.play();
+
+        if (SoundManager.instance) {
+            SoundManager.instance.playSE('SE_Anim_Thruster2', 'Player');
+        }
+
         anim.once(Animation.EventType.FINISHED, () => {
             if (pNode.isValid) pNode.active = false;
             onComplete();

@@ -324,6 +324,46 @@ const SKY_CONFIG_SCHEMA = [
         key: 'skyOpacity', category: '最背面スカイ背景', label: 'スカイ 不透明度(0-255)', step: 1, min: 0, max: 255, default: 255,
         note: '最背面スカイ画像の不透明度',
     },
+    {
+        key: 'lvColor1', category: 'MissionLv別 背景テーマ色 (Lv1〜Lv10)', type: 'color', label: 'Lv1 テーマカラー', default: '#85ff00',
+        note: 'MissionLv 1 開始時のスカイ背景ティントカラー',
+    },
+    {
+        key: 'lvColor2', category: 'MissionLv別 背景テーマ色 (Lv1〜Lv10)', type: 'color', label: 'Lv2 テーマカラー', default: '#00ff8f',
+        note: 'MissionLv 2 開始時のスカイ背景ティントカラー',
+    },
+    {
+        key: 'lvColor3', category: 'MissionLv別 背景テーマ色 (Lv1〜Lv10)', type: 'color', label: 'Lv3 テーマカラー', default: '#f7ff33',
+        note: 'MissionLv 3 開始時のスカイ背景ティントカラー',
+    },
+    {
+        key: 'lvColor4', category: 'MissionLv別 背景テーマ色 (Lv1〜Lv10)', type: 'color', label: 'Lv4 テーマカラー', default: '#a911ff',
+        note: 'MissionLv 4 開始時のスカイ背景ティントカラー',
+    },
+    {
+        key: 'lvColor5', category: 'MissionLv別 背景テーマ色 (Lv1〜Lv10)', type: 'color', label: 'Lv5 テーマカラー', default: '#a50000',
+        note: 'MissionLv 5 開始時のスカイ背景ティントカラー',
+    },
+    {
+        key: 'lvColor6', category: 'MissionLv別 背景テーマ色 (Lv1〜Lv10)', type: 'color', label: 'Lv6 テーマカラー', default: '#00bba5',
+        note: 'MissionLv 6 開始時のスカイ背景ティントカラー',
+    },
+    {
+        key: 'lvColor7', category: 'MissionLv別 背景テーマ色 (Lv1〜Lv10)', type: 'color', label: 'Lv7 テーマカラー', default: '#0000bb',
+        note: 'MissionLv 7 開始時のスカイ背景ティントカラー',
+    },
+    {
+        key: 'lvColor8', category: 'MissionLv別 背景テーマ色 (Lv1〜Lv10)', type: 'color', label: 'Lv8 テーマカラー', default: '#bb3400',
+        note: 'MissionLv 8 開始時のスカイ背景ティントカラー',
+    },
+    {
+        key: 'lvColor9', category: 'MissionLv別 背景テーマ色 (Lv1〜Lv10)', type: 'color', label: 'Lv9 テーマカラー', default: '#86005b',
+        note: 'MissionLv 9 開始時のスカイ背景ティントカラー',
+    },
+    {
+        key: 'lvColor10', category: 'MissionLv別 背景テーマ色 (Lv1〜Lv10)', type: 'color', label: 'Lv10 テーマカラー', default: '#002686',
+        note: 'MissionLv 10 開始時のスカイ背景ティントカラー',
+    },
 
     {
         key: 'enableVideo', category: '動画背景(フェード切替)', type: 'boolean', label: '動画背景 有効', default: true,

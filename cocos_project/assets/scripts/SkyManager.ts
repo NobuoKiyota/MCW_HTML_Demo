@@ -43,14 +43,34 @@ export class SkyManager extends Component {
     // ==========================================
     @property({ tooltip: "最背面スカイ背景を有効にするか" })
     public enableSky: boolean = true;
-    @property({ tooltip: "スカイ背景の画像パス(resources.load用)" })
-    public skyResourcePath: string = "Materials/sky01";
+    @property({ tooltip: "スカイ背景をミッション開始時にランダム抽選するか" })
+    public randomSky: boolean = true;
+    @property({ tooltip: "スカイ背景の自動検知対象フォルダ(resources配下の相対パス)" })
+    public skyFolder: string = "Materials/Sky";
+    @property({ tooltip: "スカイ背景の画像パス(resources.load用、randomSky=false時使用)" })
+    public skyResourcePath: string = "Materials/Sky/sky01";
     @property({ tooltip: "スカイ背景のティントカラー(HEX)" })
     public skyColor: string = "#FFFFFF";
     @property({ tooltip: "スカイ背景のスクロール速度(px/秒)" })
     public skyScrollSpeed: number = 30;
     @property({ tooltip: "スカイ背景の不透明度(0〜255)" })
     public skyOpacity: number = 255;
+    @property({
+        type: [String],
+        tooltip: "MissionLv 1〜10の系統色(HEX文字列、index 0 = Lv1)。SkyConfig.jsonで一元管理される"
+    })
+    public lvColors: string[] = [
+        "#85FF00", "#00FF8F", "#F7FF33", "#A911FF", "#A50000",
+        "#00BBA5", "#0000BB", "#BB3400", "#86005B", "#002686"
+    ];
+    @property({
+        type: [String],
+        tooltip: "スカイ背景パターンプール(SkyConfig.jsonで一元管理される)"
+    })
+    public skyPatterns: string[] = [
+        "Materials/Sky/sky01", "Materials/Sky/sky02", "Materials/Sky/sky03", "Materials/Sky/sky04", "Materials/Sky/sky05",
+        "Materials/Sky/sky06", "Materials/Sky/sky07", "Materials/Sky/sky08", "Materials/Sky/sky09", "Materials/Sky/sky10"
+    ];
 
     // ==========================================
     // 2. 動画/画像背景 (フェードイン→ホールド→フェードアウト→待機→再抽選、スクロールなし)
@@ -69,6 +89,11 @@ export class SkyManager extends Component {
     public videoOpacity: number = 255;
     @property({ tooltip: "動画/画像の回転角度(度)" })
     public videoRotationDeg: number = 0;
+    @property({
+        type: [String],
+        tooltip: "背景動画パターンプール(SkyConfig.jsonで一元管理される)"
+    })
+    public videoPatterns: string[] = ["Movies/BGV_Ingame001_Galaxy_Base"];
 
     // ==========================================
     // 3. 星フィールド演出 (StarField / Particles)
@@ -129,6 +154,9 @@ export class SkyManager extends Component {
     private _skyOpacityComp: UIOpacity | null = null;
     private _skyTiles: TileEntry[] = [];
     private _skyTileHeight: number = 0;
+    private _currentSkyPath: string = "";
+    private _skyScrollAccumulator: number = 0;
+    private _targetSkyColor: Color | null = null;
 
     // 動画内部
     private _videoGroup: Node | null = null;
@@ -190,10 +218,24 @@ export class SkyManager extends Component {
     private applyConfigJson(config: any) {
         if (!config) return;
         if (typeof config.skyResourcePath === 'string') this.skyResourcePath = config.skyResourcePath;
+        if (typeof config.skyFolder === 'string') this.skyFolder = config.skyFolder;
+        if (typeof config.randomSky === 'boolean') this.randomSky = config.randomSky;
         if (typeof config.skyColor === 'string') this.skyColor = config.skyColor;
         if (typeof config.skyScrollSpeed === 'number') this.skyScrollSpeed = config.skyScrollSpeed;
         if (typeof config.skyOpacity === 'number') this.skyOpacity = config.skyOpacity;
         if (typeof config.enableSky === 'boolean') this.enableSky = config.enableSky;
+        if (Array.isArray(config.lvColors)) this.lvColors = config.lvColors;
+        if (!this.lvColors || this.lvColors.length < 10) {
+            this.lvColors = ["#85FF00", "#00FF8F", "#F7FF33", "#A911FF", "#A50000", "#00BBA5", "#0000BB", "#BB3400", "#86005B", "#002686"];
+        }
+        for (let i = 1; i <= 10; i++) {
+            const key = `lvColor${i}`;
+            if (typeof config[key] === 'string' && config[key].trim() !== '') {
+                this.lvColors[i - 1] = config[key];
+            }
+        }
+        if (Array.isArray(config.skyPatterns)) this.skyPatterns = config.skyPatterns;
+        if (Array.isArray(config.videoPatterns)) this.videoPatterns = config.videoPatterns;
 
         if (typeof config.videoPosY === 'number') this.videoPosY = config.videoPosY;
         if (typeof config.videoCycleDurationSec === 'number') this.videoCycleDurationSec = config.videoCycleDurationSec;
@@ -316,7 +358,9 @@ export class SkyManager extends Component {
             const startY = (tileCount - 1) / 2 * tileH;
 
             const tintColor = new Color();
-            if (this.skyColor) {
+            if (this._targetSkyColor) {
+                tintColor.set(this._targetSkyColor);
+            } else if (this.skyColor) {
                 Color.fromHEX(tintColor, this.skyColor);
             } else {
                 tintColor.set(255, 255, 255, 255);
@@ -328,7 +372,8 @@ export class SkyManager extends Component {
                 node.layer = this._farLayer;
 
                 const trans = node.addComponent(UITransform);
-                trans.setContentSize(canvasW, tileH);
+                // タイル同士の境界の1pxギャップ(透過チラつき)を物理的に遮断するため +1px 重ねる
+                trans.setContentSize(canvasW, Math.ceil(tileH) + 1.0);
 
                 const sprite = node.addComponent(Sprite);
                 sprite.sizeMode = Sprite.SizeMode.CUSTOM;
@@ -343,12 +388,28 @@ export class SkyManager extends Component {
             console.log(`[SkyManager] Sky tiles initialized successfully with path: "${normPath}" (${tileCount} tiles, height=${tileH.toFixed(1)}px).`);
         };
 
-        const normPath = this.normalizeResourcePath(this.skyResourcePath);
+        let targetPath = this.skyResourcePath;
+        if (this.randomSky && BackgroundThemeManager.instance) {
+            targetPath = BackgroundThemeManager.instance.getRandomSkyPattern(this._currentSkyPath);
+            this._currentSkyPath = targetPath;
+        }
+
+        // 1. BackgroundThemeManager のオンメモリキャッシュを最優先チェック
+        if (BackgroundThemeManager.instance) {
+            const cachedFrame = BackgroundThemeManager.instance.getSkySpriteFrame(targetPath);
+            if (cachedFrame) {
+                buildTiles(cachedFrame);
+                return;
+            }
+        }
+
+        const normPath = this.normalizeResourcePath(targetPath);
         const sfPath = normPath.endsWith("/spriteFrame") ? normPath : `${normPath}/spriteFrame`;
 
-        resources.load(sfPath, SpriteFrame, (err, frame) => {
+        // 2. 直指定 (SpriteFrame) でロード試行 -> 失敗時サブアセット /spriteFrame 試行 -> ImageAsset
+        resources.load(normPath, SpriteFrame, (err, frame) => {
             if (!err && frame) { buildTiles(frame); return; }
-            resources.load(normPath, SpriteFrame, (err2, frame2) => {
+            resources.load(sfPath, SpriteFrame, (err2, frame2) => {
                 if (!err2 && frame2) { buildTiles(frame2); return; }
                 resources.load(normPath, (err3, imgAsset: any) => {
                     if (!err3 && imgAsset) {
@@ -603,20 +664,32 @@ export class SkyManager extends Component {
 
         const currentSpeed = this.getCurrentGameSpeed();
 
-        // 1. スカイ背景スクロール
+        // 1. 最背面スカイ背景スクロール (Modulo Wrap 一元座標計算)
         if (this.enableSky && this._skyTiles.length > 0 && this._skyTileHeight > 0) {
-            const dy = this.skyScrollSpeed * dt;
-            let topY = -Infinity;
-            for (const t of this._skyTiles) if (t.node.isValid) topY = Math.max(topY, t.node.position.y);
-            const wrapMargin = GAME_SETTINGS.CANVAS_HEIGHT / 2 + this._skyTileHeight / 2;
-            for (const t of this._skyTiles) {
-                if (!t.node.isValid) continue;
-                const newY = t.node.position.y - dy;
-                t.node.setPosition(t.node.position.x, newY, 0);
-                if (newY < -wrapMargin) {
-                    topY += this._skyTileHeight;
-                    t.node.setPosition(t.node.position.x, topY, 0);
+            this._skyScrollAccumulator += this.skyScrollSpeed * dt;
+            const N = this._skyTiles.length;
+            const totalH = N * this._skyTileHeight;
+            this._skyScrollAccumulator %= totalH;
+
+            const halfTotal = totalH / 2;
+
+            for (let i = 0; i < N; i++) {
+                const t = this._skyTiles[i];
+                if (!t || !t.node || !t.node.isValid) continue;
+
+                // 初期基準Y座標: 中央を0として上から下へ配置
+                const initialY = ((N - 1) / 2 - i) * this._skyTileHeight;
+                let currentY = initialY - this._skyScrollAccumulator;
+
+                // Modulo Wrap で全タイルが [-totalH/2, totalH/2] 内に収まるように循環
+                while (currentY < -halfTotal) {
+                    currentY += totalH;
                 }
+                while (currentY > halfTotal) {
+                    currentY -= totalH;
+                }
+
+                t.node.setPosition(t.node.position.x, currentY, 0);
             }
         }
 
@@ -735,6 +808,118 @@ export class SkyManager extends Component {
 
     public setManualSpeed(speed: number) {
         this._manualSpeed = speed;
+    }
+
+    /**
+     * MissionLv(1始まり)から系統色(Color)を返す。
+     */
+    public getColorForLv(lv: number): Color {
+        const idx = Math.max(1, Math.round(lv || 1)) - 1;
+        const defaultHexes = [
+            "#85FF00", "#00FF8F", "#F7FF33", "#A911FF", "#A50000",
+            "#00BBA5", "#0000BB", "#BB3400", "#86005B", "#002686"
+        ];
+        const colors = (this.lvColors && Array.isArray(this.lvColors) && this.lvColors.length > 0) ? this.lvColors : defaultHexes;
+        const hex = (idx >= 0 && idx < colors.length) ? colors[idx] : (colors[0] || "#FFFFFF");
+        const c = new Color();
+        try {
+            Color.fromHEX(c, hex || "#FFFFFF");
+        } catch (e) {
+            c.set(255, 255, 255, 255);
+        }
+        return c;
+    }
+
+    /**
+     * MissionLv (1〜10) に応じた最背面スカイ用の系統ティントカラーを取得
+     */
+    public getSkyColorForLv(lv: number): Color {
+        const baseColor = this.getColorForLv(lv);
+        if (!baseColor) return Color.WHITE;
+        return baseColor.clone();
+    }
+
+    /**
+     * 最背面スカイ背景パターンプールからランダムに1本選ぶ
+     */
+    public getRandomSkyPattern(excludePath?: string): string {
+        if (!this.skyPatterns || !Array.isArray(this.skyPatterns) || this.skyPatterns.length === 0) return "Materials/Sky/sky01";
+        if (excludePath) {
+            const candidates = this.skyPatterns.filter(p => p !== excludePath);
+            if (candidates.length > 0) return candidates[Math.floor(Math.random() * candidates.length)];
+        }
+        return this.skyPatterns[Math.floor(Math.random() * this.skyPatterns.length)];
+    }
+
+    /**
+     * 背景動画パターンプールからランダムに1本選ぶ
+     */
+    public getRandomVideoPattern(excludePath?: string): string {
+        if (!this.videoPatterns || !Array.isArray(this.videoPatterns) || this.videoPatterns.length === 0) return "Movies/BGV_Ingame001_Galaxy_Base";
+        if (excludePath) {
+            const candidates = this.videoPatterns.filter(p => p !== excludePath);
+            if (candidates.length > 0) return candidates[Math.floor(Math.random() * candidates.length)];
+        }
+        return this.videoPatterns[Math.floor(Math.random() * this.videoPatterns.length)];
+    }
+
+    /**
+     * MissionLv (1〜10) に応じた系統テーマカラーや設定をスカイ背景に即座/滑らかに適用
+     * @param missionLv ミッションレベル (1〜10)
+     * @param durationSec カラー変更のフェード移行時間(秒、0で即時)
+     */
+    public applyMissionTheme(missionLv: number, durationSec: number = 1.0) {
+        const targetColor = this.getSkyColorForLv(missionLv);
+        if (!targetColor) return;
+        this._targetSkyColor = targetColor.clone();
+
+        if (this._skyTiles.length === 0) {
+            console.log(`[SkyManager] Pre-stored target sky color for Lv${missionLv}: RGB(${targetColor.r}, ${targetColor.g}, ${targetColor.b}) (Tiles loading...)`);
+            return;
+        }
+
+        for (const t of this._skyTiles) {
+            if (!t.node || !t.node.isValid) continue;
+            const sp = t.node.getComponent(Sprite);
+            if (!sp) continue;
+
+            if (durationSec <= 0) {
+                sp.color = targetColor;
+            } else {
+                Tween.stopAllByTarget(sp);
+                const cur = sp.color.clone();
+                const obj = { r: cur.r, g: cur.g, b: cur.b };
+                tween(obj)
+                    .to(durationSec, { r: targetColor.r, g: targetColor.g, b: targetColor.b }, {
+                        onUpdate: () => {
+                            if (sp && sp.isValid) {
+                                sp.color = new Color(Math.floor(obj.r), Math.floor(obj.g), Math.floor(obj.b), 255);
+                            }
+                        }
+                    })
+                    .start();
+            }
+        }
+        console.log(`[SkyManager] Applied mission theme for Lv${missionLv} (Color: RGB(${targetColor.r}, ${targetColor.g}, ${targetColor.b})).`);
+    }
+
+    /**
+     * 今後の天候イベントシステム用: 動画/画像背景層の有効/無効を動的に切り替える
+     */
+    public setVideoEnabled(enabled: boolean) {
+        this.enableVideo = enabled;
+        if (enabled) {
+            if (!this._videoGroup) {
+                this.setupVideoLayer();
+            } else {
+                this._videoGroup.active = true;
+            }
+        } else {
+            if (this._videoGroup && this._videoGroup.isValid) {
+                this._videoGroup.active = false;
+            }
+        }
+        console.log(`[SkyManager] Video layer enabled state changed to: ${enabled}`);
     }
 
     public clearAll() {

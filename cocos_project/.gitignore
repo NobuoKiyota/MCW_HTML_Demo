@@ -24,4 +24,5 @@ node_modules/
 .idea/
 
 # Archive directory
-.ignore/
+.ignore/
+ai_archives/

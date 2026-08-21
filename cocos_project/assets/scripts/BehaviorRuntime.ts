@@ -197,17 +197,32 @@ export class BehaviorRuntime {
                 case "Move": {
                     const p = node.params || {};
                     const angle = this.resolveNum(p, "angle", 270);
+                    const duration = this.resolveNum(p, "duration", 0);
+
                     this._motion = {
                         pattern: p.pattern ?? "straight",
                         angle,
-                        // EnemyData.speedMultを反映する(以前は未反映だった。同じ行動グラフを使い回す
-                        // 敵同士でも、Enemies.csvのSpeedMult列で個体差を付けられるようにするため)。
+                        // EnemyData.speedMultを反映する
                         speed: this.resolveNum(p, "speed", 2.0) * (this._data.speedMult || 1.0),
                         turn: this.resolveNum(p, "turn", 2.0),
                         curveHeading: angle,
                     };
                     this._moveTo = null; // Move実行時はMoveToの補間状態を打ち切って通常移動に戻す
-                    this._holding = false; // 以降はMotion State(スクロールに乗った通常移動)に主導権を渡す
+                    this._holding = false; // 以降はMotion Stateに主導権を渡す
+
+                    if (duration > 0) {
+                        if (this._timerNodeId !== node.id) {
+                            this._timerNodeId = node.id;
+                            this._timerRemaining = duration;
+                        }
+                        this._timerRemaining -= dt;
+                        if (this._timerRemaining <= 0) {
+                            this._timerNodeId = null;
+                            this._cursor = node.next ?? null;
+                        }
+                        return; // 指定時間経過するまで待機・移動維持
+                    }
+
                     this._cursor = node.next ?? null;
                     continue;
                 }
@@ -382,7 +397,6 @@ export class BehaviorRuntime {
             }
             case "curve": {
                 // turnを「度/秒」の旋回速度として扱い、進行角度を毎フレーム連続的に変化させながら進む。
-                // dtScaleは(dt*60)単位なので/60で秒単位の旋回量に戻す。
                 if (this._motion.curveHeading == null) this._motion.curveHeading = this._motion.angle ?? 270;
                 this._motion.curveHeading += this._motion.turn * (dtScale / 60);
                 const rad = this._motion.curveHeading * Math.PI / 180;
@@ -391,26 +405,39 @@ export class BehaviorRuntime {
                 break;
             }
             case "zigzag": {
-                tempPos.y -= spd;
-                tempPos.x += Math.sin(time * 0.05) * trn;
+                const rad = (this._motion.angle ?? 270) * Math.PI / 180;
+                const perpRad = rad + Math.PI / 2;
+                tempPos.x += Math.cos(rad) * spd + Math.cos(perpRad) * Math.sin(time * 0.1) * trn;
+                tempPos.y += Math.sin(rad) * spd + Math.sin(perpRad) * Math.sin(time * 0.1) * trn;
                 break;
             }
             case "homing": {
-                // Y方向は自機との位置関係に関わらず常に一定速度で降下させ続け、X方向だけturnを
-                // 最大ステアリング量として自機のX座標に寄せる。以前は自機への角度をそのまま
-                // 追いかけていたため、自機に接近/通過した瞬間に角度が反転して急ブレーキしたり
-                // 自機の後ろに張り付いたりしていた。Y軸を素通りさせることでそれを避ける。
-                tempPos.y -= spd;
                 const gm = this._gm;
                 if (gm && gm.playerNode) {
-                    const dx = gm.playerNode.position.x - tempPos.x;
-                    const steer = Math.sign(dx) * Math.min(Math.abs(dx), trn);
-                    tempPos.x += steer;
+                    const px = gm.playerNode.position.x;
+                    const py = gm.playerNode.position.y;
+                    const targetAngle = Math.atan2(py - tempPos.y, px - tempPos.x) * 180 / Math.PI;
+                    if (this._motion.curveHeading == null) this._motion.curveHeading = this._motion.angle ?? 270;
+
+                    let diff = (targetAngle - this._motion.curveHeading) % 360;
+                    if (diff > 180) diff -= 360;
+                    if (diff < -180) diff += 360;
+
+                    const maxTurn = (this._motion.turn > 0 ? this._motion.turn : 2.0) * (dtScale / 60) * 60;
+                    const step = Math.max(-maxTurn, Math.min(maxTurn, diff));
+                    this._motion.curveHeading += step;
+                    const rad = this._motion.curveHeading * Math.PI / 180;
+                    tempPos.x += Math.cos(rad) * spd;
+                    tempPos.y += Math.sin(rad) * spd;
+                } else {
+                    const rad = (this._motion.angle ?? 270) * Math.PI / 180;
+                    tempPos.x += Math.cos(rad) * spd;
+                    tempPos.y += Math.sin(rad) * spd;
                 }
                 break;
             }
             default: {
-                tempPos.y -= spd; // 未知パターン/グラフ欠損時のフォールバック(旧デフォルト分岐と同じ)
+                tempPos.y -= spd; // 未知パターン/グラフ欠損時のフォールバック
             }
         }
     }
